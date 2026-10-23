@@ -1,6 +1,8 @@
-# NooDS-PS2 - PS2SDK bootstrap build
-# This first target intentionally builds only src/ps2/main.cpp.
-# The NooDS core will be added after the platform/host: path is validated.
+# NooDS-PS2 - PS2SDK build
+#
+# Stage 1: build the PS2 bootstrap plus the complete 2021 NooDS core.
+# The bootstrap does not instantiate Core yet; linking every core object here
+# catches toolchain/libstdc++/pthread incompatibilities early.
 
 ifeq ($(strip $(PS2SDK)),)
 $(error PS2SDK is not set. Install ps2dev/ps2sdk and export PS2SDK)
@@ -11,13 +13,36 @@ EE_CXX         ?= $(EE_TOOL_PREFIX)g++
 
 TARGET := noods-ps2.elf
 BUILD  := build-ps2
-SOURCE := src/ps2/main.cpp
-OBJECT := $(BUILD)/main.o
+
+CORE_SOURCES := \
+	src/cartridge.cpp \
+	src/core.cpp \
+	src/cp15.cpp \
+	src/div_sqrt.cpp \
+	src/dldi.cpp \
+	src/dma.cpp \
+	src/gpu.cpp \
+	src/gpu_2d.cpp \
+	src/gpu_3d.cpp \
+	src/gpu_3d_renderer.cpp \
+	src/input.cpp \
+	src/interpreter.cpp \
+	src/ipc.cpp \
+	src/memory.cpp \
+	src/rtc.cpp \
+	src/settings.cpp \
+	src/spi.cpp \
+	src/spu.cpp \
+	src/timers.cpp \
+	src/wifi.cpp
+
+SOURCES := src/ps2/main.cpp $(CORE_SOURCES)
+OBJECTS := $(patsubst src/%.cpp,$(BUILD)/%.o,$(SOURCES))
 
 DEBUG ?= 0
 
 COMMON_FLAGS := -D_EE -DNOODS_PS2 -G0 -Wall -Wextra -std=gnu++11 \
-                -fno-rtti -fno-exceptions \
+                -fno-rtti \
                 -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include -Isrc
 
 ifeq ($(DEBUG),1)
@@ -28,18 +53,22 @@ endif
 
 CXXFLAGS := $(COMMON_FLAGS) $(OPT_FLAGS)
 LDFLAGS  := -T$(PS2SDK)/ee/startup/linkfile -L$(PS2SDK)/ee/lib -Wl,-zmax-page-size=128
-LIBS     := -lc -lcglue -lkernel
+
+# NooDS 2021 uses std::thread/mutex/condition_variable in GPU/SPU paths.
+# PS2SDK supplies pthread + pthreadglue; keep them in a group with libstdc++
+# because all of these libraries are static in the PS2 toolchain.
+LIBS := -Wl,--start-group -lstdc++ -lm -lc -lcglue -lpthread -lpthreadglue -lkernel -Wl,--end-group
 
 .PHONY: all clean debug info
 
 all: $(TARGET)
 
-$(TARGET): $(OBJECT)
+$(TARGET): $(OBJECTS)
 	$(EE_CXX) $(OPT_FLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
 	@echo "Built $@"
 
-$(OBJECT): $(SOURCE)
-	@mkdir -p $(BUILD)
+$(BUILD)/%.o: src/%.cpp
+	@mkdir -p $(dir $@)
 	$(EE_CXX) $(CXXFLAGS) -c $< -o $@
 
 debug:
@@ -49,6 +78,7 @@ info:
 	@echo "PS2SDK=$(PS2SDK)"
 	@echo "EE_CXX=$(EE_CXX)"
 	@echo "TARGET=$(TARGET)"
+	@echo "Core sources: $(words $(CORE_SOURCES))"
 
 clean:
 	rm -rf $(BUILD) $(TARGET)
