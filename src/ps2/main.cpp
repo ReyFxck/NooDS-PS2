@@ -228,8 +228,40 @@ int main(int argc, char **argv)
             static_cast<unsigned long>(cyclesBefore),
             static_cast<unsigned long>(cyclesAfter),
             core->getFps());
-        PS2_LOG("[PS2] Framebuffer validation/display is deferred to M4.\n");
 
+        // M4: consume exactly one completed DS framebuffer. This intentionally
+        // does not touch the PS2 GS yet; it only proves the emulated GPU queued
+        // a complete 256x192x2 frame that the frontend can retrieve.
+        constexpr size_t FRAME_PIXELS = 256 * 192 * 2;
+        uint32_t *frame = new uint32_t[FRAME_PIXELS];
+        PS2_LOG("[PS2] M4: requesting completed framebuffer (%u bytes)...\n",
+            static_cast<unsigned int>(FRAME_PIXELS * sizeof(uint32_t)));
+
+        if (!core->gpu.getFrame(frame, false))
+        {
+            PS2_LOG("[PS2][ERROR] M4: runFrame() returned but GPU had no completed framebuffer.\n");
+            delete[] frame;
+            delete core;
+            return 7;
+        }
+
+        uint32_t hash = 2166136261u; // FNV-1a
+        uint32_t black = 0;
+        for (size_t i = 0; i < FRAME_PIXELS; i++)
+        {
+            hash ^= frame[i];
+            hash *= 16777619u;
+            if ((frame[i] & 0x00FFFFFFu) == 0)
+                black++;
+        }
+
+        PS2_LOG("[PS2][OK] M4: framebuffer retrieved. hash=%08lX black=%lu/%u\n",
+            static_cast<unsigned long>(hash),
+            static_cast<unsigned long>(black),
+            static_cast<unsigned int>(FRAME_PIXELS));
+        PS2_LOG("[PS2] GS presentation is deferred to M5.\n");
+
+        delete[] frame;
         delete core;
     }
     catch (const std::bad_alloc &)
