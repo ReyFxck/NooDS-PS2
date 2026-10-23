@@ -26,10 +26,35 @@ namespace
 constexpr const char *BASE_COMMIT = "392d9631c4b2a748b8dd460caa1643f79ffaca7f";
 constexpr const char *BASE_DATE   = "2021-09-29";
 
-constexpr const char *DEFAULT_ROM      = "host:game.nds";
-constexpr const char *DEFAULT_BIOS9    = "host:bios9.bin";
-constexpr const char *DEFAULT_BIOS7    = "host:bios7.bin";
-constexpr const char *DEFAULT_FIRMWARE = "host:firmware.bin";
+constexpr const char *HOST_ROM      = "host:game.nds";
+constexpr const char *HOST_BIOS9    = "host:bios9.bin";
+constexpr const char *HOST_BIOS7    = "host:bios7.bin";
+constexpr const char *HOST_FIRMWARE = "host:firmware.bin";
+
+constexpr const char *DISC_ROM      = "cdrom0:\\SELFTEST.NDS;1";
+constexpr const char *DISC_BIOS9    = "cdrom0:\\BIOS9.BIN;1";
+constexpr const char *DISC_BIOS7    = "cdrom0:\\BIOS7.BIN;1";
+constexpr const char *DISC_FIRMWARE = "cdrom0:\\FIRMWARE.BIN;1";
+
+std::string chooseReadablePath(const char *preferred, const char *fallback)
+{
+    FILE *file = fopen(preferred, "rb");
+    if (file)
+    {
+        fclose(file);
+        return preferred;
+    }
+
+    file = fopen(fallback, "rb");
+    if (file)
+    {
+        fclose(file);
+        PS2_LOG("[PS2] Falling back to disc self-test file: %s\n", fallback);
+        return fallback;
+    }
+
+    return preferred;
+}
 
 long getFileSize(FILE *file)
 {
@@ -128,29 +153,35 @@ int main(int argc, char **argv)
 #endif
     PS2_LOG("============================================================\n");
 
-    const char *romPath = (argc > 1 && argv[1] && argv[1][0]) ? argv[1] : DEFAULT_ROM;
+    std::string romPath = (argc > 1 && argv[1] && argv[1][0])
+        ? std::string(argv[1])
+        : chooseReadablePath(HOST_ROM, DISC_ROM);
+    std::string bios9Path = chooseReadablePath(HOST_BIOS9, DISC_BIOS9);
+    std::string bios7Path = chooseReadablePath(HOST_BIOS7, DISC_BIOS7);
+    std::string firmwarePath = chooseReadablePath(HOST_FIRMWARE, DISC_FIRMWARE);
 
     PS2_LOG("[PS2] M0 bootstrap started.\n");
-    PS2_LOG("[PS2] ROM path: %s\n", romPath);
-    PS2_LOG("[PS2] Probing host: filesystem...\n");
+    PS2_LOG("[PS2] ROM path: %s\n", romPath.c_str());
+    PS2_LOG("[PS2] Probing data files...\n");
 
-    bool romOk = probeNdsRom(romPath);
+    // Print the object size before any external file requirement so memory
+    // investigations remain visible even when HostFS is unavailable.
+    PS2_LOG("[PS2] sizeof(Core) = %u bytes\n", static_cast<unsigned int>(sizeof(Core)));
 
-    // These are currently probes only. Core integration comes in M2.
-    bool bios9Ok = probeFile("ARM9 BIOS", DEFAULT_BIOS9, 0x1000, true);
-    bool bios7Ok = probeFile("ARM7 BIOS", DEFAULT_BIOS7, 0x4000, true);
-    bool firmwareOk = probeFile("Firmware", DEFAULT_FIRMWARE, 0x40000, true);
+    bool romOk = probeNdsRom(romPath.c_str());
+    bool bios9Ok = probeFile("ARM9 BIOS", bios9Path.c_str(), 0x1000, true);
+    bool bios7Ok = probeFile("ARM7 BIOS", bios7Path.c_str(), 0x4000, true);
+    bool firmwareOk = probeFile("Firmware", firmwarePath.c_str(), 0x40000, true);
 
     if (!romOk)
     {
-        PS2_LOG("\n[PS2] host: probe FAILED.\n");
-        PS2_LOG("[PS2] In PCSX2, enable Host Filesystem and place game.nds next to the ELF,\n");
-        PS2_LOG("[PS2] or pass an explicit path such as host:roms/test.nds.\n");
+        PS2_LOG("\n[PS2] ROM probe FAILED.\n");
+        PS2_LOG("[PS2] Tried HostFS first and the embedded disc self-test as fallback.\n");
         fflush(stdout);
         return 2;
     }
 
-    PS2_LOG("\n[PS2] host: ROM read succeeded. M1 filesystem path is alive.\n");
+    PS2_LOG("\n[PS2] ROM read succeeded. M1 data path is alive.\n");
     PS2_LOG("[PS2] BIOS probes: ARM9=%s ARM7=%s firmware=%s\n",
         bios9Ok ? "OK" : "missing",
         bios7Ok ? "OK" : "missing",
@@ -169,17 +200,16 @@ int main(int argc, char **argv)
     Settings::setFpsLimiter(0);
     Settings::setThreaded2D(0);
     Settings::setThreaded3D(0);
-    Settings::setBios9Path(DEFAULT_BIOS9);
-    Settings::setBios7Path(DEFAULT_BIOS7);
-    Settings::setFirmwarePath(DEFAULT_FIRMWARE);
+    Settings::setBios9Path(bios9Path);
+    Settings::setBios7Path(bios7Path);
+    Settings::setFirmwarePath(firmwarePath);
 
-    PS2_LOG("[PS2] sizeof(Core) = %u bytes\n", static_cast<unsigned int>(sizeof(Core)));
     PS2_LOG("[PS2] Constructing NooDS core (no frame execution yet)...\n");
     fflush(stdout);
 
     try
     {
-        Core *core = new Core(std::string(romPath), "");
+        Core *core = new Core(romPath, "");
         PS2_LOG("[PS2][OK] M2: Core constructed, BIOS/firmware/ROM paths were accepted.\n");
         PS2_LOG("[PS2] ARM9/ARM7 frame execution is intentionally deferred to M3.\n");
         delete core;

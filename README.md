@@ -139,7 +139,7 @@
 
 ## Marcos
 
-- [ ] M0 — PS2 ELF inicia e escreve log.
+- [x] M0 — PS2 ELF inicia e escreve log (confirmado no NetherSX2 em 23/10/2026).
 - [ ] M1 — arquivos podem ser lidos por `host:`.
 - [ ] M2 — BIOS/firmware/ROM são carregados pelo backend PS2.
 - [ ] M3 — ARM9 e ARM7 executam sem crash imediato.
@@ -191,6 +191,17 @@ O ELF resultante é `noods-ps2.elf`.
 
 
 ### Android / NetherSX2: use o ISO de teste
+
+### Self-test embutido no ISO
+
+O ISO do CI contém também um conjunto **100% sintético** para bring-up:
+
+- `SELFTEST.NDS`: imagem NDS mínima criada pelo próprio CI, com ARM9/ARM7 em loop.
+- `BIOS9.BIN` e `BIOS7.BIN`: arquivos zerados apenas para permitir testar construção/alocação do core em direct boot.
+- `FIRMWARE.BIN`: firmware sintético zerado de 256 KiB.
+
+Esses arquivos **não são dumps da Nintendo** e não servem para testar compatibilidade de jogos. O backend tenta `host:` primeiro; se HostFS não estiver disponível (caso observado ao iniciar por ISO no NetherSX2 Android), usa os arquivos sintéticos de `cdrom0:` para continuar M1/M2.
+
 
 Algumas builds Android do AetherSX2/NetherSX2 recebem ELFs pelo Storage Access Framework como URLs `content://`. Nessa situação o loader pode falhar antes de executar o ELF. O CI também gera `noods-ps2-poc.iso`, que contém somente o ELF de bootstrap e `SYSTEM.CNF`.
 

@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install build tools
-        run: apk add --no-cache make xorriso
+        run: apk add --no-cache make xorriso python3
 
       - name: Toolchain info
         run: |
@@ -37,7 +37,7 @@ jobs:
           mips64r5900el-ps2-elf-size noods-ps2-release.elf
           mips64r5900el-ps2-elf-size noods-ps2-debug.elf
 
-      - name: Build bootable PS2 ISO
+      - name: Build bootable PS2 ISO with synthetic self-test data
         run: |
           mkdir -p iso-root
           cp noods-ps2-release.elf iso-root/NOODSPS2.ELF
@@ -46,6 +46,32 @@ jobs:
           VER = 1.00
           VMODE = NTSC
           EOF
+
+          python3 - <<'PY'
+          import struct
+          from pathlib import Path
+
+          root = Path("iso-root")
+
+          # Synthetic zero-filled boot resources for bring-up only.
+          # They are NOT Nintendo BIOS/firmware dumps and are not meant for compatibility testing.
+          (root / "BIOS9.BIN").write_bytes(bytes(0x1000))
+          (root / "BIOS7.BIN").write_bytes(bytes(0x4000))
+          (root / "FIRMWARE.BIN").write_bytes(bytes(0x40000))
+
+          # Minimal synthetic NDS image. ARM9 and ARM7 each execute "B ." forever.
+          # This is only for constructor/memory/scheduler bring-up and contains no Nintendo code.
+          rom = bytearray(0x8000)
+          rom[0x00:0x0C] = b"NOODSPS2POC "
+          rom[0x0C:0x10] = b"P2PO"
+          rom[0x10:0x12] = b"00"
+          struct.pack_into("<IIII", rom, 0x20, 0x4000, 0x02000000, 0x02000000, 4)
+          struct.pack_into("<IIII", rom, 0x30, 0x5000, 0x03800000, 0x03800000, 4)
+          rom[0x4000:0x4004] = bytes.fromhex("FEFFFFEA")
+          rom[0x5000:0x5004] = bytes.fromhex("FEFFFFEA")
+          (root / "SELFTEST.NDS").write_bytes(rom)
+          PY
+
           xorriso -as mkisofs \
             -iso-level 1 \
             -V NOODSPS2 \
