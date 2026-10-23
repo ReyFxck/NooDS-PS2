@@ -57,7 +57,7 @@ LDFLAGS  := -T$(PS2SDK)/ee/startup/linkfile -L$(PS2SDK)/ee/lib -Wl,-zmax-page-si
 # NooDS 2021 uses std::thread/mutex/condition_variable in GPU/SPU paths.
 # PS2SDK supplies pthread + pthreadglue; keep them in a group with libstdc++
 # because all of these libraries are static in the PS2 toolchain.
-LIBS := -Wl,--start-group -lstdc++ -latomic -lm -lc -lcglue -lpthread -lpthreadglue -lkernel -Wl,--end-group
+LIBS := -Wl,--start-group -lstdc++ -latomic -ldebug -lm -lc -lcglue -lpthread -lpthreadglue -lkernel -Wl,--end-group
 
 .PHONY: all clean debug info
 

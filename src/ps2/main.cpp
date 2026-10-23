@@ -11,6 +11,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <debug.h>
+#include <sifrpc.h>
 #include <new>
 #include <string>
 
@@ -19,6 +21,8 @@
 
 namespace
 {
+#define PS2_LOG(...) do { printf(__VA_ARGS__); scr_printf(__VA_ARGS__); } while (0)
+
 constexpr const char *BASE_COMMIT = "392d9631c4b2a748b8dd460caa1643f79ffaca7f";
 constexpr const char *BASE_DATE   = "2021-09-29";
 
@@ -49,9 +53,9 @@ bool probeFile(const char *label, const char *path, long minimumSize, bool requi
     FILE *file = fopen(path, "rb");
     if (!file)
     {
-        printf("[PS2][%s] %s: %s\n", required ? "ERROR" : "WARN", label, path);
+        PS2_LOG("[PS2][%s] %s: %s\n", required ? "ERROR" : "WARN", label, path);
         if (required)
-            printf("[PS2] Could not open the required file through host:.\n");
+            PS2_LOG("[PS2] Could not open the required file through host:.\n");
         return false;
     }
 
@@ -60,12 +64,12 @@ bool probeFile(const char *label, const char *path, long minimumSize, bool requi
 
     if (size < minimumSize)
     {
-        printf("[PS2][%s] %s is too small: %ld bytes (%s)\n",
+        PS2_LOG("[PS2][%s] %s is too small: %ld bytes (%s)\n",
             required ? "ERROR" : "WARN", label, size, path);
         return false;
     }
 
-    printf("[PS2][OK] %s: %s (%ld bytes)\n", label, path, size);
+    PS2_LOG("[PS2][OK] %s: %s (%ld bytes)\n", label, path, size);
     return true;
 }
 
@@ -74,7 +78,7 @@ bool probeNdsRom(const char *path)
     FILE *file = fopen(path, "rb");
     if (!file)
     {
-        printf("[PS2][ERROR] ROM not found: %s\n", path);
+        PS2_LOG("[PS2][ERROR] ROM not found: %s\n", path);
         return false;
     }
 
@@ -85,7 +89,7 @@ bool probeNdsRom(const char *path)
 
     if (read != sizeof(header) || size < 0x200)
     {
-        printf("[PS2][ERROR] ROM header is incomplete or file is too small: %s\n", path);
+        PS2_LOG("[PS2][ERROR] ROM header is incomplete or file is too small: %s\n", path);
         return false;
     }
 
@@ -102,30 +106,33 @@ bool probeNdsRom(const char *path)
         if (!std::isprint(static_cast<unsigned char>(gameCode[i])))
             gameCode[i] = '?';
 
-    printf("[PS2][OK] NDS ROM: %s (%ld bytes)\n", path, size);
-    printf("[PS2]      title='%s' gameCode='%s'\n", title, gameCode);
+    PS2_LOG("[PS2][OK] NDS ROM: %s (%ld bytes)\n", path, size);
+    PS2_LOG("[PS2]      title='%s' gameCode='%s'\n", title, gameCode);
     return true;
 }
 }
 
 int main(int argc, char **argv)
 {
-    printf("\n");
-    printf("============================================================\n");
-    printf(" NooDS-PS2 POC bootstrap\n");
-    printf(" Base: %s (%s)\n", BASE_COMMIT, BASE_DATE);
+    // Make bring-up results visible in the PCSX2/PS2 video output as well as stdout.
+    sceSifInitRpc(0);
+    init_scr();
+    PS2_LOG("\n");
+    PS2_LOG("============================================================\n");
+    PS2_LOG(" NooDS-PS2 POC bootstrap\n");
+    PS2_LOG(" Base: %s (%s)\n", BASE_COMMIT, BASE_DATE);
 #ifdef DEBUG
-    printf(" Build: DEBUG\n");
+    PS2_LOG(" Build: DEBUG\n");
 #else
-    printf(" Build: RELEASE\n");
+    PS2_LOG(" Build: RELEASE\n");
 #endif
-    printf("============================================================\n");
+    PS2_LOG("============================================================\n");
 
     const char *romPath = (argc > 1 && argv[1] && argv[1][0]) ? argv[1] : DEFAULT_ROM;
 
-    printf("[PS2] M0 bootstrap started.\n");
-    printf("[PS2] ROM path: %s\n", romPath);
-    printf("[PS2] Probing host: filesystem...\n");
+    PS2_LOG("[PS2] M0 bootstrap started.\n");
+    PS2_LOG("[PS2] ROM path: %s\n", romPath);
+    PS2_LOG("[PS2] Probing host: filesystem...\n");
 
     bool romOk = probeNdsRom(romPath);
 
@@ -136,22 +143,22 @@ int main(int argc, char **argv)
 
     if (!romOk)
     {
-        printf("\n[PS2] host: probe FAILED.\n");
-        printf("[PS2] In PCSX2, enable Host Filesystem and place game.nds next to the ELF,\n");
-        printf("[PS2] or pass an explicit path such as host:roms/test.nds.\n");
+        PS2_LOG("\n[PS2] host: probe FAILED.\n");
+        PS2_LOG("[PS2] In PCSX2, enable Host Filesystem and place game.nds next to the ELF,\n");
+        PS2_LOG("[PS2] or pass an explicit path such as host:roms/test.nds.\n");
         fflush(stdout);
         return 2;
     }
 
-    printf("\n[PS2] host: ROM read succeeded. M1 filesystem path is alive.\n");
-    printf("[PS2] BIOS probes: ARM9=%s ARM7=%s firmware=%s\n",
+    PS2_LOG("\n[PS2] host: ROM read succeeded. M1 filesystem path is alive.\n");
+    PS2_LOG("[PS2] BIOS probes: ARM9=%s ARM7=%s firmware=%s\n",
         bios9Ok ? "OK" : "missing",
         bios7Ok ? "OK" : "missing",
         firmwareOk ? "OK" : "missing");
 
     if (!bios9Ok || !bios7Ok || !firmwareOk)
     {
-        printf("[PS2] M1 succeeded, but M2 core construction needs BIOS9, BIOS7 and 256 KiB firmware.\n");
+        PS2_LOG("[PS2] M1 succeeded, but M2 core construction needs BIOS9, BIOS7 and 256 KiB firmware.\n");
         fflush(stdout);
         return 3;
     }
@@ -166,32 +173,32 @@ int main(int argc, char **argv)
     Settings::setBios7Path(DEFAULT_BIOS7);
     Settings::setFirmwarePath(DEFAULT_FIRMWARE);
 
-    printf("[PS2] sizeof(Core) = %u bytes\n", static_cast<unsigned int>(sizeof(Core)));
-    printf("[PS2] Constructing NooDS core (no frame execution yet)...\n");
+    PS2_LOG("[PS2] sizeof(Core) = %u bytes\n", static_cast<unsigned int>(sizeof(Core)));
+    PS2_LOG("[PS2] Constructing NooDS core (no frame execution yet)...\n");
     fflush(stdout);
 
     try
     {
         Core *core = new Core(std::string(romPath), "");
-        printf("[PS2][OK] M2: Core constructed, BIOS/firmware/ROM paths were accepted.\n");
-        printf("[PS2] ARM9/ARM7 frame execution is intentionally deferred to M3.\n");
+        PS2_LOG("[PS2][OK] M2: Core constructed, BIOS/firmware/ROM paths were accepted.\n");
+        PS2_LOG("[PS2] ARM9/ARM7 frame execution is intentionally deferred to M3.\n");
         delete core;
     }
     catch (const std::bad_alloc &)
     {
-        printf("[PS2][ERROR] Core allocation failed: PS2 RAM budget exhausted.\n");
+        PS2_LOG("[PS2][ERROR] Core allocation failed: PS2 RAM budget exhausted.\n");
         fflush(stdout);
         return 4;
     }
     catch (int code)
     {
-        printf("[PS2][ERROR] NooDS core threw error code %d during construction.\n", code);
+        PS2_LOG("[PS2][ERROR] NooDS core threw error code %d during construction.\n", code);
         fflush(stdout);
         return 5;
     }
     catch (...)
     {
-        printf("[PS2][ERROR] Unknown exception while constructing the NooDS core.\n");
+        PS2_LOG("[PS2][ERROR] Unknown exception while constructing the NooDS core.\n");
         fflush(stdout);
         return 6;
     }
