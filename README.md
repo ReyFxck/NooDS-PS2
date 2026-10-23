@@ -1,3 +1,176 @@
+# 🚨 NÃO AMIGO ISSO É SÓ UM TESTE POC NÃO PERDA SEU TEMPO ANUNCIANDO QUE NEM PUTA QUE FIZERAM ALGO EM SERVIDORZINHO!
+
+# BASE COMMIT: `392d9631c4b2a748b8dd460caa1643f79ffaca7f` -- DATA: 29/09/2021
+
+> Este repositório é um experimento/POC de port do NooDS para PlayStation 2. Não existe promessa de compatibilidade, desempenho ou lançamento.
+
+# NooDS-PS2 — objetivos
+
+## Regras do projeto
+
+- [x] Usar o NooDS oficial como base.
+- [x] Congelar a base no commit `392d9631c4b2a748b8dd460caa1643f79ffaca7f` de 29/09/2021.
+- [ ] Manter o core do NDS separado do backend específico de PS2.
+- [ ] Não adicionar hacks específicos por jogo.
+- [ ] Não atualizar o upstream inteiro automaticamente; trazer correções novas somente quando forem realmente úteis ao port.
+- [ ] Preservar os avisos de copyright/licença e cumprir a GPLv3.
+- [ ] Priorizar desempenho no hardware real do PS2 sem quebrar comportamento essencial do NDS.
+
+## Bring-up / PS2SDK
+
+- [ ] Criar `Makefile.ps2` usando PS2SDK.
+- [ ] Criar a camada de plataforma PS2 sem poluir o core.
+- [ ] Remover do build PS2 dependências de desktop que não sejam necessárias.
+- [ ] Gerar um `.elf` mínimo executável no PCSX2 e no hardware real.
+- [ ] Inicializar serviços básicos do PS2 necessários ao port.
+- [ ] Adicionar logging serial/console útil para depuração.
+- [ ] Garantir que falhas de inicialização produzam mensagens claras em vez de simplesmente travar.
+- [ ] Criar build Debug e Release separados.
+
+## Arquivos, BIOS, firmware e ROMs
+
+- [ ] Implementar suporte a `host:` / hostfs para desenvolvimento rápido no PCSX2.
+- [ ] Permitir carregar ROMs `.nds` diretamente por `host:` para testes no emulador.
+- [ ] Permitir carregar BIOS/firmware por `host:`.
+- [ ] Permitir carregar/salvar saves por `host:` durante desenvolvimento.
+- [ ] Adicionar suporte a `mass:` para USB.
+- [ ] Adicionar suporte a Memory Card quando fizer sentido.
+- [ ] Avaliar HDD/APA e outros dispositivos posteriormente sem acoplar o core a um filesystem específico.
+- [ ] Implementar leitura de ROM por streaming/cache para não exigir a ROM inteira na RAM.
+- [ ] Tratar ROMs maiores que a memória disponível sem cópia integral.
+- [ ] Validar erros de arquivo ausente, BIOS inválida, firmware inválido e ROM inválida.
+
+## Core NDS
+
+- [ ] Fazer o core inicializar no EE sem frontend desktop.
+- [ ] Fazer ARM9 iniciar e executar instruções.
+- [ ] Fazer ARM7 iniciar e executar instruções.
+- [ ] Validar mapa de memória.
+- [ ] Validar IRQ/exceptions.
+- [ ] Validar timers.
+- [ ] Validar DMA.
+- [ ] Validar IPC ARM9 ↔ ARM7.
+- [ ] Validar acesso ao cartucho.
+- [ ] Validar saves.
+- [ ] Validar sincronização do scheduler.
+- [ ] Criar testes determinísticos para CPU, memória, DMA, timers e IPC.
+- [ ] Criar mecanismo de comparação de estado para detectar regressões.
+
+## Vídeo / GS
+
+- [ ] Exibir um framebuffer simples no GS.
+- [ ] Exibir as duas telas do NDS.
+- [ ] Implementar layout vertical.
+- [ ] Implementar layout lado a lado.
+- [ ] Implementar tela principal grande + secundária pequena.
+- [ ] Implementar troca rápida de layout.
+- [ ] Medir custo do renderer 2D por software original.
+- [ ] Identificar operações 2D que podem ser transferidas ao GS.
+- [ ] Implementar caminho acelerado no GS sem hacks por jogo.
+- [ ] Medir custo do renderer 3D por software original.
+- [ ] Mapear operações 3D compatíveis diretamente com o GS.
+- [ ] Avaliar uso de VU0/VU1 para geometria/conversões que realmente tragam ganho.
+- [ ] Manter fallback correto para efeitos que o GS não reproduza diretamente.
+- [ ] Adicionar frameskip configurável.
+- [ ] Evitar conversões e cópias de framebuffer desnecessárias.
+
+## Controles / touchscreen
+
+- [ ] Mapear D-pad e botões do DualShock 2 para os controles do NDS.
+- [ ] Usar analógico direito como cursor de touchscreen.
+- [ ] Adicionar botão configurável para toque.
+- [ ] Adicionar modo de manter stylus pressionado.
+- [ ] Permitir trocar as telas por botão.
+- [ ] Avaliar suporte a mouse USB posteriormente.
+- [ ] Emular ação simples de “soprar no microfone” por botão para jogos que só exigem ruído.
+
+## Áudio / SPU2
+
+- [ ] Fazer o mixer do NDS produzir PCM corretamente.
+- [ ] Criar saída de áudio pelo SPU2.
+- [ ] Implementar buffering estável.
+- [ ] Sincronizar áudio sem usar hacks específicos por jogo.
+- [ ] Medir o custo real do mixer.
+- [ ] Avaliar otimizações específicas do PS2 somente depois da saída básica funcionar.
+
+## Memória
+
+- [ ] Criar orçamento explícito dos 32 MB de RAM do PS2.
+- [ ] Medir memória usada pelo core.
+- [ ] Medir memória usada por framebuffers/renderers.
+- [ ] Criar cache de ROM com tamanho configurável.
+- [ ] Evitar alocações por frame.
+- [ ] Remover buffers duplicados sempre que possível.
+- [ ] Detectar e registrar falta de memória de forma controlada.
+
+## Desempenho / CPU
+
+- [ ] Criar contador de FPS e frametime.
+- [ ] Criar métricas separadas de ARM9, ARM7, GPU2D, GPU3D, áudio e scheduler.
+- [ ] Medir o interpreter original antes de otimizar.
+- [ ] Identificar os gargalos reais no R5900.
+- [ ] Otimizar caminhos quentes de memória.
+- [ ] Reduzir dispatch/overhead do interpreter onde possível.
+- [ ] Planejar um JIT ARM/Thumb → R5900.
+- [ ] Implementar cache de blocos do JIT.
+- [ ] Implementar invalidação correta de código recompilado.
+- [ ] Implementar ARM9 → R5900.
+- [ ] Implementar ARM7 → R5900.
+- [ ] Validar JIT contra o interpreter usando testes determinísticos.
+- [ ] Só ativar JIT por padrão depois de estabilidade suficiente.
+- [ ] Avaliar uso do IOP apenas onde existir ganho real; não mover ARM7 para o IOP só por terem clocks parecidos.
+
+## Compatibilidade e testes
+
+- [ ] Criar ROM/homebrew de teste mínima para boot.
+- [ ] Criar conjunto de testes de ARM e Thumb.
+- [ ] Criar testes de DMA.
+- [ ] Criar testes de timers.
+- [ ] Criar testes de IPC.
+- [ ] Criar testes de GPU2D.
+- [ ] Criar testes de GPU3D.
+- [ ] Criar testes de áudio.
+- [ ] Testar primeiro no PCSX2 usando `host:`.
+- [ ] Repetir marcos importantes em PS2 real.
+- [ ] Registrar FPS, RAM e falhas de cada teste.
+- [ ] Não considerar “abre o jogo” como compatibilidade; validar progressão e estabilidade.
+- [ ] Corrigir causas no core, nunca adicionar `if (game == X)`.
+
+## Marcos
+
+- [ ] M0 — PS2 ELF inicia e escreve log.
+- [ ] M1 — arquivos podem ser lidos por `host:`.
+- [ ] M2 — BIOS/firmware/ROM são carregados pelo backend PS2.
+- [ ] M3 — ARM9 e ARM7 executam sem crash imediato.
+- [ ] M4 — primeiro frame é produzido.
+- [ ] M5 — duas telas aparecem corretamente no GS.
+- [ ] M6 — controles e touchscreen funcionam.
+- [ ] M7 — áudio funciona pelo SPU2.
+- [ ] M8 — homebrew simples executa de forma estável.
+- [ ] M9 — primeiro jogo comercial chega ingame sem hack específico.
+- [ ] M10 — profiling identifica gargalos principais.
+- [ ] M11 — JIT R5900 executa blocos ARM/Thumb e passa testes contra interpreter.
+- [ ] M12 — primeiro título comercial atinge velocidade jogável.
+- [ ] M13 — backend GS reduz de forma mensurável o custo de GPU.
+- [ ] M14 — build funciona no PCSX2 e em PS2 real com resultados reproduzíveis.
+
+## Critério para deixar de ser apenas um POC
+
+Este projeto continua sendo considerado POC até que exista, no mínimo:
+
+- [ ] boot reproduzível em PS2 real;
+- [ ] carregamento de ROM sem depender de hacks por título;
+- [ ] vídeo das duas telas;
+- [ ] input/touch funcional;
+- [ ] áudio funcional;
+- [ ] pelo menos um conjunto de testes determinísticos passando;
+- [ ] pelo menos um jogo comercial executando de forma estável e jogável;
+- [ ] documentação suficiente para outra pessoa reproduzir o build e os testes.
+
+---
+
+# README original do NooDS na base escolhida
+
 # NooDS
 A (hopefully!) speedy NDS emulator.
 
