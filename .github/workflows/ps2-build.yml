@@ -15,6 +15,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install build tools
+        run: apk add --no-cache make
+
       - name: Toolchain info
         run: |
           echo "PS2SDK=$PS2SDK"
