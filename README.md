@@ -96,6 +96,7 @@
 ## Memória
 
 - [ ] Criar orçamento explícito dos 32 MB de RAM do PS2.
+- [ ] Reduzir/substituir os quatro mapas planos de 1.048.576 ponteiros do core (read/write ARM9/ARM7), que são um alvo crítico de RAM no PS2.
 - [ ] Medir memória usada pelo core.
 - [ ] Medir memória usada por framebuffers/renderers.
 - [ ] Criar cache de ROM com tamanho configurável.
@@ -169,6 +170,8 @@ Este projeto continua sendo considerado POC até que exista, no mínimo:
 
 
 ## Estado atual do bootstrap PS2
+
+**Estado de compilação:** o CI PS2 já compila e linka o core completo em Release e Debug para R5900. Isso ainda não prova execução em PCSX2/PS2 real; M0/M1/M2 só devem ser marcados após teste de runtime.
 
 O bootstrap PS2 valida PS2SDK e `host:` e agora também tenta **construir o core do NooDS sem executar frames**. Isso isola problemas de RAM/BIOS/firmware/ROM antes de envolver execução ARM9/ARM7, GPU e áudio.
 
