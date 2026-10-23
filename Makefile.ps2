@@ -46,7 +46,7 @@ COMMON_FLAGS := -D_EE -DNOODS_PS2 -G0 -Wall -Wextra -std=gnu++11 \
                 -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include -Isrc
 
 ifeq ($(DEBUG),1)
-OPT_FLAGS := -O0 -gdwarf-2 -DDEBUG
+OPT_FLAGS := -Og -gdwarf-2 -DDEBUG
 else
 OPT_FLAGS := -O2
 endif
