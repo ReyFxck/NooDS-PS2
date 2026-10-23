@@ -146,6 +146,13 @@ void CartridgeNds::loadRom(std::string path)
 {
     Cartridge::loadRom(path);
 
+#ifdef NOODS_PS2
+    // The PS2 only has 32MB of main RAM. Keep NDS ROMs file-backed from the
+    // start instead of deliberately attempting a whole-ROM allocation and
+    // relying on std::bad_alloc as flow control. The existing NooDS section
+    // loader/direct-boot paths already support file-backed ROM access.
+    loadRomSection(0, (romSize < 0x5000) ? romSize : 0x5000);
+#else
     // If the ROM is 512MB or smaller, try to load it into memory; otherwise fall back to file-based loading
     if (romSize <= 0x20000000) // 512MB
     {
@@ -164,6 +171,7 @@ void CartridgeNds::loadRom(std::string path)
     {
         loadRomSection(0, 0x5000);
     }
+#endif
 
     // Save the ROM code, which is mainly used for encryption
     romCode = U8TO32(rom, 0x0C);

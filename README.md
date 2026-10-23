@@ -31,13 +31,13 @@
 
 - [x] Implementar suporte inicial a `host:` / hostfs para desenvolvimento rápido no PCSX2.
 - [x] Permitir abrir e validar ROMs `.nds` diretamente por `host:` no bootstrap de testes.
-- [ ] Permitir carregar BIOS/firmware por `host:`.
+- [x] Configurar o core PS2 para carregar BIOS/firmware por `host:`.
 - [ ] Permitir carregar/salvar saves por `host:` durante desenvolvimento.
 - [ ] Adicionar suporte a `mass:` para USB.
 - [ ] Adicionar suporte a Memory Card quando fizer sentido.
 - [ ] Avaliar HDD/APA e outros dispositivos posteriormente sem acoplar o core a um filesystem específico.
-- [ ] Implementar leitura de ROM por streaming/cache para não exigir a ROM inteira na RAM.
-- [ ] Tratar ROMs maiores que a memória disponível sem cópia integral.
+- [x] Forçar no PS2 o modo file-backed/por seções do NooDS para não exigir a ROM inteira na RAM.
+- [x] Tratar ROMs maiores que a memória disponível sem cópia integral no backend PS2.
 - [ ] Validar erros de arquivo ausente, BIOS inválida, firmware inválido e ROM inválida.
 
 ## Core NDS
@@ -170,7 +170,7 @@ Este projeto continua sendo considerado POC até que exista, no mínimo:
 
 ## Estado atual do bootstrap PS2
 
-O primeiro estágio ainda **não inicia o core do NooDS**. Ele existe para validar PS2SDK, geração do ELF e acesso ao dispositivo `host:` antes de ligar ARM9/ARM7, GPU e áudio.
+O bootstrap PS2 valida PS2SDK e `host:` e agora também tenta **construir o core do NooDS sem executar frames**. Isso isola problemas de RAM/BIOS/firmware/ROM antes de envolver execução ARM9/ARM7, GPU e áudio.
 
 Build release:
 
@@ -207,7 +207,7 @@ host:bios7.bin
 host:firmware.bin
 ```
 
-A ROM também pode ser passada explicitamente como primeiro argumento, por exemplo `host:roms/test.nds`. Neste estágio BIOS e firmware são apenas verificados; o carregamento pelo core entra no M2.
+A ROM também pode ser passada explicitamente como primeiro argumento, por exemplo `host:roms/test.nds`. BIOS e firmware são verificados e, quando os três arquivos obrigatórios estão presentes, o bootstrap tenta construir o `Core`. Nenhum frame é executado ainda: isso fica isolado para o M3.
 
 **Não marque M0/M1 como concluídos só porque o CI gerou um ELF.** M0 exige executar o ELF e ver o log no PS2/PCSX2; M1 exige confirmar uma leitura real via `host:`.
 

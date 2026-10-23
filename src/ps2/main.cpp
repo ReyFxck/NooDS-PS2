@@ -11,6 +11,11 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <new>
+#include <string>
+
+#include "../core.h"
+#include "../settings.h"
 
 namespace
 {
@@ -125,9 +130,9 @@ int main(int argc, char **argv)
     bool romOk = probeNdsRom(romPath);
 
     // These are currently probes only. Core integration comes in M2.
-    bool bios9Ok = probeFile("ARM9 BIOS", DEFAULT_BIOS9, 0x1000, false);
-    bool bios7Ok = probeFile("ARM7 BIOS", DEFAULT_BIOS7, 0x4000, false);
-    bool firmwareOk = probeFile("Firmware", DEFAULT_FIRMWARE, 0x40000, false);
+    bool bios9Ok = probeFile("ARM9 BIOS", DEFAULT_BIOS9, 0x1000, true);
+    bool bios7Ok = probeFile("ARM7 BIOS", DEFAULT_BIOS7, 0x4000, true);
+    bool firmwareOk = probeFile("Firmware", DEFAULT_FIRMWARE, 0x40000, true);
 
     if (!romOk)
     {
@@ -143,7 +148,54 @@ int main(int argc, char **argv)
         bios9Ok ? "OK" : "missing",
         bios7Ok ? "OK" : "missing",
         firmwareOk ? "OK" : "missing");
-    printf("[PS2] The NooDS core is NOT started yet; M2 integration is the next block.\n");
+
+    if (!bios9Ok || !bios7Ok || !firmwareOk)
+    {
+        printf("[PS2] M1 succeeded, but M2 core construction needs BIOS9, BIOS7 and 256 KiB firmware.\n");
+        fflush(stdout);
+        return 3;
+    }
+
+    // PS2 bring-up policy: keep all rendering on the EE thread until the
+    // single-threaded path is proven stable. No game-specific behavior here.
+    Settings::setDirectBoot(1);
+    Settings::setFpsLimiter(0);
+    Settings::setThreaded2D(0);
+    Settings::setThreaded3D(0);
+    Settings::setBios9Path(DEFAULT_BIOS9);
+    Settings::setBios7Path(DEFAULT_BIOS7);
+    Settings::setFirmwarePath(DEFAULT_FIRMWARE);
+
+    printf("[PS2] sizeof(Core) = %u bytes\n", static_cast<unsigned int>(sizeof(Core)));
+    printf("[PS2] Constructing NooDS core (no frame execution yet)...\n");
+    fflush(stdout);
+
+    try
+    {
+        Core *core = new Core(std::string(romPath), "");
+        printf("[PS2][OK] M2: Core constructed, BIOS/firmware/ROM paths were accepted.\n");
+        printf("[PS2] ARM9/ARM7 frame execution is intentionally deferred to M3.\n");
+        delete core;
+    }
+    catch (const std::bad_alloc &)
+    {
+        printf("[PS2][ERROR] Core allocation failed: PS2 RAM budget exhausted.\n");
+        fflush(stdout);
+        return 4;
+    }
+    catch (int code)
+    {
+        printf("[PS2][ERROR] NooDS core threw error code %d during construction.\n", code);
+        fflush(stdout);
+        return 5;
+    }
+    catch (...)
+    {
+        printf("[PS2][ERROR] Unknown exception while constructing the NooDS core.\n");
+        fflush(stdout);
+        return 6;
+    }
+
     fflush(stdout);
     return 0;
 }
