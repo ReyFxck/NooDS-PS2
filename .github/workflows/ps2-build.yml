@@ -40,7 +40,7 @@ jobs:
       - name: Build bootable PS2 ISO with synthetic self-test data
         run: |
           mkdir -p iso-root
-          cp noods-ps2-release.elf iso-root/NOODSPS2.ELF
+          cp noods-ps2-debug.elf iso-root/NOODSPS2.ELF
           cat > iso-root/SYSTEM.CNF <<'EOF'
           BOOT2 = cdrom0:\\NOODSPS2.ELF;1
           VER = 1.00
