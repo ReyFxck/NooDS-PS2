@@ -127,7 +127,7 @@ int main(int argc, char **argv)
     // These are currently probes only. Core integration comes in M2.
     bool bios9Ok = probeFile("ARM9 BIOS", DEFAULT_BIOS9, 0x1000, false);
     bool bios7Ok = probeFile("ARM7 BIOS", DEFAULT_BIOS7, 0x4000, false);
-    bool firmwareOk = probeFile("Firmware", DEFAULT_FIRMWARE, 0x20000, false);
+    bool firmwareOk = probeFile("Firmware", DEFAULT_FIRMWARE, 0x40000, false);
 
     if (!romOk)
     {
