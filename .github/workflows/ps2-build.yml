@@ -1,0 +1,39 @@
+name: PS2 POC Build
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  build-ps2:
+    runs-on: ubuntu-latest
+    container: ps2dev/ps2dev:latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Toolchain info
+        run: |
+          echo "PS2SDK=$PS2SDK"
+          mips64r5900el-ps2-elf-g++ --version
+
+      - name: Build release ELF
+        run: make -f Makefile.ps2
+
+      - name: Build debug ELF
+        run: |
+          mv noods-ps2.elf noods-ps2-release.elf
+          make -f Makefile.ps2 debug
+          mv noods-ps2.elf noods-ps2-debug.elf
+
+      - name: Upload PS2 bootstrap ELFs
+        uses: actions/upload-artifact@v4
+        with:
+          name: noods-ps2-bootstrap
+          path: |
+            noods-ps2-release.elf
+            noods-ps2-debug.elf
+          if-no-files-found: error

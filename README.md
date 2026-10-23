@@ -18,19 +18,19 @@
 
 ## Bring-up / PS2SDK
 
-- [ ] Criar `Makefile.ps2` usando PS2SDK.
-- [ ] Criar a camada de plataforma PS2 sem poluir o core.
-- [ ] Remover do build PS2 dependências de desktop que não sejam necessárias.
+- [x] Criar `Makefile.ps2` usando PS2SDK.
+- [x] Criar a camada de plataforma PS2 sem poluir o core.
+- [x] Remover do build PS2 dependências de desktop que não sejam necessárias.
 - [ ] Gerar um `.elf` mínimo executável no PCSX2 e no hardware real.
 - [ ] Inicializar serviços básicos do PS2 necessários ao port.
-- [ ] Adicionar logging serial/console útil para depuração.
-- [ ] Garantir que falhas de inicialização produzam mensagens claras em vez de simplesmente travar.
-- [ ] Criar build Debug e Release separados.
+- [x] Adicionar logging serial/console útil para depuração.
+- [x] Garantir que falhas de inicialização produzam mensagens claras em vez de simplesmente travar.
+- [x] Criar build Debug e Release separados.
 
 ## Arquivos, BIOS, firmware e ROMs
 
-- [ ] Implementar suporte a `host:` / hostfs para desenvolvimento rápido no PCSX2.
-- [ ] Permitir carregar ROMs `.nds` diretamente por `host:` para testes no emulador.
+- [x] Implementar suporte inicial a `host:` / hostfs para desenvolvimento rápido no PCSX2.
+- [x] Permitir abrir e validar ROMs `.nds` diretamente por `host:` no bootstrap de testes.
 - [ ] Permitir carregar BIOS/firmware por `host:`.
 - [ ] Permitir carregar/salvar saves por `host:` durante desenvolvimento.
 - [ ] Adicionar suporte a `mass:` para USB.
@@ -166,6 +166,51 @@ Este projeto continua sendo considerado POC até que exista, no mínimo:
 - [ ] pelo menos um conjunto de testes determinísticos passando;
 - [ ] pelo menos um jogo comercial executando de forma estável e jogável;
 - [ ] documentação suficiente para outra pessoa reproduzir o build e os testes.
+
+
+## Estado atual do bootstrap PS2
+
+O primeiro estágio ainda **não inicia o core do NooDS**. Ele existe para validar PS2SDK, geração do ELF e acesso ao dispositivo `host:` antes de ligar ARM9/ARM7, GPU e áudio.
+
+Build release:
+
+```sh
+make -f Makefile.ps2
+```
+
+Build debug:
+
+```sh
+make -f Makefile.ps2 debug
+```
+
+O ELF resultante é `noods-ps2.elf`.
+
+### Teste rápido no PCSX2 com hostfs
+
+Ative **Settings → Emulation → Enable Host Filesystem** no PCSX2 e deixe estes arquivos no diretório usado como raiz de `host:` (normalmente o diretório do ELF ao iniciar um ELF diretamente):
+
+```text
+noods-ps2.elf
+game.nds
+bios9.bin
+bios7.bin
+firmware.bin
+```
+
+O bootstrap tenta abrir por padrão:
+
+```text
+host:game.nds
+host:bios9.bin
+host:bios7.bin
+host:firmware.bin
+```
+
+A ROM também pode ser passada explicitamente como primeiro argumento, por exemplo `host:roms/test.nds`. Neste estágio BIOS e firmware são apenas verificados; o carregamento pelo core entra no M2.
+
+**Não marque M0/M1 como concluídos só porque o CI gerou um ELF.** M0 exige executar o ELF e ver o log no PS2/PCSX2; M1 exige confirmar uma leitura real via `host:`.
+
 
 ---
 

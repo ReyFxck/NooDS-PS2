@@ -20,3 +20,8 @@ bios9.bin
 firmware.bin
 gba_bios.bin
 sd.img
+/build-ps2
+/noods-ps2.elf
+/noods-ps2-release.elf
+/noods-ps2-debug.elf
+*.nds

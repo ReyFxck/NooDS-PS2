@@ -1,0 +1,54 @@
+# NooDS-PS2 - PS2SDK bootstrap build
+# This first target intentionally builds only src/ps2/main.cpp.
+# The NooDS core will be added after the platform/host: path is validated.
+
+ifeq ($(strip $(PS2SDK)),)
+$(error PS2SDK is not set. Install ps2dev/ps2sdk and export PS2SDK)
+endif
+
+EE_TOOL_PREFIX ?= mips64r5900el-ps2-elf-
+EE_CXX         ?= $(EE_TOOL_PREFIX)g++
+
+TARGET := noods-ps2.elf
+BUILD  := build-ps2
+SOURCE := src/ps2/main.cpp
+OBJECT := $(BUILD)/main.o
+
+DEBUG ?= 0
+
+COMMON_FLAGS := -D_EE -DNOODS_PS2 -G0 -Wall -Wextra -std=gnu++11 \
+                -fno-rtti -fno-exceptions \
+                -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include -Isrc
+
+ifeq ($(DEBUG),1)
+OPT_FLAGS := -O0 -gdwarf-2 -DDEBUG
+else
+OPT_FLAGS := -O2
+endif
+
+CXXFLAGS := $(COMMON_FLAGS) $(OPT_FLAGS)
+LDFLAGS  := -T$(PS2SDK)/ee/startup/linkfile -L$(PS2SDK)/ee/lib -Wl,-zmax-page-size=128
+LIBS     := -lc -lcglue -lkernel
+
+.PHONY: all clean debug info
+
+all: $(TARGET)
+
+$(TARGET): $(OBJECT)
+	$(EE_CXX) $(OPT_FLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
+	@echo "Built $@"
+
+$(OBJECT): $(SOURCE)
+	@mkdir -p $(BUILD)
+	$(EE_CXX) $(CXXFLAGS) -c $< -o $@
+
+debug:
+	$(MAKE) -f Makefile.ps2 DEBUG=1 clean all
+
+info:
+	@echo "PS2SDK=$(PS2SDK)"
+	@echo "EE_CXX=$(EE_CXX)"
+	@echo "TARGET=$(TARGET)"
+
+clean:
+	rm -rf $(BUILD) $(TARGET)
