@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install build tools
-        run: apk add --no-cache make
+        run: apk add --no-cache make xorriso
 
       - name: Toolchain info
         run: |
@@ -37,6 +37,21 @@ jobs:
           mips64r5900el-ps2-elf-size noods-ps2-release.elf
           mips64r5900el-ps2-elf-size noods-ps2-debug.elf
 
+      - name: Build bootable PS2 ISO
+        run: |
+          mkdir -p iso-root
+          cp noods-ps2-release.elf iso-root/NOODSPS2.ELF
+          cat > iso-root/SYSTEM.CNF <<'EOF'
+          BOOT2 = cdrom0:\\NOODSPS2.ELF;1
+          VER = 1.00
+          VMODE = NTSC
+          EOF
+          xorriso -as mkisofs \
+            -iso-level 1 \
+            -V NOODSPS2 \
+            -o noods-ps2-poc.iso \
+            iso-root
+
       - name: Upload PS2 POC ELFs
         uses: actions/upload-artifact@v4
         with:
@@ -44,4 +59,5 @@ jobs:
           path: |
             noods-ps2-release.elf
             noods-ps2-debug.elf
+            noods-ps2-poc.iso
           if-no-files-found: error

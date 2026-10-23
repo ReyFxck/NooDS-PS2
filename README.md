@@ -189,6 +189,26 @@ make -f Makefile.ps2 debug
 
 O ELF resultante é `noods-ps2.elf`.
 
+
+### Android / NetherSX2: use o ISO de teste
+
+Algumas builds Android do AetherSX2/NetherSX2 recebem ELFs pelo Storage Access Framework como URLs `content://`. Nessa situação o loader pode falhar antes de executar o ELF. O CI também gera `noods-ps2-poc.iso`, que contém somente o ELF de bootstrap e `SYSTEM.CNF`.
+
+Para testar no NetherSX2:
+
+```text
+noods-ps2-poc.iso
+game.nds
+bios9.bin
+bios7.bin
+firmware.bin
+```
+
+Deixe os arquivos no mesmo diretório concedido ao NetherSX2 e mantenha **Enable Host Filesystem** ativado. O ISO existe apenas como transporte para iniciar o ELF; ROM/BIOS/firmware continuam externos via `host:` e não são incluídos no ISO.
+
+Se o ISO abrir e aparecer `M0 bootstrap started`, o problema do loader Android foi contornado. Se depois aparecer erro em `host:`, esse passa a ser um problema separado de acesso aos arquivos externos.
+
+
 ### Teste rápido no PCSX2 com hostfs
 
 Ative **Settings → Emulation → Enable Host Filesystem** no PCSX2 e deixe estes arquivos no diretório usado como raiz de `host:` (normalmente o diretório do ELF ao iniciar um ELF diretamente):
