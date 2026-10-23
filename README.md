@@ -42,7 +42,7 @@
 
 ## Core NDS
 
-- [ ] Fazer o core inicializar no EE sem frontend desktop.
+- [x] Fazer o core inicializar no EE sem frontend desktop (M2 confirmado no NetherSX2 em 23/10/2026).
 - [ ] Fazer ARM9 iniciar e executar instruções.
 - [ ] Fazer ARM7 iniciar e executar instruções.
 - [ ] Validar mapa de memória.
@@ -97,7 +97,7 @@
 
 - [ ] Criar orçamento explícito dos 32 MB de RAM do PS2.
 - [ ] Reduzir/substituir os quatro mapas planos de 1.048.576 ponteiros do core (read/write ARM9/ARM7), que são um alvo crítico de RAM no PS2.
-- [ ] Medir memória usada pelo core.
+- [ ] Medir memória usada pelo core. `sizeof(Core)` atual no R5900: 24.317.632 bytes (~23,19 MiB); ainda falta medir alocações dinâmicas.
 - [ ] Medir memória usada por framebuffers/renderers.
 - [ ] Criar cache de ROM com tamanho configurável.
 - [ ] Evitar alocações por frame.
@@ -141,7 +141,7 @@
 
 - [x] M0 — PS2 ELF inicia e escreve log (confirmado no NetherSX2 em 23/10/2026).
 - [ ] M1 — arquivos podem ser lidos por `host:`.
-- [ ] M2 — BIOS/firmware/ROM são carregados pelo backend PS2.
+- [x] M2 — BIOS/firmware/ROM são carregados pelo backend PS2 e o `Core` é construído (confirmado no NetherSX2 em 23/10/2026).
 - [ ] M3 — ARM9 e ARM7 executam sem crash imediato.
 - [ ] M4 — primeiro frame é produzido.
 - [ ] M5 — duas telas aparecem corretamente no GS.
@@ -171,7 +171,7 @@ Este projeto continua sendo considerado POC até que exista, no mínimo:
 
 ## Estado atual do bootstrap PS2
 
-**Estado de compilação:** o CI PS2 já compila e linka o core completo em Release e Debug para R5900. Isso ainda não prova execução em PCSX2/PS2 real; M0/M1/M2 só devem ser marcados após teste de runtime.
+**Estado de compilação:** o CI PS2 compila e linka o core completo em Release e Debug para R5900. M0 e M2 já foram confirmados em runtime no NetherSX2. O `Core` mede 24.317.632 bytes (~23,19 MiB) no R5900. M1 (`host:`) continua pendente no Android porque o NetherSX2 bloqueia HostFS quando o ELF é iniciado pelo ISO. O teste M3 agora executa exatamente um `runFrame()` e para.
 
 O bootstrap PS2 valida PS2SDK e `host:` e agora também tenta **construir o core do NooDS sem executar frames**. Isso isola problemas de RAM/BIOS/firmware/ROM antes de envolver execução ARM9/ARM7, GPU e áudio.
 

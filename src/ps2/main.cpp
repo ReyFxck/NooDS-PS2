@@ -211,12 +211,30 @@ int main(int argc, char **argv)
     {
         Core *core = new Core(romPath, "");
         PS2_LOG("[PS2][OK] M2: Core constructed, BIOS/firmware/ROM paths were accepted.\n");
-        PS2_LOG("[PS2] ARM9/ARM7 frame execution is intentionally deferred to M3.\n");
+
+        // M3 is deliberately tiny: execute exactly one emulated NDS frame.
+        // Do not present video or start a frontend loop yet. If this hangs or
+        // faults, the failure is isolated to ARM9/ARM7/scheduler/GPU/SPU work
+        // performed by the first frame rather than construction.
+        uint32_t cyclesBefore = core->getGlobalCycles();
+        PS2_LOG("[PS2] M3: executing exactly one NDS frame... cycles=%lu\n",
+            static_cast<unsigned long>(cyclesBefore));
+        fflush(stdout);
+
+        core->runFrame();
+
+        uint32_t cyclesAfter = core->getGlobalCycles();
+        PS2_LOG("[PS2][OK] M3: first runFrame() returned. cycles=%lu -> %lu fps=%d\n",
+            static_cast<unsigned long>(cyclesBefore),
+            static_cast<unsigned long>(cyclesAfter),
+            core->getFps());
+        PS2_LOG("[PS2] Framebuffer validation/display is deferred to M4.\n");
+
         delete core;
     }
     catch (const std::bad_alloc &)
     {
-        PS2_LOG("[PS2][ERROR] Core allocation failed: PS2 RAM budget exhausted.\n");
+        PS2_LOG("[PS2][ERROR] Allocation failed during core construction or first-frame execution: PS2 RAM budget exhausted.\n");
         fflush(stdout);
         return 4;
     }
