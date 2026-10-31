@@ -53,6 +53,13 @@ namespace R5900
 
     constexpr uint32_t beq(int rs,int rt,int16_t o)  { return iType(0x04, rs, rt, uint16_t(o)); }
     constexpr uint32_t bne(int rs,int rt,int16_t o)  { return iType(0x05, rs, rt, uint16_t(o)); }
+
+    // Compile-time checks: bad encodings fail CI instead of crashing a PS2.
+    static_assert(lui(R_V0, 0x1234) == 0x3C021234u, "R5900 LUI encoding");
+    static_assert(ori(R_V0, R_V0, 0x5678) == 0x34425678u, "R5900 ORI encoding");
+    static_assert(jr(R_RA) == 0x03E00008u, "R5900 JR encoding");
+    static_assert(lw(R_T0, 4, R_A0) == 0x8C880004u, "R5900 LW encoding");
+    static_assert(sw(R_T0, 4, R_A0) == 0xAC880004u, "R5900 SW encoding");
 }
 
 #endif
