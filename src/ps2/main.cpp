@@ -80,6 +80,17 @@ void pollPadIntoNds(Core *core)
     if (state != PAD_STATE_STABLE && state != PAD_STATE_FINDCTP1)
         return;
 
+    static bool analogRequested = false;
+    if (!analogRequested)
+    {
+        // Request DualShock mode once the controller is responsive. Do not
+        // block waiting for the mode transition; later polls will pick it up.
+        padSetMainMode(0, 0, PAD_MMODE_DUALSHOCK, PAD_MMODE_LOCK);
+        analogRequested = true;
+        PS2_LOG("[PS2] Requested DualShock analog mode for right-stick touchscreen.\n");
+        return;
+    }
+
     struct padButtonStatus buttons = {};
     if (!padRead(0, 0, &buttons))
         return;
