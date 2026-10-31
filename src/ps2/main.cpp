@@ -384,8 +384,25 @@ int main(int argc, char **argv)
 
                     uint32_t arm9StateHash = 0;
                     if (dynarec.runArm9StateSelfTest(core->interpreter[0], &arm9StateHash))
+                    {
                         PS2_LOG("[PS2][OK] ARM9 live-state dynarec gate passed: hash=%08lX.\n",
                             static_cast<unsigned long>(arm9StateHash));
+
+                        uint32_t livePc = 0;
+                        uint32_t liveOpcode = 0;
+                        int pipelineGate = dynarec.runArm9PipelineSelfTest(
+                            core->interpreter[0], &livePc, &liveOpcode);
+                        if (pipelineGate > 0)
+                            PS2_LOG("[PS2][OK] ARM9 pipeline opcode shadow gate passed: pc=%08lX opcode=%08lX.\n",
+                                static_cast<unsigned long>(livePc),
+                                static_cast<unsigned long>(liveOpcode));
+                        else if (pipelineGate == 0)
+                            PS2_LOG("[PS2] ARM9 pipeline opcode shadow gate: current two opcodes are outside ALU subset.\n");
+                        else
+                            PS2_LOG("[PS2][WARN] ARM9 pipeline opcode shadow gate mismatch: pc=%08lX opcode=%08lX.\n",
+                                static_cast<unsigned long>(livePc),
+                                static_cast<unsigned long>(liveOpcode));
+                    }
                     else
                         PS2_LOG("[PS2][WARN] ARM9 live-state dynarec gate failed; interpreter remains active.\n");
                 }
