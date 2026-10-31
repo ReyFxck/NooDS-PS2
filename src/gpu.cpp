@@ -57,15 +57,15 @@ Gpu::~Gpu()
 void Gpu::scheduleInit()
 {
     // Schedule initial NDS GPU tasks (these will reschedule themselves indefinitely)
-    core->schedule(Task(&scanline256Task, 256 * 6));
-    core->schedule(Task(&scanline355Task, 355 * 6));
+    core->schedule(Task(&scanline256Task, 256 * 6, TASK_PROFILE_GPU));
+    core->schedule(Task(&scanline355Task, 355 * 6, TASK_PROFILE_GPU));
 }
 
 void Gpu::gbaScheduleInit()
 {
     // Schedule initial GBA GPU tasks (these will reschedule themselves indefinitely)
-    core->schedule(Task(&gbaScanline240Task, 240 * 4));
-    core->schedule(Task(&gbaScanline308Task, 308 * 4));
+    core->schedule(Task(&gbaScanline240Task, 240 * 4, TASK_PROFILE_GPU));
+    core->schedule(Task(&gbaScanline308Task, 308 * 4, TASK_PROFILE_GPU));
 }
 
 uint32_t Gpu::rgb5ToRgb8(uint32_t color)
@@ -178,7 +178,7 @@ void Gpu::gbaScanline240()
         core->interpreter[1].sendInterrupt(1);
 
     // Reschedule the task for the next scanline
-    core->schedule(Task(&gbaScanline240Task, 308 * 4));
+    core->schedule(Task(&gbaScanline240Task, 308 * 4, TASK_PROFILE_GPU));
 }
 
 void Gpu::gbaScanline308()
@@ -271,7 +271,7 @@ void Gpu::gbaScanline308()
     }
 
     // Reschedule the task for the next scanline
-    core->schedule(Task(&gbaScanline308Task, 308 * 4));
+    core->schedule(Task(&gbaScanline308Task, 308 * 4, TASK_PROFILE_GPU));
 }
 
 void Gpu::scanline256()
@@ -432,7 +432,7 @@ void Gpu::scanline256()
     }
 
     // Reschedule the task for the next scanline
-    core->schedule(Task(&scanline256Task, 355 * 6));
+    core->schedule(Task(&scanline256Task, 355 * 6, TASK_PROFILE_GPU));
 }
 
 void Gpu::scanline355()
@@ -552,7 +552,7 @@ void Gpu::scanline355()
     }
 
     // Reschedule the task for the next scanline
-    core->schedule(Task(&scanline355Task, 355 * 6));
+    core->schedule(Task(&scanline355Task, 355 * 6, TASK_PROFILE_GPU));
 }
 
 void Gpu::drawGbaThreaded()
