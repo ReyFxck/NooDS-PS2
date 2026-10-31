@@ -615,6 +615,14 @@ int main(int argc, char **argv)
                     static_cast<unsigned long>(bottomHash),
                     static_cast<unsigned long>(bottomWhite),
                     static_cast<unsigned long>(core->getGlobalCycles()));
+                if ((frameNo % 300) == 0)
+                {
+                    PS2_LOG("[PS2] ROM cache: hits=%lu misses=%lu bytes=%lu\n",
+                        static_cast<unsigned long>(core->cartridgeNds.getRomCacheHits()),
+                        static_cast<unsigned long>(core->cartridgeNds.getRomCacheMisses()),
+                        static_cast<unsigned long>(core->cartridgeNds.getRomCacheBytes()));
+                }
+
                 fflush(stdout);
             }
 

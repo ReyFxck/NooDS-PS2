@@ -330,3 +330,11 @@ To compile for Android, the easiest way would be to use [Android Studio](https:/
 - [ ] Ativar dynarec ARM9 somente após equivalência; ARM7 vem depois.
 
 O código PS2 fica em `src/ps2/`; o core não inclui headers do PS2SDK. VU0/VU1, GS e SPU2 permanecem backends/accelerators separados do CPU core.
+
+
+### Storage PS2
+
+- [x] NDS ROM continua file-backed para não consumir 32 MiB de RAM.
+- [x] Cache LRU de ROM de 2 MiB, páginas de 16 KiB, reutilizando buffer de transferência.
+- [x] O cache é transparente ao protocolo do cartridge e serve CD/DVD, hostfs, USB, HDD ou MX4SIO através do mesmo `FILE*`.
+- [x] Contadores de hit/miss são mostrados no Debug a cada 300 frames.

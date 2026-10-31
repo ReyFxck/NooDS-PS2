@@ -18,6 +18,8 @@
 */
 
 #include <cstring>
+#include <new>
+#include <algorithm>
 
 #include "cartridge.h"
 #include "core.h"
@@ -32,6 +34,8 @@ Cartridge::~Cartridge()
     if (romFile) fclose(romFile);
     if (rom)  delete[] rom;
     if (save) delete[] save;
+    if (romCache) delete[] romCache;
+    if (romCacheEntries) delete[] romCacheEntries;
 }
 
 void Cartridge::loadRom(std::string path)
@@ -58,13 +62,126 @@ void Cartridge::loadRom(std::string path)
     }
 }
 
+void Cartridge::configureRomCache(uint32_t bytes)
+{
+    if (romCache) delete[] romCache;
+    if (romCacheEntries) delete[] romCacheEntries;
+
+    romCache = nullptr;
+    romCacheEntries = nullptr;
+    romCachePageCount = 0;
+    romCacheBytes = 0;
+    romCacheClock = 0;
+    romCacheHits = 0;
+    romCacheMisses = 0;
+
+    bytes = (bytes / romCachePageSize) * romCachePageSize;
+    if (!bytes)
+        return;
+
+    uint32_t pages = bytes / romCachePageSize;
+    uint8_t *data = new (std::nothrow) uint8_t[bytes];
+    RomCacheEntry *entries = new (std::nothrow) RomCacheEntry[pages];
+
+    if (!data || !entries)
+    {
+        delete[] data;
+        delete[] entries;
+        return;
+    }
+
+    romCache = data;
+    romCacheEntries = entries;
+    romCachePageCount = pages;
+    romCacheBytes = bytes;
+}
+
 void Cartridge::loadRomSection(uint32_t offset, uint32_t size)
 {
-    // Load a section of the current ROM file into memory
-    if (rom) delete[] rom;
-    rom = new uint8_t[size];
-    fseek(romFile, offset, SEEK_SET);
-    fread(rom, sizeof(uint8_t), size, romFile);
+    // Reuse the transfer buffer to avoid heap churn during cartridge traffic.
+    if (static_cast<int>(size) > romCapacity)
+    {
+        delete[] rom;
+        rom = new uint8_t[size];
+        romCapacity = size;
+    }
+
+    if (!size)
+        return;
+
+    if (!romCache || !romCachePageCount)
+    {
+        fseek(romFile, offset, SEEK_SET);
+        fread(rom, sizeof(uint8_t), size, romFile);
+        return;
+    }
+
+    uint32_t copied = 0;
+    while (copied < size)
+    {
+        uint32_t absolute = offset + copied;
+        uint32_t tag = absolute / romCachePageSize;
+        uint32_t inPage = absolute % romCachePageSize;
+        uint32_t chunk = std::min(size - copied, romCachePageSize - inPage);
+
+        int slot = -1;
+        for (uint32_t i = 0; i < romCachePageCount; i++)
+        {
+            if (romCacheEntries[i].valid && romCacheEntries[i].tag == tag)
+            {
+                slot = static_cast<int>(i);
+                romCacheHits++;
+                break;
+            }
+        }
+
+        if (slot < 0)
+        {
+            romCacheMisses++;
+
+            // Pick an unused slot first, otherwise the least-recently-used one.
+            uint32_t victim = 0;
+            uint32_t oldest = 0xFFFFFFFFu;
+            for (uint32_t i = 0; i < romCachePageCount; i++)
+            {
+                if (!romCacheEntries[i].valid)
+                {
+                    victim = i;
+                    oldest = 0;
+                    break;
+                }
+
+                if (romCacheEntries[i].stamp < oldest)
+                {
+                    oldest = romCacheEntries[i].stamp;
+                    victim = i;
+                }
+            }
+
+            slot = static_cast<int>(victim);
+            uint8_t *page = &romCache[victim * romCachePageSize];
+            uint32_t pageOffset = tag * romCachePageSize;
+            uint32_t readable = (pageOffset < static_cast<uint32_t>(romSize))
+                ? std::min(romCachePageSize, static_cast<uint32_t>(romSize) - pageOffset)
+                : 0;
+
+            if (readable)
+            {
+                fseek(romFile, pageOffset, SEEK_SET);
+                fread(page, sizeof(uint8_t), readable, romFile);
+            }
+            if (readable < romCachePageSize)
+                memset(page + readable, 0xFF, romCachePageSize - readable);
+
+            romCacheEntries[victim].tag = tag;
+            romCacheEntries[victim].valid = true;
+        }
+
+        romCacheEntries[slot].stamp = ++romCacheClock;
+        memcpy(rom + copied,
+            &romCache[slot * romCachePageSize + inPage], chunk);
+        copied += chunk;
+    }
 }
 
 void Cartridge::writeSave()
@@ -101,6 +218,7 @@ void Cartridge::trimRom()
         memcpy(newRom, rom, newSize * sizeof(uint8_t));
         delete[] rom;
         rom = newRom;
+        romCapacity = newSize;
 
         // Update the ROM file
         FILE *romFile = fopen(romName.c_str(), "wb");
@@ -147,10 +265,9 @@ void CartridgeNds::loadRom(std::string path)
     Cartridge::loadRom(path);
 
 #ifdef NOODS_PS2
-    // The PS2 only has 32MB of main RAM. Keep NDS ROMs file-backed from the
-    // start instead of deliberately attempting a whole-ROM allocation and
-    // relying on std::bad_alloc as flow control. The existing NooDS section
-    // loader/direct-boot paths already support file-backed ROM access.
+    // The PS2 only has 32MB of main RAM. Keep NDS ROMs file-backed, but cache
+    // recently used 16KB pages to avoid repeated CD/DVD/USB/HDD reads.
+    configureRomCache(2 * 1024 * 1024);
     loadRomSection(0, (romSize < 0x5000) ? romSize : 0x5000);
 #else
     // If the ROM is 512MB or smaller, try to load it into memory; otherwise fall back to file-based loading

@@ -49,14 +49,36 @@ class Cartridge
         int getRomSize()  { return romSize;  }
         int getSaveSize() { return saveSize; }
 
+        uint32_t getRomCacheHits() const   { return romCacheHits;   }
+        uint32_t getRomCacheMisses() const { return romCacheMisses; }
+        uint32_t getRomCacheBytes() const  { return romCacheBytes;  }
+
     protected:
         Core *core;
 
         FILE *romFile = nullptr;
         uint8_t *rom = nullptr, *save = nullptr;
         int romSize = 0, saveSize = 0;
+        int romCapacity = 0;
         bool saveDirty = false;
 
+        struct RomCacheEntry
+        {
+            uint32_t tag = 0;
+            uint32_t stamp = 0;
+            bool valid = false;
+        };
+
+        uint8_t *romCache = nullptr;
+        RomCacheEntry *romCacheEntries = nullptr;
+        uint32_t romCachePageSize = 0x4000;
+        uint32_t romCachePageCount = 0;
+        uint32_t romCacheClock = 0;
+        uint32_t romCacheHits = 0;
+        uint32_t romCacheMisses = 0;
+        uint32_t romCacheBytes = 0;
+
+        void configureRomCache(uint32_t bytes);
         void loadRomSection(uint32_t offset, uint32_t size);
 
     private:
