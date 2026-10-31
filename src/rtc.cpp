@@ -21,31 +21,69 @@ void Rtc::reset()
     freeReg = 0;
 }
 
+void Rtc::setFixedDateTime(uint8_t year, uint8_t month, uint8_t day,
+    uint8_t weekday, uint8_t hour, uint8_t minute, uint8_t second)
+{
+    fixedYear = year % 100;
+    fixedMonth = month;
+    fixedDay = day;
+    fixedWeekday = weekday % 7;
+    fixedHour = hour % 24;
+    fixedMinute = minute % 60;
+    fixedSecond = second % 60;
+    fixedDateTimeEnabled = true;
+}
+
 void Rtc::updateDateTime()
 {
-    std::time_t t = std::time(nullptr);
-    std::tm *time = std::localtime(&t);
-    if (!time) return;
+    uint8_t year;
+    uint8_t month;
+    uint8_t day;
+    uint8_t weekday;
+    uint8_t hour24;
+    uint8_t minute;
+    uint8_t second;
 
-    time->tm_year %= 100;
-    time->tm_mon++;
+    if (fixedDateTimeEnabled)
+    {
+        year = fixedYear;
+        month = fixedMonth;
+        day = fixedDay;
+        weekday = fixedWeekday;
+        hour24 = fixedHour;
+        minute = fixedMinute;
+        second = fixedSecond;
+    }
+    else
+    {
+        std::time_t t = std::time(nullptr);
+        std::tm *time = std::localtime(&t);
+        if (!time) return;
 
-    uint8_t hour24 = static_cast<uint8_t>(time->tm_hour);
+        year = static_cast<uint8_t>(time->tm_year % 100);
+        month = static_cast<uint8_t>(time->tm_mon + 1);
+        day = static_cast<uint8_t>(time->tm_mday);
+        weekday = static_cast<uint8_t>((time->tm_wday + 6) % 7);
+        hour24 = static_cast<uint8_t>(time->tm_hour);
+        minute = static_cast<uint8_t>(time->tm_min);
+        second = static_cast<uint8_t>(time->tm_sec);
+    }
+
+    uint8_t hour = hour24;
     if (!(status1 & BIT(1)))
-        time->tm_hour %= 12;
+        hour %= 12;
 
-    dateTime[0] = ((time->tm_year / 10) << 4) | (time->tm_year % 10);
-    dateTime[1] = ((time->tm_mon  / 10) << 4) | (time->tm_mon  % 10);
-    dateTime[2] = ((time->tm_mday / 10) << 4) | (time->tm_mday % 10);
-    dateTime[3] = static_cast<uint8_t>((time->tm_wday + 6) % 7);
-    dateTime[4] = ((time->tm_hour / 10) << 4) | (time->tm_hour % 10);
-    dateTime[5] = ((time->tm_min  / 10) << 4) | (time->tm_min  % 10);
-    dateTime[6] = ((time->tm_sec  / 10) << 4) | (time->tm_sec  % 10);
+    dateTime[0] = ((year   / 10) << 4) | (year   % 10);
+    dateTime[1] = ((month  / 10) << 4) | (month  % 10);
+    dateTime[2] = ((day    / 10) << 4) | (day    % 10);
+    dateTime[3] = weekday;
+    dateTime[4] = ((hour   / 10) << 4) | (hour   % 10);
+    dateTime[5] = ((minute / 10) << 4) | (minute % 10);
+    dateTime[6] = ((second / 10) << 4) | (second % 10);
 
     if (hour24 >= 12)
         dateTime[4] |= BIT(6);
 }
-
 bool Rtc::readRegister(uint8_t index)
 {
     uint8_t bit = writeCount & 7;
