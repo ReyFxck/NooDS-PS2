@@ -50,6 +50,20 @@ class CpuBackendAccess
             return cpu.pipeline[slot & 1];
         }
 
+        // Restore a straight-line differential-test snapshot exactly. This is
+        // intentionally raw: callers must only use it when the tested block
+        // cannot change CPU mode, banked registers, memory or exceptions.
+        static void restoreStraightLineState(Interpreter &cpu,
+            const uint32_t regs[16], uint32_t cpsr,
+            uint32_t pipeline0, uint32_t pipeline1)
+        {
+            cpu.cpsr = cpsr;
+            for (int i = 0; i < 16; i++)
+                *cpu.registers[i] = regs[i];
+            cpu.pipeline[0] = pipeline0;
+            cpu.pipeline[1] = pipeline1;
+        }
+
         static void writeCpsr(Interpreter &cpu, uint32_t value, bool save = false)
         {
             cpu.setCpsr(value, save);
