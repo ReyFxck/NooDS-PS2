@@ -404,12 +404,29 @@ int main(int argc, char **argv)
                             int blockGate = dynarec.runArm9BlockShadowSelfTest(
                                 core->interpreter[0], &blockPc, &blockInstructions, &blockHash);
                             if (blockGate > 0)
+                            {
                                 PS2_LOG("[PS2][OK] ARM9 real-block shadow gate passed: pc=%08lX instructions=%lu blocks=%u cache=%u hash=%08lX.\n",
                                     static_cast<unsigned long>(blockPc),
                                     static_cast<unsigned long>(blockInstructions),
                                     static_cast<unsigned int>(dynarec.blockCount()),
                                     static_cast<unsigned int>(dynarec.codeCacheUsed()),
                                     static_cast<unsigned long>(blockHash));
+
+                                uint32_t diffPc = 0;
+                                uint32_t diffInstructions = 0;
+                                uint32_t diffHash = 0;
+                                int diffGate = dynarec.runArm9InterpreterDifferentialSelfTest(
+                                    core->interpreter[0], &diffPc, &diffInstructions, &diffHash);
+                                if (diffGate > 0)
+                                    PS2_LOG("[PS2][OK] ARM9 interpreter<->dynarec differential gate passed: pc=%08lX instructions=%lu hash=%08lX.\n",
+                                        static_cast<unsigned long>(diffPc),
+                                        static_cast<unsigned long>(diffInstructions),
+                                        static_cast<unsigned long>(diffHash));
+                                else if (diffGate == 0)
+                                    PS2_LOG("[PS2] ARM9 interpreter<->dynarec differential gate skipped: no cached block.\n");
+                                else
+                                    PS2_LOG("[PS2][WARN] ARM9 interpreter<->dynarec differential mismatch; scheduler remains interpreter-only.\n");
+                            }
                             else if (blockGate == 0)
                                 PS2_LOG("[PS2] ARM9 real-block shadow gate: no straight-line ALU block available at current PC.\n");
                             else
