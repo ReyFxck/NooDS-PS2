@@ -18,6 +18,7 @@ EE_CXX         ?= $(EE_TOOL_PREFIX)g++
 # Stamp every PS2 binary with the exact source revision used by CI/local builds.
 # The upstream base commit is intentionally kept separate in the runtime banner.
 BUILD_REVISION ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+BUILD_STATE    ?= $(shell git diff-index --quiet HEAD -- 2>/dev/null && echo clean || echo dirty)
 
 TARGET := noods-ps2.elf
 BUILD  := build-ps2
@@ -55,14 +56,18 @@ OBJECTS := $(patsubst src/%.cpp,$(BUILD)/%.o,$(SOURCES))
 
 DEBUG ?= 0
 PROFILE ?= 0
+PROFILE_LEVEL ?= 2
 
 COMMON_FLAGS := -D_EE -DNOODS_PS2 -G0 -Wall -Wextra -std=gnu++11 \
                 -fno-rtti \
                 -DNOODS_BUILD_REVISION=\"$(BUILD_REVISION)\" \
+                -DNOODS_BUILD_STATE=\"$(BUILD_STATE)\" \
                 -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include -I$(GSKIT)/include -Isrc
 
 ifeq ($(PROFILE),1)
-COMMON_FLAGS += -DNOODS_PROFILE
+COMMON_FLAGS += -DNOODS_PROFILE -DNOODS_PROFILE_LEVEL=$(PROFILE_LEVEL)
+else
+COMMON_FLAGS += -DNOODS_PROFILE_LEVEL=0
 endif
 
 ifeq ($(DEBUG),1)
@@ -101,6 +106,8 @@ info:
 	@echo "PS2SDK=$(PS2SDK)"
 	@echo "EE_CXX=$(EE_CXX)"
 	@echo "TARGET=$(TARGET)"
+	@echo "BUILD_REVISION=$(BUILD_REVISION) ($(BUILD_STATE))"
+	@echo "PROFILE=$(PROFILE) PROFILE_LEVEL=$(PROFILE_LEVEL)"
 	@echo "Core sources: $(words $(CORE_SOURCES))"
 
 clean:

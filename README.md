@@ -321,7 +321,7 @@ To compile for Android, the easiest way would be to use [Android Studio](https:/
 ### Infraestrutura R5900 / dynarec
 
 - [x] Profiler PS2 de baixo overhead: janela de 60 frames com custo do core/getFrame/upload/present, opcodes ARM9/ARM7, atividade do scheduler, mix ARM/Thumb, hot PCs amostrados e hit/miss de ROM.
-- [x] O banner registra a HEAD exata usada no build, separada do commit-base histórico.
+- [x] O banner registra a HEAD exata e estado clean/dirty, tipo de build, nível do profiler, flags relevantes e versão do dynarec; o CI passa o SHA diretamente para não depender de `git` dentro do container PS2SDK.
 - [x] O profiler separa draw/timing da GPU, engine 2D A/B, capture, renderer 3D e VBlank; cada classe usa amostragem independente para não sincronizar acidentalmente com o padrão periódico do scheduler.
 - [x] Cada engine GPU2D agora subdivide clear, objects, text, affine, extended, large, composição/blend, output e master brightness, com contagem, média amostrada 1/64 e tempo total estimado por janela.
 - [x] O profiler mede tempo bloqueado em leitura/seek da ROM e mostra `coreExIO`, chamadas, bytes, leituras curtas e piores latências por janela.

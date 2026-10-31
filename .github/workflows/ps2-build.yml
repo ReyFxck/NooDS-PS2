@@ -36,17 +36,17 @@ jobs:
 
       - name: Build release ELF
         run: |
-          make -f Makefile.ps2
+          make -f Makefile.ps2 BUILD_REVISION="${{ github.sha }}" BUILD_STATE=clean
           mv noods-ps2.elf noods-ps2-release.elf
 
       - name: Build profile ELF
         run: |
-          make -f Makefile.ps2 profile
+          make -f Makefile.ps2 profile BUILD_REVISION="${{ github.sha }}" BUILD_STATE=clean PROFILE_LEVEL=2
           mv noods-ps2.elf noods-ps2-profile.elf
 
       - name: Build debug ELF
         run: |
-          make -f Makefile.ps2 debug
+          make -f Makefile.ps2 debug BUILD_REVISION="${{ github.sha }}" BUILD_STATE=clean
           mv noods-ps2.elf noods-ps2-debug.elf
 
       - name: ELF size report

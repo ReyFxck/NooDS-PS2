@@ -30,6 +30,14 @@
 #define NOODS_BUILD_REVISION "unknown"
 #endif
 
+#ifndef NOODS_BUILD_STATE
+#define NOODS_BUILD_STATE "unknown"
+#endif
+
+#ifndef NOODS_PROFILE_LEVEL
+#define NOODS_PROFILE_LEVEL 0
+#endif
+
 namespace
 {
 #define PS2_LOG(...) do { printf(__VA_ARGS__); scr_printf(__VA_ARGS__); } while (0)
@@ -409,15 +417,32 @@ int main(int argc, char **argv)
     PS2_LOG("============================================================\n");
     PS2_LOG(" NooDS-PS2 POC bootstrap\n");
     PS2_LOG(" Base: %s (%s)\n", BASE_COMMIT, BASE_DATE);
-    PS2_LOG(" Source HEAD: %s\n", NOODS_BUILD_REVISION);
+    PS2_LOG(" Source HEAD: %.12s (%s)\n", NOODS_BUILD_REVISION, NOODS_BUILD_STATE);
 #ifdef DEBUG
-    PS2_LOG(" Build: DEBUG\n");
+    PS2_LOG(" Build: DEBUG%s\n",
+#ifdef NOODS_PROFILE
+        "+PROFILE"
 #else
-    PS2_LOG(" Build: RELEASE\n");
+        ""
+#endif
+    );
+    PS2_LOG(" Compiler: -Og -gdwarf-2 -fno-rtti\n");
+#else
+    PS2_LOG(" Build: RELEASE%s\n",
+#ifdef NOODS_PROFILE
+        "+PROFILE"
+#else
+        ""
+#endif
+    );
+    PS2_LOG(" Compiler: -O2 -fno-rtti -ffunction-sections -fdata-sections\n");
 #endif
 #ifdef NOODS_PROFILE
-    PS2_LOG(" Instrumentation: PROFILE\n");
+    PS2_LOG(" Instrumentation: PROFILE level %d\n", NOODS_PROFILE_LEVEL);
+#else
+    PS2_LOG(" Instrumentation: disabled\n");
 #endif
+    PS2_LOG(" Dynarec: ARM-ALU-v2 shadow-only\n");
     PS2_LOG("============================================================\n");
 
     std::string romPath = (argc > 1 && argv[1] && argv[1][0])
