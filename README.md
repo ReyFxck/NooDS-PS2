@@ -323,10 +323,10 @@ To compile for Android, the easiest way would be to use [Android Studio](https:/
 - [x] Sincronização EE D-cache/I-cache após emissão de código.
 - [x] Emitter inicial R5900/MIPS para operações ALU, shifts, branches e loads/stores.
 - [x] Blocos carregam `mapGeneration` para impedir uso de ponteiros diretos após remap de TCM/WRAM/VRAM.
-- [x] Probe R5900 é emitido e sincronizado, mas **não é executado pelo scheduler**.
+- [x] Probe R5900 é emitido, sincronizado e executado no bootstrap sem tocar no estado emulado.
 - [x] Definir ABI ARM-state ↔ backends: `CpuBackendAccess` expõe banco ativo, CPSR, próximo PC, pipeline e branch/refill sem duplicar troca de modos.
-- [ ] Compilar primeiro subconjunto ARM9 determinístico.
-- [ ] Comparar interpreter × dynarec opcode a opcode.
+- [x] Primeiro subconjunto ARM determinístico: MOV/ADD/SUB/AND/EOR/ORR decodificados de opcodes ARM reais, emitidos para R5900 e executados contra estado isolado.
+- [ ] Comparar interpreter × dynarec opcode a opcode no estado real do ARM9 antes de ligar o scheduler.
 - [ ] Ativar dynarec ARM9 somente após equivalência; ARM7 vem depois.
 
 O código PS2 fica em `src/ps2/`; o core não inclui headers do PS2SDK. VU0/VU1, GS e SPU2 permanecem backends/accelerators separados do CPU core.
@@ -345,8 +345,8 @@ O código PS2 fica em `src/ps2/`; o core não inclui headers do PS2SDK. VU0/VU1,
 - [x] **GS:** apresentação das duas telas e stream contínuo.
 - [x] **PAD:** DualShock 2 + touchscreen via analógico direito/R2.
 - [x] **Storage:** ROM file-backed + cache LRU de 2 MiB; mesma interface para ISO/hostfs/USB/HDD/MX4SIO.
-- [x] **EE/R5900:** code cache executável, emitter inicial, ABI de CPU e invalidação por remap prontos.
-- [ ] **Dynarec ARM9:** traduzir/validar blocos; permanece desligado até equivalência determinística.
+- [x] **EE/R5900:** code cache executável, emitter inicial, ABI de CPU, probe executado e invalidação por remap prontos.
+- [ ] **Dynarec ARM9:** primeiro ALU subset já traduz/executa em self-test; scheduler permanece no interpreter até equivalência do estado real.
 - [ ] **Dynarec ARM7:** vem depois do ARM9.
 - [ ] **VU0/VU1:** usar apenas em geometria/conversões vetoriais onde houver ganho medido; nunca para lógica geral ARM.
 - [ ] **SPU2:** backend PCM ainda pendente; o mixer NDS continua no core.
