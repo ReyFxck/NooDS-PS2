@@ -40,6 +40,11 @@ class DynarecR5900
         bool emitProbe();
         bool runProbe(uint32_t *value = nullptr) const;
 
+        // Decode a small, deterministic ARM data-processing subset, emit
+        // equivalent R5900 code and execute it against isolated register state.
+        // This is the correctness gate before wiring blocks into the scheduler.
+        bool runArmAluSelfTest();
+
         size_t codeCacheUsed() const { return cache.usedBytes(); }
         size_t codeCacheCapacity() const { return cache.capacity(); }
         size_t blockCount() const { return blocks.size(); }
@@ -50,6 +55,8 @@ class DynarecR5900
         std::vector<R5900CompiledBlock> blocks;
         uint32_t mappedGeneration = 0;
         uint32_t *probeCode = nullptr;
+
+        bool emitArmAluBlock(uint32_t opcode, uint32_t **entry, uint8_t *rd);
 };
 
 #endif
