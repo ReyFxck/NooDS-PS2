@@ -613,6 +613,15 @@ void CartridgeNds::writeAuxSpiData(bool cpu, uint8_t value)
                         break;
                     }
 
+                    case 0x05: // RDSR - Read Status Register
+                    {
+                        // No busy timing or WEL state is modeled yet. Report ready,
+                        // write-disabled, and unprotected: WIP=0, WEL=0, WP=0.
+                        // RDSR repeats the same status byte for every transfer.
+                        auxSpiData[cpu] = 0;
+                        break;
+                    }
+
                     default:
                     {
                         LOG("Write to AUX SPI with unknown EEPROM/FRAM command: 0x%X\n", auxCommand[cpu]);

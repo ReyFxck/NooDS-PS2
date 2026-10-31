@@ -45,13 +45,13 @@
 - [x] Fazer o core inicializar no EE sem frontend desktop (M2 confirmado no NetherSX2 em 23/10/2026).
 - [x] Fazer ARM9 iniciar e executar instruções (primeiro `runFrame()` retornou no NetherSX2 em 23/10/2026).
 - [x] Fazer ARM7 iniciar e executar instruções (primeiro `runFrame()` retornou no NetherSX2 em 23/10/2026).
-- [ ] Validar mapa de memória.
+- [ ] Validar mapa de memória. `0x04000204` (EXMEMCNT/EXMEMSTAT) agora possui o stub `0x6000` usado pelo NooDS atual; VRAM ainda precisa de correção.
 - [ ] Validar IRQ/exceptions. O teste de 30 frames mostrou que jogo comercial não deve ser executado com BIOS9 sintético: IRQ/SWI do ARM9 usam os vetores do BIOS9.
 - [ ] Validar timers.
 - [ ] Validar DMA.
 - [ ] Validar IPC ARM9 ↔ ARM7.
 - [ ] Validar acesso ao cartucho.
-- [ ] Validar saves.
+- [ ] Validar saves. RDSR `0x05` de EEPROM/FRAM agora retorna status pronto (`0x00`); ainda faltam WREN/WRDI/WRSR e persistência completa.
 - [ ] Validar sincronização do scheduler.
 - [ ] Criar testes determinísticos para CPU, memória, DMA, timers e IPC.
 - [ ] Criar mecanismo de comparação de estado para detectar regressões.

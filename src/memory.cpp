@@ -953,6 +953,8 @@ template <typename T> T Memory::ioRead9(uint32_t address)
             case 0x4001053: base -= 0x4001052; size = 2; data = core->gpu2D[1].readBldAlpha();        break; // BLDALPHA (engine B)
             case 0x400106C:
             case 0x400106D: base -= 0x400106C; size = 2; data = core->gpu2D[1].readMasterBright();    break; // MASTER_BRIGHT (engine B)
+            case 0x4000204:
+            case 0x4000205: base -= 0x4000204; size = 2; data = 0x6000;                                       break; // EXMEMCNT/EXMEMSTAT (stub)
             case 0x4100000:
             case 0x4100001:
             case 0x4100002:
@@ -967,7 +969,20 @@ template <typename T> T Memory::ioRead9(uint32_t address)
                 // Handle unknown reads by returning 0
                 if (i == 0)
                 {
+#ifdef NOODS_PS2
+#ifdef DEBUG
+                    static unsigned int unknownArm9IoReadLogs = 0;
+                    if (unknownArm9IoReadLogs < 32)
+                        LOG("Unknown ARM9 I/O register read: 0x%X\n", address);
+                    else if (unknownArm9IoReadLogs == 32)
+                        LOG("Unknown ARM9 I/O reads: further messages suppressed on PS2 debug build.\n");
+                    unknownArm9IoReadLogs++;
+#else
                     LOG("Unknown ARM9 I/O register read: 0x%X\n", address);
+#endif
+#else
+                    LOG("Unknown ARM9 I/O register read: 0x%X\n", address);
+#endif
                     return 0;
                 }
 
@@ -1273,6 +1288,8 @@ template <typename T> T Memory::ioRead7(uint32_t address)
             case 0x4800155: base -= 0x4800154; size = 2; data = core->wifi.readWConfig(14);           break; // W_CONFIG_154
             case 0x480015C:
             case 0x480015D: base -= 0x480015C; size = 2; data = core->wifi.readWBbRead();             break; // W_BB_READ
+            case 0x4000204:
+            case 0x4000205: base -= 0x4000204; size = 2; data = 0x6000;                                       break; // EXMEMSTAT (stub)
 
             default:
             {
@@ -2127,13 +2144,28 @@ template <typename T> void Memory::ioWrite9(uint32_t address, T value)
             case 0x4001054: base -= 0x4001054; size = 1; core->gpu2D[1].writeBldY(data << (base * 8));                                   break; // BLDY (engine B)
             case 0x400106C:
             case 0x400106D: base -= 0x400106C; size = 2; core->gpu2D[1].writeMasterBright(mask << (base * 8), data << (base * 8));       break; // MASTER_BRIGHT (engine B)
+            case 0x4000204:
+            case 0x4000205: base -= 0x4000204; size = 2;                                                              break; // EXMEMCNT stub: accept/ignore writes
 
             default:
             {
                 // Catch unknown writes
                 if (i == 0)
                 {
+#ifdef NOODS_PS2
+#ifdef DEBUG
+                    static unsigned int unknownArm9IoWriteLogs = 0;
+                    if (unknownArm9IoWriteLogs < 32)
+                        LOG("Unknown ARM9 I/O register write: 0x%X\n", address);
+                    else if (unknownArm9IoWriteLogs == 32)
+                        LOG("Unknown ARM9 I/O writes: further messages suppressed on PS2 debug build.\n");
+                    unknownArm9IoWriteLogs++;
+#else
                     LOG("Unknown ARM9 I/O register write: 0x%X\n", address);
+#endif
+#else
+                    LOG("Unknown ARM9 I/O register write: 0x%X\n", address);
+#endif
                     return;
                 }
 
@@ -2632,6 +2664,8 @@ template <typename T> void Memory::ioWrite7(uint32_t address, T value)
             case 0x480015B: base -= 0x480015A; size = 2; core->wifi.writeWBbWrite(mask << (base * 8), data << (base * 8));              break; // W_BB_WRITE
             case 0x480021C:
             case 0x480021D: base -= 0x480021C; size = 2; core->wifi.writeWIrfSet(mask << (base * 8), data << (base * 8));               break; // W_IF_SET
+            case 0x4000204:
+            case 0x4000205: base -= 0x4000204; size = 2;                                                              break; // EXMEMSTAT stub: accept/ignore writes
 
             default:
             {
