@@ -9,6 +9,7 @@
 
 #include <cctype>
 #include <cstdint>
+#include <ctime>
 #include <cstdio>
 #include <cstring>
 #include <debug.h>
@@ -535,6 +536,9 @@ int main(int argc, char **argv)
         gsKit_queue_exec(gsGlobal);
 
         int frameNo = selectedFrame + 1;
+        clock_t benchStart = clock();
+        int benchFrames = 0;
+
         while (1)
         {
             if (padReady)
@@ -552,6 +556,14 @@ int main(int argc, char **argv)
             // to distinguish from a fully-white frame.
             if ((frameNo % 60) == 0)
             {
+                benchFrames += 60;
+                clock_t now = clock();
+                double elapsed = static_cast<double>(now - benchStart) / CLOCKS_PER_SEC;
+                double emuFps = (elapsed > 0.0) ? (benchFrames / elapsed) : 0.0;
+
+                PS2_LOG("[PS2] interpreter benchmark: %d frames in %.3f s = %.2f NDS fps\n",
+                    benchFrames, elapsed, emuFps);
+
                 uint32_t topHash = 2166136261u;
                 uint32_t bottomHash = 2166136261u;
                 uint32_t topWhite = 0;
