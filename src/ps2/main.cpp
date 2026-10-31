@@ -98,6 +98,24 @@ void pollPadIntoNds(Core *core)
     setNdsKey(core, 7, pressed & PAD_DOWN);
     setNdsKey(core, 8, pressed & PAD_R1);
     setNdsKey(core, 9, pressed & PAD_L1);
+
+    // Right stick is an absolute stylus position.
+    // Clamp to the DS touch area; R2 acts as pen-down.
+    int touchX = buttons.rjoy_h;
+    int touchY = (static_cast<int>(buttons.rjoy_v) * 192) / 256;
+    if (touchX < 1) touchX = 1; else if (touchX > 254) touchX = 254;
+    if (touchY < 1) touchY = 1; else if (touchY > 190) touchY = 190;
+
+    if (pressed & PAD_R2)
+    {
+        core->spi.setTouch(touchX, touchY);
+        core->input.pressScreen();
+    }
+    else
+    {
+        core->spi.clearTouch();
+        core->input.releaseScreen();
+    }
 }
 
 std::string chooseReadablePath(const char *preferred, const char *fallback)
