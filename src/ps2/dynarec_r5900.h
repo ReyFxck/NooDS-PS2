@@ -63,6 +63,13 @@ class DynarecR5900
             uint32_t *guestPc = nullptr, uint32_t *instructionCount = nullptr,
             uint32_t *stateHash = nullptr);
 
+        // Differential gate against NooDS' own interpreter. Only straight-line
+        // no-flags ALU blocks are eligible, so CPU state can be restored exactly
+        // after the comparison with no guest-visible side effects.
+        int runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
+            uint32_t *guestPc = nullptr, uint32_t *instructionCount = nullptr,
+            uint32_t *stateHash = nullptr);
+
         size_t codeCacheUsed() const { return cache.usedBytes(); }
         size_t codeCacheCapacity() const { return cache.capacity(); }
         size_t blockCount() const { return blocks.size(); }
