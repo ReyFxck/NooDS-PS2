@@ -33,6 +33,12 @@ class Rtc
 
         void writeRtc(uint8_t value);
 
+        // Deterministic clock source for automated/self-test runs. Normal
+        // emulation keeps using the host clock unless this is explicitly set.
+        void setFixedDateTime(uint8_t year, uint8_t month, uint8_t day,
+            uint8_t weekday, uint8_t hour, uint8_t minute, uint8_t second);
+        void clearFixedDateTime() { fixedDateTimeEnabled = false; }
+
     private:
         Core *core;
 
@@ -52,6 +58,15 @@ class Rtc
         uint8_t freeReg = 0;
 
         uint8_t rtc = 0;
+
+        bool fixedDateTimeEnabled = false;
+        uint8_t fixedYear = 0;
+        uint8_t fixedMonth = 1;
+        uint8_t fixedDay = 1;
+        uint8_t fixedWeekday = 5;
+        uint8_t fixedHour = 0;
+        uint8_t fixedMinute = 0;
+        uint8_t fixedSecond = 0;
 
         void reset();
         void updateRtc(bool cs, bool sck, bool sio);
