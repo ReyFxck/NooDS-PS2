@@ -141,7 +141,11 @@ void Core::runGbaFrame()
         // Run the ARM7 until the next scheduled task
         if (arm7Cycles > globalCycles) globalCycles = arm7Cycles;
         while (interpreter[1].shouldRun() && tasks[0].cycles > arm7Cycles)
+        {
+            if (profileEnabled)
+                runProfile.arm7Opcodes++;
             arm7Cycles = (globalCycles += interpreter[1].runOpcode());
+        }
 
         // Jump to the next scheduled task
         globalCycles = tasks[0].cycles;
@@ -150,6 +154,8 @@ void Core::runGbaFrame()
         // Run all tasks that are scheduled now
         while (tasks[0].cycles <= globalCycles)
         {
+            if (profileEnabled)
+                runProfile.taskExecutions++;
             (*tasks[0].task)();
             tasks.erase(tasks.begin());
         }
@@ -181,11 +187,19 @@ void Core::runNdsFrame()
         {
             // Run the ARM9
             if (interpreter[0].shouldRun() && globalCycles >= arm9Cycles)
+            {
+                if (profileEnabled)
+                    runProfile.arm9Opcodes++;
                 arm9Cycles = globalCycles + interpreter[0].runOpcode();
+            }
 
             // Run the ARM7 at half the speed of the ARM9
             if (interpreter[1].shouldRun() && globalCycles >= arm7Cycles)
+            {
+                if (profileEnabled)
+                    runProfile.arm7Opcodes++;
                 arm7Cycles = globalCycles + (interpreter[1].runOpcode() << 1);
+            }
 
             // Count cycles up to the next soonest event
             globalCycles = std::min((interpreter[0].shouldRun() ? arm9Cycles : tasks[0].cycles),
@@ -199,6 +213,8 @@ void Core::runNdsFrame()
         // Run all tasks that are scheduled now
         while (tasks[0].cycles <= globalCycles)
         {
+            if (profileEnabled)
+                runProfile.taskExecutions++;
             (*tasks[0].task)();
             tasks.erase(tasks.begin());
         }
@@ -224,6 +240,13 @@ void Core::schedule(Task task)
     task.cycles += globalCycles;
     auto it = std::upper_bound(tasks.cbegin(), tasks.cend(), task);
     tasks.insert(it, task);
+
+    if (profileEnabled)
+    {
+        runProfile.scheduleCalls++;
+        if (tasks.size() > runProfile.maxTaskDepth)
+            runProfile.maxTaskDepth = static_cast<uint32_t>(tasks.size());
+    }
 }
 
 void Core::enterGbaMode()
