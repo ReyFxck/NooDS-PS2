@@ -351,7 +351,9 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
 
     R5900CompiledBlock block = {};
     block.guestPc = guestPc;
+    block.guestEndPc = guestPc + static_cast<uint32_t>(count * 4);
     block.mapGeneration = mappedGeneration;
+    block.guestInstructions = static_cast<uint32_t>(count);
     block.cycles = static_cast<uint32_t>(count);
     block.thumb = false;
     block.hostCode = code;
@@ -648,7 +650,7 @@ int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
 
     uint32_t guestPc = CpuBackendAccess::nextInstructionAddress(cpu);
     const R5900CompiledBlock *block = findBlock(guestPc, false);
-    if (!block || !block->hostCode || block->cycles == 0)
+    if (!block || !block->hostCode || block->guestInstructions == 0)
         return 0;
 
     uint32_t savedRegs[16] = {};
@@ -669,7 +671,7 @@ int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
     function(&dynarecState);
 
     bool interpreterOk = true;
-    for (uint32_t i = 0; i < block->cycles; i++)
+    for (uint32_t i = 0; i < block->guestInstructions; i++)
     {
         // Every opcode admitted by this block is unconditional, no-flags ALU
         // with no PC destination or memory side effects.
@@ -699,7 +701,7 @@ int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
 
     hash ^= savedCpsr;
     hash *= 16777619u;
-    hash ^= block->cycles;
+    hash ^= block->guestInstructions;
     hash *= 16777619u;
 
     // Restore before returning on every path. The tested subset cannot change
@@ -710,7 +712,7 @@ int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
     if (guestPcOut)
         *guestPcOut = guestPc;
     if (instructionCount)
-        *instructionCount = block->cycles;
+        *instructionCount = block->guestInstructions;
     if (stateHash)
         *stateHash = hash;
 
