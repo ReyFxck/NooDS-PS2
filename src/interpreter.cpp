@@ -2510,7 +2510,7 @@ void Interpreter::sendInterrupt(int bit)
     if (ie & irf)
     {
         if (ime && !(cpsr & BIT(7)))
-            core->schedule(Task(&interruptTask, (cpu == 1 && !core->isGbaMode()) ? 2 : 1));
+            core->schedule(Task(&interruptTask, (cpu == 1 && !core->isGbaMode(, TASK_PROFILE_IRQ)) ? 2 : 1));
         else if (ime || cpu == 1)
             halted &= ~BIT(0);
     }
@@ -2635,7 +2635,7 @@ void Interpreter::setCpsr(uint32_t value, bool save)
 
     // Trigger an interrupt if the conditions are met
     if (ime && (ie & irf) && !(cpsr & BIT(7)))
-        core->schedule(Task(&interruptTask, (cpu == 1 && !core->isGbaMode()) ? 2 : 1));
+        core->schedule(Task(&interruptTask, (cpu == 1 && !core->isGbaMode(, TASK_PROFILE_IRQ)) ? 2 : 1));
 }
 
 int Interpreter::handleReserved(uint32_t opcode)
@@ -2670,7 +2670,7 @@ void Interpreter::writeIme(uint8_t value)
 
     // Trigger an interrupt if the conditions are met
     if (ime && (ie & irf) && !(cpsr & BIT(7)))
-        core->schedule(Task(&interruptTask, (cpu == 1 && !core->isGbaMode()) ? 2 : 1));
+        core->schedule(Task(&interruptTask, (cpu == 1 && !core->isGbaMode(, TASK_PROFILE_IRQ)) ? 2 : 1));
 }
 
 void Interpreter::writeIe(uint32_t mask, uint32_t value)
@@ -2681,7 +2681,7 @@ void Interpreter::writeIe(uint32_t mask, uint32_t value)
 
     // Trigger an interrupt if the conditions are met
     if (ime && (ie & irf) && !(cpsr & BIT(7)))
-        core->schedule(Task(&interruptTask, (cpu == 1 && !core->isGbaMode()) ? 2 : 1));
+        core->schedule(Task(&interruptTask, (cpu == 1 && !core->isGbaMode(, TASK_PROFILE_IRQ)) ? 2 : 1));
 }
 
 void Interpreter::writeIrf(uint32_t mask, uint32_t value)
