@@ -324,6 +324,7 @@ To compile for Android, the easiest way would be to use [Android Studio](https:/
 - [x] O banner registra a HEAD exata usada no build, separada do commit-base histórico.
 - [x] O profiler separa draw/timing da GPU, engine 2D A/B, capture, renderer 3D e VBlank; cada classe usa amostragem independente para não sincronizar acidentalmente com o padrão periódico do scheduler.
 - [x] O profiler mede tempo bloqueado em leitura/seek da ROM e mostra `coreExIO`, chamadas, bytes, leituras curtas e piores latências por janela.
+- [x] Cada hot PC amostrado registra opcode atual/seguinte, modo ARM/Thumb, CPSR, valores de Rn/Rd/Rm, endereço efetivo seguro para transfers imediatos, alvo de B/BL e distância até o próximo evento; o profiler nunca relê MMIO.
 - [x] Code cache PS2 alocado dinamicamente e alinhado a 64 bytes.
 - [x] Sincronização EE D-cache/I-cache após emissão de código.
 - [x] Emitter inicial R5900/MIPS para operações ALU, shifts, branches e loads/stores.

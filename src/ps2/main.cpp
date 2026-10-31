@@ -311,14 +311,49 @@ void logInterpreterProfile(const char *label, const InterpreterProfile &profile)
         }
     }
 
-    PS2_LOG("[PS2][PROF] %s hotPC(sample/64): %08lX:%lu %08lX:%lu %08lX:%lu %08lX:%lu %08lX:%lu %08lX:%lu\n",
+    PS2_LOG("[PS2][PROF] %s hotPC(sample/64): %08lX:%08lX:%lu %08lX:%08lX:%lu %08lX:%08lX:%lu %08lX:%08lX:%lu %08lX:%08lX:%lu %08lX:%08lX:%lu\n",
         label,
-        static_cast<unsigned long>(top[0].pc), static_cast<unsigned long>(top[0].samples),
-        static_cast<unsigned long>(top[1].pc), static_cast<unsigned long>(top[1].samples),
-        static_cast<unsigned long>(top[2].pc), static_cast<unsigned long>(top[2].samples),
-        static_cast<unsigned long>(top[3].pc), static_cast<unsigned long>(top[3].samples),
-        static_cast<unsigned long>(top[4].pc), static_cast<unsigned long>(top[4].samples),
-        static_cast<unsigned long>(top[5].pc), static_cast<unsigned long>(top[5].samples));
+        static_cast<unsigned long>(top[0].pc), static_cast<unsigned long>(top[0].opcode), static_cast<unsigned long>(top[0].samples),
+        static_cast<unsigned long>(top[1].pc), static_cast<unsigned long>(top[1].opcode), static_cast<unsigned long>(top[1].samples),
+        static_cast<unsigned long>(top[2].pc), static_cast<unsigned long>(top[2].opcode), static_cast<unsigned long>(top[2].samples),
+        static_cast<unsigned long>(top[3].pc), static_cast<unsigned long>(top[3].opcode), static_cast<unsigned long>(top[3].samples),
+        static_cast<unsigned long>(top[4].pc), static_cast<unsigned long>(top[4].opcode), static_cast<unsigned long>(top[4].samples),
+        static_cast<unsigned long>(top[5].pc), static_cast<unsigned long>(top[5].opcode), static_cast<unsigned long>(top[5].samples));
+
+    for (int i = 0; i < 6 && top[i].samples; i++)
+    {
+        const char *kind = "other";
+        if (top[i].thumb)
+        {
+            kind = "thumb";
+        }
+        else
+        {
+            uint32_t group = (top[i].opcode >> 25) & 0x7u;
+            if (group == 0x5u) kind = "branch";
+            else if (group == 0x4u) kind = "multi";
+            else if ((top[i].opcode & 0x0C000000u) == 0x04000000u) kind = "memory";
+            else if (group <= 0x1u) kind = "data";
+            else if (group >= 0x6u) kind = "system";
+        }
+
+        PS2_LOG("[PS2][PROF] %s hot#%d pc=%08lX op=%08lX next=%08lX mode=%s kind=%s samples=%lu cpsr=%08lX r%u=%08lX r%u=%08lX r%u=%08lX mem=%08lX branch=%08lX nextEvent=%lu\n",
+            label,
+            i,
+            static_cast<unsigned long>(top[i].pc),
+            static_cast<unsigned long>(top[i].opcode),
+            static_cast<unsigned long>(top[i].nextOpcode),
+            top[i].thumb ? "THUMB" : "ARM",
+            kind,
+            static_cast<unsigned long>(top[i].samples),
+            static_cast<unsigned long>(top[i].cpsr),
+            static_cast<unsigned>(top[i].rn), static_cast<unsigned long>(top[i].rnValue),
+            static_cast<unsigned>(top[i].rd), static_cast<unsigned long>(top[i].rdValue),
+            static_cast<unsigned>(top[i].rm), static_cast<unsigned long>(top[i].rmValue),
+            static_cast<unsigned long>(top[i].memoryAddress),
+            static_cast<unsigned long>(top[i].branchTarget),
+            static_cast<unsigned long>(top[i].nextEventCycles));
+    }
 }
 #endif
 }

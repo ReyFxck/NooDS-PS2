@@ -102,6 +102,15 @@ class Core
 
         uint32_t getGlobalCycles() { return globalCycles; }
 
+#ifdef NOODS_PROFILE
+        uint32_t getCyclesUntilNextEvent() const
+        {
+            if (tasks.empty() || tasks[0].cycles <= globalCycles)
+                return 0;
+            return tasks[0].cycles - globalCycles;
+        }
+#endif
+
         void setProfileEnabled(bool enabled)
         {
             profileEnabled = enabled;

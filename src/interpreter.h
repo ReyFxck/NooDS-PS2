@@ -32,6 +32,21 @@ struct InterpreterHotPc
 {
     uint32_t pc = 0;
     uint32_t samples = 0;
+#ifdef NOODS_PROFILE
+    uint32_t opcode = 0;
+    uint32_t nextOpcode = 0;
+    uint32_t cpsr = 0;
+    uint32_t rnValue = 0;
+    uint32_t rdValue = 0;
+    uint32_t rmValue = 0;
+    uint32_t memoryAddress = 0xFFFFFFFFu;
+    uint32_t branchTarget = 0xFFFFFFFFu;
+    uint32_t nextEventCycles = 0;
+    uint8_t rn = 0xFFu;
+    uint8_t rd = 0xFFu;
+    uint8_t rm = 0xFFu;
+    bool thumb = false;
+#endif
 };
 
 struct InterpreterProfile

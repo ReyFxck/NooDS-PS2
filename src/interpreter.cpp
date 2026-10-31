@@ -154,6 +154,62 @@ int Interpreter::runOpcode()
                 entry.pc = pc;
                 entry.samples = 1;
             }
+
+            // Keep a bounded execution-context snapshot only for the entry
+            // that survived the lossy heavy-PC update. This never performs an
+            // extra emulated-memory read, so MMIO side effects are impossible.
+            if (entry.pc == pc)
+            {
+                entry.opcode = opcode;
+                entry.nextOpcode = pipeline[1];
+                entry.cpsr = cpsr;
+                entry.nextEventCycles = core->getCyclesUntilNextEvent();
+                entry.thumb = thumb;
+                entry.memoryAddress = 0xFFFFFFFFu;
+                entry.branchTarget = 0xFFFFFFFFu;
+                entry.rn = entry.rd = entry.rm = 0xFFu;
+                entry.rnValue = entry.rdValue = entry.rmValue = 0;
+
+                if (!thumb)
+                {
+                    entry.rn = static_cast<uint8_t>((opcode >> 16) & 0xFu);
+                    entry.rd = static_cast<uint8_t>((opcode >> 12) & 0xFu);
+                    entry.rm = static_cast<uint8_t>(opcode & 0xFu);
+                    entry.rnValue = (entry.rn == 15) ? pc + 8u : *registers[entry.rn];
+                    entry.rdValue = (entry.rd == 15) ? pc + 8u : *registers[entry.rd];
+                    entry.rmValue = (entry.rm == 15) ? pc + 8u : *registers[entry.rm];
+
+                    // Direct B/BL target. The sign-extended offset stays in
+                    // the safe +/-32 MiB range before multiplication.
+                    if (((opcode >> 25) & 0x7u) == 0x5u)
+                    {
+                        int32_t offset = static_cast<int32_t>(opcode & 0x00FFFFFFu);
+                        if (offset & 0x00800000)
+                            offset |= static_cast<int32_t>(0xFF000000u);
+                        offset *= 4;
+                        entry.branchTarget = pc + 8u + static_cast<uint32_t>(offset);
+                    }
+
+                    // Exact effective address for immediate-offset ARM
+                    // LDR/STR. Register-offset forms are intentionally left
+                    // unknown until their barrel-shifter context is decoded.
+                    if ((opcode & 0x0C000000u) == 0x04000000u &&
+                        !(opcode & BIT(25)))
+                    {
+                        uint32_t base = entry.rnValue;
+                        uint32_t offset = opcode & 0xFFFu;
+                        if (opcode & BIT(24)) // pre-indexed
+                            base = (opcode & BIT(23)) ? base + offset : base - offset;
+                        entry.memoryAddress = base;
+                    }
+                    else if (((opcode >> 25) & 0x7u) == 0x4u)
+                    {
+                        // LDM/STM begins from Rn; detailed transfer bounds can
+                        // be reconstructed from the logged register list.
+                        entry.memoryAddress = entry.rnValue;
+                    }
+                }
+            }
         }
     }
 #endif
