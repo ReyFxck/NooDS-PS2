@@ -47,6 +47,7 @@ void Cartridge::loadRom(std::string path)
     fseek(romFile, 0, SEEK_END);
     romSize = ftell(romFile);
     fseek(romFile, 0, SEEK_SET);
+    romFilePosition = 0;
 
     // Attempt to load the ROM's save into memory
     saveName = path.substr(0, path.rfind(".")) + ".sav";
@@ -117,8 +118,13 @@ void Cartridge::loadRomSection(uint32_t offset, uint32_t size)
 
     if (!romCache || !romCachePageCount)
     {
-        fseek(romFile, offset, SEEK_SET);
-        fread(rom, sizeof(uint8_t), size, romFile);
+        if (romFilePosition != static_cast<long>(offset))
+        {
+            fseek(romFile, offset, SEEK_SET);
+            romFilePosition = offset;
+        }
+        size_t got = fread(rom, sizeof(uint8_t), size, romFile);
+        romFilePosition += static_cast<long>(got);
         return;
     }
 
@@ -187,10 +193,16 @@ void Cartridge::loadRomSection(uint32_t offset, uint32_t size)
 
             if (readable)
             {
-                romCacheSeekCount++;
-                fseek(romFile, pageOffset, SEEK_SET);
+                if (romFilePosition != static_cast<long>(pageOffset))
+                {
+                    romCacheSeekCount++;
+                    fseek(romFile, pageOffset, SEEK_SET);
+                    romFilePosition = pageOffset;
+                }
+
                 size_t got = fread(page, sizeof(uint8_t), readable, romFile);
                 romCacheReadBytes += got;
+                romFilePosition += static_cast<long>(got);
                 readable = static_cast<uint32_t>(got);
             }
             if (readable < romCachePageSize)
