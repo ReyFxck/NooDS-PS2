@@ -35,9 +35,10 @@ class DynarecR5900
 
         const R5900CompiledBlock *findBlock(uint32_t pc, bool thumb) const;
 
-        // Infrastructure-only probe used by CI/runtime diagnostics. It emits
-        // valid R5900 code but the scheduler does not execute dynarec blocks yet.
+        // Infrastructure probe used by CI/runtime diagnostics. It emits and
+        // executes a tiny leaf function without touching emulated CPU state.
         bool emitProbe();
+        bool runProbe(uint32_t *value = nullptr) const;
 
         size_t codeCacheUsed() const { return cache.usedBytes(); }
         size_t codeCacheCapacity() const { return cache.capacity(); }
@@ -48,6 +49,7 @@ class DynarecR5900
         R5900CodeCache cache;
         std::vector<R5900CompiledBlock> blocks;
         uint32_t mappedGeneration = 0;
+        uint32_t *probeCode = nullptr;
 };
 
 #endif
