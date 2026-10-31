@@ -144,7 +144,7 @@
 - [x] M2 — BIOS/firmware/ROM são carregados pelo backend PS2 e o `Core` é construído (confirmado no NetherSX2 em 23/10/2026).
 - [x] M3 — ARM9 e ARM7 executam sem crash imediato; primeiro `runFrame()` retornou com 560.190 ciclos no NetherSX2 em 23/10/2026.
 - [x] M4 — primeiro framebuffer completo é produzido e recuperado; hash `E7911DC5` confirmado no NetherSX2 em 30/10/2026.
-- [ ] M5 — duas telas aparecem corretamente no GS. Com BIOS9/BIOS7/firmware reais, o primeiro framebuffer não-branco apareceu no frame 19; exatamente 49.152/98.304 pixels permaneceram brancos, indicando uma tela inteira ainda branca. O teste agora continua até o frame 180 e atualiza o GS a cada frame.
+- [x] M5 — duas telas aparecem continuamente no GS; NSMB já atravessa boot, menus e cutscene longa no NetherSX2 com BIOS/firmware reais.
 - [ ] M6 — controles e touchscreen funcionam.
 - [ ] M7 — áudio funciona pelo SPU2.
 - [ ] M8 — homebrew simples executa de forma estável.
@@ -171,7 +171,7 @@ Este projeto continua sendo considerado POC até que exista, no mínimo:
 
 ## Estado atual do bootstrap PS2
 
-**Resultado com dumps reais:** NSMB saiu do framebuffer totalmente branco no frame 19 com hash `9598DDC5`; 49.152 pixels permaneceram brancos (exatamente uma tela DS). O M5 apresentou esse frame sem erro. O stream agora continua sem limite artificial, com estatísticas separadas para a tela superior e inferior a cada 60 frames.\n\n**Estado de compilação:** o CI PS2 compila e linka o core completo em Release e Debug para R5900. M0 e M2 já foram confirmados em runtime no NetherSX2. O `Core` mede 24.317.632 bytes (~23,19 MiB) no R5900. M1 (`host:`) continua pendente no Android porque o NetherSX2 bloqueia HostFS quando o ELF é iniciado pelo ISO. M3 foi confirmado: o primeiro `runFrame()` retornou com 560.190 ciclos. O teste M4 agora consome exatamente um framebuffer completo (`256x192x2`, 393.216 bytes), calcula um checksum e para; M5 inicializa o gsKit em NTSC 640x448, desliga Z/double-buffer e envia as duas telas como texturas CT32 256x192. O hash `E7911DC5` corresponde exatamente a um framebuffer inteiro `0xFFFFFFFF` (98.304 pixels brancos), então a saída branca observada não foi causada pelo GS. No teste de 30 frames, os frames 1, 5 e 10 continuaram 100% brancos; depois disso o ARM9 entrou em uma enxurrada de writes CP15 e acessos de memória unmapped. O interpreter envia IRQ do ARM9 para `exceptionAddr + 0x18` e SWI para `exceptionAddr + 0x08`, portanto o BIOS9 sintético zerado não é válido para testes comerciais. O bootstrap agora detecta esse BIOS9 sintético e para com segurança após M2; M3+ com jogos requer dump BIOS9 real de 4 KiB.
+**Resultado com dumps reais:** NSMB saiu do framebuffer totalmente branco no frame 19 com hash `9598DDC5`; 49.152 pixels permaneceram brancos (exatamente uma tela DS). O M5 apresentou esse frame sem erro. O stream agora continua sem limite artificial, com estatísticas separadas para a tela superior e inferior a cada 60 frames.\n\n**Estado de compilação:** o CI PS2 compila e linka Release + Debug + ISO para R5900. Os quatro page maps planos que consumiam ~16 MiB em ponteiros no PS2 foram substituídos por tabelas esparsas; o build imprime `sizeof(Core)` e bytes reais das page tables em runtime. M1 (`host:`) continua pendente no Android porque o NetherSX2 bloqueia HostFS quando o ELF é iniciado pelo ISO. M3 foi confirmado: o primeiro `runFrame()` retornou com 560.190 ciclos. M5 inicializa o gsKit em NTSC 640x448, envia as duas telas como texturas CT32 256x192 e mantém stream contínuo com DualShock/touchscreen. O hash `E7911DC5` corresponde exatamente a um framebuffer inteiro `0xFFFFFFFF` (98.304 pixels brancos), então a saída branca observada não foi causada pelo GS. No teste de 30 frames, os frames 1, 5 e 10 continuaram 100% brancos; depois disso o ARM9 entrou em uma enxurrada de writes CP15 e acessos de memória unmapped. O interpreter envia IRQ do ARM9 para `exceptionAddr + 0x18` e SWI para `exceptionAddr + 0x08`, portanto o BIOS9 sintético zerado não é válido para testes comerciais. O bootstrap agora detecta esse BIOS9 sintético e para com segurança após M2; M3+ com jogos requer dump BIOS9 real de 4 KiB.
 
 O bootstrap PS2 valida PS2SDK e `host:` e agora também tenta **construir o core do NooDS sem executar frames**. Isso isola problemas de RAM/BIOS/firmware/ROM antes de envolver execução ARM9/ARM7, GPU e áudio.
 
@@ -338,3 +338,18 @@ O código PS2 fica em `src/ps2/`; o core não inclui headers do PS2SDK. VU0/VU1,
 - [x] Cache LRU de ROM de 2 MiB, páginas de 16 KiB, reutilizando buffer de transferência.
 - [x] O cache é transparente ao protocolo do cartridge e serve CD/DVD, hostfs, USB, HDD ou MX4SIO através do mesmo `FILE*`.
 - [x] Contadores de hit/miss são mostrados no Debug a cada 300 frames.
+
+
+## Estado dos aceleradores PS2
+
+- [x] **GS:** apresentação das duas telas e stream contínuo.
+- [x] **PAD:** DualShock 2 + touchscreen via analógico direito/R2.
+- [x] **Storage:** ROM file-backed + cache LRU de 2 MiB; mesma interface para ISO/hostfs/USB/HDD/MX4SIO.
+- [x] **EE/R5900:** code cache executável, emitter inicial, ABI de CPU e invalidação por remap prontos.
+- [ ] **Dynarec ARM9:** traduzir/validar blocos; permanece desligado até equivalência determinística.
+- [ ] **Dynarec ARM7:** vem depois do ARM9.
+- [ ] **VU0/VU1:** usar apenas em geometria/conversões vetoriais onde houver ganho medido; nunca para lógica geral ARM.
+- [ ] **SPU2:** backend PCM ainda pendente; o mixer NDS continua no core.
+- [ ] **IOP:** avaliar offload de storage/network somente onde a sincronização não custe mais do que o ganho.
+
+A regra é manter `src/ps2/` como backend/aceleração. O core NDS continua independente de PS2SDK e sem hacks por jogo.
