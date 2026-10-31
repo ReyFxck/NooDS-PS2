@@ -56,6 +56,15 @@ struct Task
     bool operator<(const Task &task) const { return cycles < task.cycles; }
 };
 
+struct CoreRunProfile
+{
+    uint64_t arm9Opcodes = 0;
+    uint64_t arm7Opcodes = 0;
+    uint64_t taskExecutions = 0;
+    uint64_t scheduleCalls = 0;
+    uint32_t maxTaskDepth = 0;
+};
+
 class Core
 {
     public:
@@ -67,6 +76,22 @@ class Core
         int  getFps()    { return fps;     }
 
         uint32_t getGlobalCycles() { return globalCycles; }
+
+        void setProfileEnabled(bool enabled)
+        {
+            profileEnabled = enabled;
+            interpreter[0].setProfileEnabled(enabled);
+            interpreter[1].setProfileEnabled(enabled);
+        }
+
+        void resetProfile()
+        {
+            runProfile = CoreRunProfile();
+            interpreter[0].resetProfile();
+            interpreter[1].resetProfile();
+        }
+
+        const CoreRunProfile &getRunProfile() const { return runProfile; }
 
         void schedule(Task task);
         void enterGbaMode();
@@ -96,6 +121,9 @@ class Core
         void (Core::*runFunc)() = &Core::runNdsFrame;
 
         std::vector<Task> tasks;
+        bool profileEnabled = false;
+        CoreRunProfile runProfile;
+
         uint32_t frameCycles = 0, globalCycles = 0;
         uint32_t arm9Cycles = 0, arm7Cycles = 0;
 
