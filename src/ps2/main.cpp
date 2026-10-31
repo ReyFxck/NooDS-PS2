@@ -379,7 +379,16 @@ int main(int argc, char **argv)
                     static_cast<unsigned int>(dynarec.codeCacheUsed()));
 
                 if (dynarec.runArmAluSelfTest())
-                    PS2_LOG("[PS2][OK] ARM->R5900 ALU self-test: MOV/ADD/SUB/AND/EOR/ORR passed.\n");
+                {
+                    PS2_LOG("[PS2][OK] ARM->R5900 ALU self-test: register/immediate MOV/ADD/SUB/AND/EOR/ORR passed.\n");
+
+                    uint32_t arm9StateHash = 0;
+                    if (dynarec.runArm9StateSelfTest(core->interpreter[0], &arm9StateHash))
+                        PS2_LOG("[PS2][OK] ARM9 live-state dynarec gate passed: hash=%08lX.\n",
+                            static_cast<unsigned long>(arm9StateHash));
+                    else
+                        PS2_LOG("[PS2][WARN] ARM9 live-state dynarec gate failed; interpreter remains active.\n");
+                }
                 else
                     PS2_LOG("[PS2][WARN] ARM->R5900 ALU self-test failed; interpreter remains active.\n");
             }
