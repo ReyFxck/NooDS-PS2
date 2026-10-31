@@ -398,7 +398,11 @@ int main(int argc, char **argv)
 
     try
     {
+        clock_t coreConstructStart = clock();
         Core *core = new Core(romPath, "");
+        clock_t coreConstructTicks = clock() - coreConstructStart;
+        PS2_LOG("[PS2][PROF] core construction: %.2f ms\n",
+            static_cast<double>(coreConstructTicks) * 1000.0 / CLOCKS_PER_SEC);
 
         // The embedded disc image is a regression/self-test environment.
         // Freeze its RTC so RELEASE and DEBUG runs can be compared by hash.
@@ -529,6 +533,7 @@ int main(int argc, char **argv)
         if (!frame)
             throw std::bad_alloc();
 
+        clock_t m3Start = clock();
         uint32_t cyclesBefore = core->getGlobalCycles();
         PS2_LOG("[PS2] M3: running up to %d NDS frames until output is not all-white... cycles=%lu\n",
             MAX_BOOT_FRAMES, static_cast<unsigned long>(cyclesBefore));
@@ -600,6 +605,12 @@ int main(int argc, char **argv)
         PS2_LOG("[PS2][OK] M3: frame execution returned. cycles=%lu -> %lu\n",
             static_cast<unsigned long>(cyclesBefore),
             static_cast<unsigned long>(cyclesAfter));
+        PS2_LOG("[PS2][PROF] M3 boot frames: %d frames in %.2f ms (%.2f ms/frame)\n",
+            selectedFrame,
+            static_cast<double>(clock() - m3Start) * 1000.0 / CLOCKS_PER_SEC,
+            selectedFrame > 0
+                ? (static_cast<double>(clock() - m3Start) * 1000.0 / CLOCKS_PER_SEC) / selectedFrame
+                : 0.0);
 
         if (nonWhiteFrame)
         {
@@ -730,6 +741,8 @@ int main(int argc, char **argv)
         clock_t profUploadTicks = 0;
         clock_t profPresentTicks = 0;
         int profFrames = 0;
+        uint32_t profLastRomHits = core->cartridgeNds.getRomCacheHits();
+        uint32_t profLastRomMisses = core->cartridgeNds.getRomCacheMisses();
 
         while (1)
         {
@@ -786,6 +799,22 @@ int main(int argc, char **argv)
                     static_cast<unsigned long long>(runProfile.taskExecutions),
                     static_cast<unsigned long long>(runProfile.scheduleCalls),
                     static_cast<unsigned long>(runProfile.maxTaskDepth));
+
+                uint32_t currentRomHits = core->cartridgeNds.getRomCacheHits();
+                uint32_t currentRomMisses = core->cartridgeNds.getRomCacheMisses();
+                uint32_t windowHits = currentRomHits - profLastRomHits;
+                uint32_t windowMisses = currentRomMisses - profLastRomMisses;
+                uint32_t windowTotal = windowHits + windowMisses;
+                double windowHitRate = windowTotal
+                    ? (100.0 * static_cast<double>(windowHits) / windowTotal)
+                    : 100.0;
+                PS2_LOG("[PS2][PROF] ROM window: hits=%lu misses=%lu hitRate=%.2f%% cache=%lu bytes\n",
+                    static_cast<unsigned long>(windowHits),
+                    static_cast<unsigned long>(windowMisses),
+                    windowHitRate,
+                    static_cast<unsigned long>(core->cartridgeNds.getRomCacheBytes()));
+                profLastRomHits = currentRomHits;
+                profLastRomMisses = currentRomMisses;
 
                 logInterpreterProfile("ARM9", core->interpreter[0].getProfile());
                 logInterpreterProfile("ARM7", core->interpreter[1].getProfile());
