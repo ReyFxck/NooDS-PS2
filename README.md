@@ -324,7 +324,7 @@ To compile for Android, the easiest way would be to use [Android Studio](https:/
 - [x] Emitter inicial R5900/MIPS para operações ALU, shifts, branches e loads/stores.
 - [x] Blocos carregam `mapGeneration` para impedir uso de ponteiros diretos após remap de TCM/WRAM/VRAM.
 - [x] Probe R5900 é emitido e sincronizado, mas **não é executado pelo scheduler**.
-- [ ] Definir ABI ARM-state ↔ registradores R5900.
+- [x] Definir ABI ARM-state ↔ backends: `CpuBackendAccess` expõe banco ativo, CPSR, próximo PC, pipeline e branch/refill sem duplicar troca de modos.
 - [ ] Compilar primeiro subconjunto ARM9 determinístico.
 - [ ] Comparar interpreter × dynarec opcode a opcode.
 - [ ] Ativar dynarec ARM9 somente após equivalência; ARM7 vem depois.

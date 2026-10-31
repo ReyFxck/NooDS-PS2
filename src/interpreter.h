@@ -26,6 +26,7 @@
 #include "defines.h"
 
 class Core;
+class CpuBackendAccess;
 
 class Interpreter
 {
@@ -54,6 +55,8 @@ class Interpreter
         void writePostFlg(uint8_t value);
 
     private:
+        friend class CpuBackendAccess;
+
         Core *core;
         bool cpu;
 
