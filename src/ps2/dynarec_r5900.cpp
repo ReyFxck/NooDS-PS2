@@ -638,3 +638,81 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
 
     return 1;
 }
+
+
+int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
+    uint32_t *guestPcOut, uint32_t *instructionCount, uint32_t *stateHash)
+{
+    if (!CpuBackendAccess::isArm9(cpu) || CpuBackendAccess::isThumb(cpu))
+        return 0;
+
+    uint32_t guestPc = CpuBackendAccess::nextInstructionAddress(cpu);
+    const R5900CompiledBlock *block = findBlock(guestPc, false);
+    if (!block || !block->hostCode || block->cycles == 0)
+        return 0;
+
+    uint32_t savedRegs[16] = {};
+    for (int i = 0; i < 16; i++)
+        savedRegs[i] = CpuBackendAccess::readReg(cpu, i);
+
+    uint32_t savedCpsr = CpuBackendAccess::readCpsr(cpu);
+    uint32_t savedPipeline0 = CpuBackendAccess::pipelineOpcode(cpu, 0);
+    uint32_t savedPipeline1 = CpuBackendAccess::pipelineOpcode(cpu, 1);
+
+    ArmAluState dynarecState = {};
+    for (int i = 0; i < 16; i++)
+        dynarecState.r[i] = savedRegs[i];
+
+    typedef void (*ArmAluBlockFunction)(ArmAluState *);
+    ArmAluBlockFunction function =
+        reinterpret_cast<ArmAluBlockFunction>(block->hostCode);
+    function(&dynarecState);
+
+    bool interpreterOk = true;
+    for (uint32_t i = 0; i < block->cycles; i++)
+    {
+        // Every opcode admitted by this block is unconditional, no-flags ALU
+        // with no PC destination or memory side effects.
+        int cycles = cpu.runOpcode();
+        if (cycles <= 0)
+        {
+            interpreterOk = false;
+            break;
+        }
+    }
+
+    uint32_t hash = 2166136261u;
+    bool match = interpreterOk &&
+        CpuBackendAccess::readCpsr(cpu) == savedCpsr;
+
+    // r15/pipeline naturally advance in the interpreter while the current
+    // dynarec block ABI only models architectural GPR results. Compare r0-r14.
+    for (int i = 0; i < 15; i++)
+    {
+        uint32_t interpreterValue = CpuBackendAccess::readReg(cpu, i);
+        if (interpreterValue != dynarecState.r[i])
+            match = false;
+
+        hash ^= interpreterValue;
+        hash *= 16777619u;
+    }
+
+    hash ^= savedCpsr;
+    hash *= 16777619u;
+    hash ^= block->cycles;
+    hash *= 16777619u;
+
+    // Restore before returning on every path. The tested subset cannot change
+    // bank/mode/memory, so this is exact and guest-invisible.
+    CpuBackendAccess::restoreStraightLineState(cpu, savedRegs, savedCpsr,
+        savedPipeline0, savedPipeline1);
+
+    if (guestPcOut)
+        *guestPcOut = guestPc;
+    if (instructionCount)
+        *instructionCount = block->cycles;
+    if (stateHash)
+        *stateHash = hash;
+
+    return match ? 1 : -1;
+}
