@@ -406,11 +406,15 @@ int main(int argc, char **argv)
                                 core->interpreter[0], &blockPc, &blockInstructions, &blockHash);
                             if (blockGate > 0)
                             {
-                                PS2_LOG("[PS2][OK] ARM9 real-block shadow gate passed: pc=%08lX instructions=%lu blocks=%u cache=%u hash=%08lX.\n",
+                                const R5900CompiledBlock *compiledBlock =
+                                    dynarec.findBlock(blockPc, false);
+                                PS2_LOG("[PS2][OK] ARM9 real-block shadow gate passed: pc=%08lX instructions=%lu blocks=%u cache=%u read=%04X write=%04X hash=%08lX.\n",
                                     static_cast<unsigned long>(blockPc),
                                     static_cast<unsigned long>(blockInstructions),
                                     static_cast<unsigned int>(dynarec.blockCount()),
                                     static_cast<unsigned int>(dynarec.codeCacheUsed()),
+                                    compiledBlock ? compiledBlock->readMask : 0,
+                                    compiledBlock ? compiledBlock->writeMask : 0,
                                     static_cast<unsigned long>(blockHash));
 
                                 uint32_t diffPc = 0;
