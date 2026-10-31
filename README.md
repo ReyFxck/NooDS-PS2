@@ -76,8 +76,8 @@
 
 ## Controles / touchscreen
 
-- [ ] Mapear D-pad e botões do DualShock 2 para os controles do NDS.
-- [ ] Usar analógico direito como cursor de touchscreen.
+- [x] Mapear D-pad e botões do DualShock 2 para os controles do NDS (○=A, ×=B, △=X, □=Y, Start/Select, L1/R1).
+- [ ] Usar analógico direito como cursor de touchscreen. O backend de pad é não-fatal: se PADMAN/controle não abrir, a emulação continua sem input.
 - [ ] Adicionar botão configurável para toque.
 - [ ] Adicionar modo de manter stylus pressionado.
 - [ ] Permitir trocar as telas por botão.

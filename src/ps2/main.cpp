@@ -13,6 +13,8 @@
 #include <cstring>
 #include <debug.h>
 #include <sifrpc.h>
+#include <loadfile.h>
+#include <libpad.h>
 #include <dmaKit.h>
 #include <gsKit.h>
 #include <new>
@@ -37,6 +39,66 @@ constexpr const char *DISC_ROM      = "cdrom0:\\SELFTEST.NDS;1";
 constexpr const char *DISC_BIOS9    = "cdrom0:\\BIOS9.BIN;1";
 constexpr const char *DISC_BIOS7    = "cdrom0:\\BIOS7.BIN;1";
 constexpr const char *DISC_FIRMWARE = "cdrom0:\\FIRMWARE.BIN;1";
+
+alignas(64) static char padBuffer[256];
+
+bool initPs2Pad()
+{
+    int sio = SifLoadModule("rom0:SIO2MAN", 0, nullptr);
+    int padman = SifLoadModule("rom0:PADMAN", 0, nullptr);
+
+    PS2_LOG("[PS2] PAD modules: SIO2MAN=%d PADMAN=%d\n", sio, padman);
+
+    if (padInit(0) == 0)
+    {
+        PS2_LOG("[PS2][WARN] padInit() failed; continuing without controller input.\n");
+        return false;
+    }
+
+    if (padPortOpen(0, 0, padBuffer) == 0)
+    {
+        PS2_LOG("[PS2][WARN] padPortOpen(0,0) failed; continuing without controller input.\n");
+        return false;
+    }
+
+    PS2_LOG("[PS2][OK] DualShock input backend opened on port 0 slot 0.\n");
+    return true;
+}
+
+void setNdsKey(Core *core, int key, bool pressed)
+{
+    if (pressed)
+        core->input.pressKey(key);
+    else
+        core->input.releaseKey(key);
+}
+
+void pollPadIntoNds(Core *core)
+{
+    int state = padGetState(0, 0);
+    if (state != PAD_STATE_STABLE && state != PAD_STATE_FINDCTP1)
+        return;
+
+    struct padButtonStatus buttons = {};
+    if (!padRead(0, 0, &buttons))
+        return;
+
+    uint16_t pressed = static_cast<uint16_t>(0xFFFFu ^ buttons.btns);
+
+    setNdsKey(core, 0,  pressed & PAD_CIRCLE);   // DS A
+    setNdsKey(core, 1,  pressed & PAD_CROSS);    // DS B
+    setNdsKey(core, 10, pressed & PAD_TRIANGLE); // DS X
+    setNdsKey(core, 11, pressed & PAD_SQUARE);   // DS Y
+
+    setNdsKey(core, 2, pressed & PAD_SELECT);
+    setNdsKey(core, 3, pressed & PAD_START);
+    setNdsKey(core, 4, pressed & PAD_RIGHT);
+    setNdsKey(core, 5, pressed & PAD_LEFT);
+    setNdsKey(core, 6, pressed & PAD_UP);
+    setNdsKey(core, 7, pressed & PAD_DOWN);
+    setNdsKey(core, 8, pressed & PAD_R1);
+    setNdsKey(core, 9, pressed & PAD_L1);
+}
 
 std::string chooseReadablePath(const char *preferred, const char *fallback)
 {
@@ -181,6 +243,7 @@ int main(int argc, char **argv)
     // Make bring-up results visible in the PCSX2/PS2 video output as well as stdout.
     sceSifInitRpc(0);
     init_scr();
+    bool padReady = initPs2Pad();
     PS2_LOG("\n");
     PS2_LOG("============================================================\n");
     PS2_LOG(" NooDS-PS2 POC bootstrap\n");
@@ -294,6 +357,8 @@ int main(int argc, char **argv)
 
         for (int frameNo = 1; frameNo <= MAX_BOOT_FRAMES; frameNo++)
         {
+            if (padReady)
+                pollPadIntoNds(core);
             core->runFrame();
 
             if (!core->gpu.getFrame(frame, false))
@@ -455,6 +520,8 @@ int main(int argc, char **argv)
 
         for (int frameNo = selectedFrame + 1; frameNo <= STREAM_END_FRAME; frameNo++)
         {
+            if (padReady)
+                pollPadIntoNds(core);
             core->runFrame();
 
             if (!core->gpu.getFrame(frame, false))
