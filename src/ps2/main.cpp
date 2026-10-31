@@ -744,6 +744,9 @@ int main(int argc, char **argv)
         int profFrames = 0;
         uint32_t profLastRomHits = core->cartridgeNds.getRomCacheHits();
         uint32_t profLastRomMisses = core->cartridgeNds.getRomCacheMisses();
+        uint64_t profLastRomReadBytes = core->cartridgeNds.getRomCacheReadBytes();
+        uint32_t profLastRomSeeks = core->cartridgeNds.getRomCacheSeekCount();
+        uint32_t profLastSequentialMisses = core->cartridgeNds.getRomCacheSequentialMisses();
 
         while (1)
         {
@@ -816,13 +819,31 @@ int main(int argc, char **argv)
                 double windowHitRate = windowTotal
                     ? (100.0 * static_cast<double>(windowHits) / windowTotal)
                     : 100.0;
-                PS2_LOG("[PS2][PROF] ROM window: hits=%lu misses=%lu hitRate=%.2f%% cache=%lu bytes\n",
+                uint64_t currentRomReadBytes = core->cartridgeNds.getRomCacheReadBytes();
+                uint32_t currentRomSeeks = core->cartridgeNds.getRomCacheSeekCount();
+                uint32_t currentSequentialMisses =
+                    core->cartridgeNds.getRomCacheSequentialMisses();
+
+                uint64_t windowReadBytes = currentRomReadBytes - profLastRomReadBytes;
+                uint32_t windowSeeks = currentRomSeeks - profLastRomSeeks;
+                uint32_t windowSequentialMisses =
+                    currentSequentialMisses - profLastSequentialMisses;
+
+                PS2_LOG("[PS2][PROF] ROM window: hits=%lu misses=%lu hitRate=%.2f%% seeks=%lu read=%lluKiB seqMiss=%lu maxSeq=%lu cache=%luKiB\n",
                     static_cast<unsigned long>(windowHits),
                     static_cast<unsigned long>(windowMisses),
                     windowHitRate,
-                    static_cast<unsigned long>(core->cartridgeNds.getRomCacheBytes()));
+                    static_cast<unsigned long>(windowSeeks),
+                    static_cast<unsigned long long>(windowReadBytes / 1024u),
+                    static_cast<unsigned long>(windowSequentialMisses),
+                    static_cast<unsigned long>(core->cartridgeNds.getRomCacheSequentialRunMax()),
+                    static_cast<unsigned long>(core->cartridgeNds.getRomCacheBytes() / 1024u));
+
                 profLastRomHits = currentRomHits;
                 profLastRomMisses = currentRomMisses;
+                profLastRomReadBytes = currentRomReadBytes;
+                profLastRomSeeks = currentRomSeeks;
+                profLastSequentialMisses = currentSequentialMisses;
 
                 logInterpreterProfile("ARM9", core->interpreter[0].getProfile());
                 logInterpreterProfile("ARM7", core->interpreter[1].getProfile());
