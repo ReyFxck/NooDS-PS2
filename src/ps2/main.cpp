@@ -373,9 +373,16 @@ int main(int argc, char **argv)
         {
             uint32_t probeValue = 0;
             if (dynarec.runProbe(&probeValue))
+            {
                 PS2_LOG("[PS2][OK] R5900 dynarec probe executed: result=%08lX, cache=%u bytes.\n",
                     static_cast<unsigned long>(probeValue),
                     static_cast<unsigned int>(dynarec.codeCacheUsed()));
+
+                if (dynarec.runArmAluSelfTest())
+                    PS2_LOG("[PS2][OK] ARM->R5900 ALU self-test: MOV/ADD/SUB/AND/EOR/ORR passed.\n");
+                else
+                    PS2_LOG("[PS2][WARN] ARM->R5900 ALU self-test failed; interpreter remains active.\n");
+            }
             else
                 PS2_LOG("[PS2][WARN] R5900 dynarec probe failed; interpreter remains active.\n");
         }
