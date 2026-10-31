@@ -13,7 +13,9 @@ class Interpreter;
 struct R5900CompiledBlock
 {
     uint32_t guestPc = 0;
+    uint32_t guestEndPc = 0;
     uint32_t mapGeneration = 0;
+    uint32_t guestInstructions = 0;
     uint32_t cycles = 0;
     bool thumb = false;
 
