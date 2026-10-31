@@ -142,8 +142,10 @@ void Core::runGbaFrame()
         if (arm7Cycles > globalCycles) globalCycles = arm7Cycles;
         while (interpreter[1].shouldRun() && tasks[0].cycles > arm7Cycles)
         {
+#ifdef NOODS_PROFILE
             if (profileEnabled)
                 runProfile.arm7Opcodes++;
+#endif
             arm7Cycles = (globalCycles += interpreter[1].runOpcode());
         }
 
@@ -154,8 +156,10 @@ void Core::runGbaFrame()
         // Run all tasks that are scheduled now
         while (tasks[0].cycles <= globalCycles)
         {
+#ifdef NOODS_PROFILE
             if (profileEnabled)
                 runProfile.taskExecutions++;
+#endif
             (*tasks[0].task)();
             tasks.erase(tasks.begin());
         }
@@ -188,16 +192,20 @@ void Core::runNdsFrame()
             // Run the ARM9
             if (interpreter[0].shouldRun() && globalCycles >= arm9Cycles)
             {
+#ifdef NOODS_PROFILE
                 if (profileEnabled)
                     runProfile.arm9Opcodes++;
+#endif
                 arm9Cycles = globalCycles + interpreter[0].runOpcode();
             }
 
             // Run the ARM7 at half the speed of the ARM9
             if (interpreter[1].shouldRun() && globalCycles >= arm7Cycles)
             {
+#ifdef NOODS_PROFILE
                 if (profileEnabled)
                     runProfile.arm7Opcodes++;
+#endif
                 arm7Cycles = globalCycles + (interpreter[1].runOpcode() << 1);
             }
 
@@ -213,8 +221,10 @@ void Core::runNdsFrame()
         // Run all tasks that are scheduled now
         while (tasks[0].cycles <= globalCycles)
         {
+#ifdef NOODS_PROFILE
             if (profileEnabled)
                 runProfile.taskExecutions++;
+#endif
             (*tasks[0].task)();
             tasks.erase(tasks.begin());
         }
@@ -241,12 +251,14 @@ void Core::schedule(Task task)
     auto it = std::upper_bound(tasks.cbegin(), tasks.cend(), task);
     tasks.insert(it, task);
 
+#ifdef NOODS_PROFILE
     if (profileEnabled)
     {
         runProfile.scheduleCalls++;
         if (tasks.size() > runProfile.maxTaskDepth)
             runProfile.maxTaskDepth = static_cast<uint32_t>(tasks.size());
     }
+#endif
 }
 
 void Core::enterGbaMode()
