@@ -28,6 +28,28 @@
 class Core;
 class CpuBackendAccess;
 
+struct InterpreterHotPc
+{
+    uint32_t pc = 0;
+    uint32_t samples = 0;
+};
+
+struct InterpreterProfile
+{
+    uint64_t instructions = 0;
+    uint64_t armInstructions = 0;
+    uint64_t thumbInstructions = 0;
+
+    // ARM: data/misc, single transfer, block transfer, branch, coprocessor/SWI.
+    uint64_t armClass[5] = {};
+    // THUMB: ALU/misc, load/store, address/stack, multiple transfer, branch/SWI.
+    uint64_t thumbClass[5] = {};
+
+    // Lossy direct-mapped heavy-PC sampler. Sampling one instruction in 64
+    // keeps profiling overhead tiny enough to leave enabled in PS2 debug runs.
+    InterpreterHotPc hotPc[256] = {};
+};
+
 class Interpreter
 {
     public:
@@ -37,6 +59,10 @@ class Interpreter
         void directBoot();
 
         int runOpcode();
+
+        void setProfileEnabled(bool enabled) { profileEnabled = enabled; }
+        void resetProfile() { profile = InterpreterProfile(); }
+        const InterpreterProfile &getProfile() const { return profile; }
 
         void halt(int bit)   { halted |=  BIT(bit); }
         void unhalt(int bit) { halted &= ~BIT(bit); }
@@ -74,6 +100,9 @@ class Interpreter
         uint32_t spsrFiq = 0, spsrSvc = 0, spsrAbt = 0, spsrIrq = 0, spsrUnd = 0;
 
         uint8_t halted = 0;
+
+        bool profileEnabled = false;
+        InterpreterProfile profile;
 
         uint8_t ime = 0;
         uint32_t ie = 0, irf = 0;
