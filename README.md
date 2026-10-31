@@ -311,6 +311,7 @@ To compile for Android, the easiest way would be to use [Android Studio](https:/
 
 ### Memória preparada para dynarec
 
+- Fast-map direto usa carga/armazenamento nativo little-endian via `memcpy` para u8/u16/u32, evitando montar cada leitura byte a byte no hot path; hosts big-endian mantêm fallback explícito.
 - Os quatro mapas diretos de 1.048.576 ponteiros foram substituídos por `SparsePageTable` de dois níveis.
 - A granularidade continua sendo 4 KiB; RAM/WRAM/TCM/VRAM e fallbacks preservam a mesma semântica.
 - O core expõe `getDirectReadPage()`, `getDirectWritePage()` e `getMapGeneration()` para backends de CPU.
@@ -319,6 +320,7 @@ To compile for Android, the easiest way would be to use [Android Studio](https:/
 
 ### Infraestrutura R5900 / dynarec
 
+- [x] Profiler PS2 de baixo overhead: janela de 60 frames com custo do core/getFrame/upload/present, opcodes ARM9/ARM7, atividade do scheduler, mix ARM/Thumb, hot PCs amostrados e hit/miss de ROM.
 - [x] Code cache PS2 alocado dinamicamente e alinhado a 64 bytes.
 - [x] Sincronização EE D-cache/I-cache após emissão de código.
 - [x] Emitter inicial R5900/MIPS para operações ALU, shifts, branches e loads/stores.
