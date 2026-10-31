@@ -352,6 +352,15 @@ int main(int argc, char **argv)
     {
         Core *core = new Core(romPath, "");
 
+        // The embedded disc image is a regression/self-test environment.
+        // Freeze its RTC so RELEASE and DEBUG runs can be compared by hash.
+        // HostFS/argv ROMs keep the normal host clock.
+        if (romPath == DISC_ROM)
+        {
+            core->rtc.setFixedDateTime(0, 1, 1, 5, 0, 0, 0);
+            PS2_LOG("[PS2] Deterministic self-test RTC: 2000-01-01 00:00:00.\n");
+        }
+
         PS2_LOG("[PS2] sparse page tables: %u bytes, generation=%lu\n",
             static_cast<unsigned int>(core->memory.getPageTableBytes()),
             static_cast<unsigned long>(core->memory.getMapGeneration()));
@@ -361,8 +370,15 @@ int main(int argc, char **argv)
         // validated against deterministic CPU tests.
         DynarecR5900 dynarec(&core->memory);
         if (dynarec.init())
-            PS2_LOG("[PS2][OK] R5900 dynarec infrastructure: 2 MiB code cache, probe=%u bytes.\n",
-                static_cast<unsigned int>(dynarec.codeCacheUsed()));
+        {
+            uint32_t probeValue = 0;
+            if (dynarec.runProbe(&probeValue))
+                PS2_LOG("[PS2][OK] R5900 dynarec probe executed: result=%08lX, cache=%u bytes.\n",
+                    static_cast<unsigned long>(probeValue),
+                    static_cast<unsigned int>(dynarec.codeCacheUsed()));
+            else
+                PS2_LOG("[PS2][WARN] R5900 dynarec probe failed; interpreter remains active.\n");
+        }
         else
             PS2_LOG("[PS2][WARN] R5900 dynarec infrastructure unavailable; interpreter remains active.\n");
         PS2_LOG("[PS2][OK] M2: Core constructed, BIOS/firmware/ROM paths were accepted.\n");
