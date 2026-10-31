@@ -445,9 +445,66 @@ int main(int argc, char **argv)
             selectedFrame);
         fflush(stdout);
 
-        // Persistent queue: keep the validated first frame on-screen.
-        // Continuous runFrame()/texture streaming is the next step after this
-        // display path is proven on emulator and real hardware.
+        // M5 stream test: keep emulation moving after the first visible frame.
+        // This lets boot sequences (for example, a logo appearing later) become
+        // visible instead of freezing the very first non-white frame forever.
+        constexpr int STREAM_END_FRAME = 180;
+
+        gsKit_sync_flip(gsGlobal);
+        gsKit_queue_exec(gsGlobal);
+
+        for (int frameNo = selectedFrame + 1; frameNo <= STREAM_END_FRAME; frameNo++)
+        {
+            core->runFrame();
+
+            if (!core->gpu.getFrame(frame, false))
+            {
+                PS2_LOG("[PS2][ERROR] M5: frame %d executed but no framebuffer was ready.\n", frameNo);
+                break;
+            }
+
+            // Report each screen independently at a low cadence. One DS screen
+            // contains exactly 49,152 pixels, which makes all-white halves easy
+            // to distinguish from a fully-white frame.
+            if ((frameNo % 30) == 0 || frameNo == STREAM_END_FRAME)
+            {
+                uint32_t topHash = 2166136261u;
+                uint32_t bottomHash = 2166136261u;
+                uint32_t topWhite = 0;
+                uint32_t bottomWhite = 0;
+
+                for (size_t i = 0; i < 256 * 192; i++)
+                {
+                    topHash ^= frame[i];
+                    topHash *= 16777619u;
+                    if (frame[i] == 0xFFFFFFFFu)
+                        topWhite++;
+
+                    bottomHash ^= frame[256 * 192 + i];
+                    bottomHash *= 16777619u;
+                    if (frame[256 * 192 + i] == 0xFFFFFFFFu)
+                        bottomWhite++;
+                }
+
+                PS2_LOG("[PS2] M5 stream: frame=%d top(hash=%08lX white=%lu/49152) bottom(hash=%08lX white=%lu/49152) cycles=%lu\n",
+                    frameNo,
+                    static_cast<unsigned long>(topHash),
+                    static_cast<unsigned long>(topWhite),
+                    static_cast<unsigned long>(bottomHash),
+                    static_cast<unsigned long>(bottomWhite),
+                    static_cast<unsigned long>(core->getGlobalCycles()));
+                fflush(stdout);
+            }
+
+            gsKit_sync_flip(gsGlobal);
+            gsKit_texture_upload(gsGlobal, &top);
+            gsKit_texture_upload(gsGlobal, &bottom);
+            gsKit_queue_exec(gsGlobal);
+        }
+
+        PS2_LOG("[PS2][OK] M5 stream test reached its end; freezing last presented frame.\n");
+        fflush(stdout);
+
         while (1)
         {
             gsKit_sync_flip(gsGlobal);

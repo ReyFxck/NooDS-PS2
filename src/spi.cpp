@@ -147,7 +147,20 @@ void Spi::writeSpiData(uint8_t value)
 
                     default:
                     {
+#ifdef NOODS_PS2
+#ifdef DEBUG
+                        static unsigned int unknownTouchLogs = 0;
+                        if (unknownTouchLogs < 32)
+                            LOG("Write to SPI with unknown touchscreen channel: %d\n", (command & 0x70) >> 4);
+                        else if (unknownTouchLogs == 32)
+                            LOG("Unknown touchscreen SPI channels: further messages suppressed on PS2 debug build.\n");
+                        unknownTouchLogs++;
+#else
                         LOG("Write to SPI with unknown touchscreen channel: %d\n", (command & 0x70) >> 4);
+#endif
+#else
+                        LOG("Write to SPI with unknown touchscreen channel: %d\n", (command & 0x70) >> 4);
+#endif
                         spiData = 0;
                         break;
                     }

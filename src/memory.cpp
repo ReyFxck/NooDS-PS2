@@ -1279,7 +1279,20 @@ template <typename T> T Memory::ioRead7(uint32_t address)
                 // Handle unknown reads by returning 0
                 if (i == 0)
                 {
+#ifdef NOODS_PS2
+#ifdef DEBUG
+                    static unsigned int unknownArm7IoReadLogs = 0;
+                    if (unknownArm7IoReadLogs < 32)
+                        LOG("Unknown ARM7 I/O register read: 0x%X\n", address);
+                    else if (unknownArm7IoReadLogs == 32)
+                        LOG("Unknown ARM7 I/O reads: further messages suppressed on PS2 debug build.\n");
+                    unknownArm7IoReadLogs++;
+#else
                     LOG("Unknown ARM7 I/O register read: 0x%X\n", address);
+#endif
+#else
+                    LOG("Unknown ARM7 I/O register read: 0x%X\n", address);
+#endif
                     return 0;
                 }
 
@@ -2625,7 +2638,20 @@ template <typename T> void Memory::ioWrite7(uint32_t address, T value)
                 // Catch unknown writes
                 if (i == 0)
                 {
+#ifdef NOODS_PS2
+#ifdef DEBUG
+                    static unsigned int unknownArm7IoWriteLogs = 0;
+                    if (unknownArm7IoWriteLogs < 32)
+                        LOG("Unknown ARM7 I/O register write: 0x%X\n", address);
+                    else if (unknownArm7IoWriteLogs == 32)
+                        LOG("Unknown ARM7 I/O writes: further messages suppressed on PS2 debug build.\n");
+                    unknownArm7IoWriteLogs++;
+#else
                     LOG("Unknown ARM7 I/O register write: 0x%X\n", address);
+#endif
+#else
+                    LOG("Unknown ARM7 I/O register write: 0x%X\n", address);
+#endif
                     return;
                 }
 
