@@ -74,6 +74,12 @@ void Cartridge::configureRomCache(uint32_t bytes)
     romCacheClock = 0;
     romCacheHits = 0;
     romCacheMisses = 0;
+    romCacheReadBytes = 0;
+    romCacheSeekCount = 0;
+    romCacheSequentialMisses = 0;
+    romCacheSequentialRun = 0;
+    romCacheSequentialRunMax = 0;
+    romCacheLastMissTag = 0xFFFFFFFFu;
 
     bytes = (bytes / romCachePageSize) * romCachePageSize;
     if (!bytes)
@@ -139,6 +145,20 @@ void Cartridge::loadRomSection(uint32_t offset, uint32_t size)
         {
             romCacheMisses++;
 
+            if (romCacheLastMissTag != 0xFFFFFFFFu &&
+                tag == romCacheLastMissTag + 1)
+            {
+                romCacheSequentialMisses++;
+                romCacheSequentialRun++;
+            }
+            else
+            {
+                romCacheSequentialRun = 1;
+            }
+            romCacheLastMissTag = tag;
+            if (romCacheSequentialRun > romCacheSequentialRunMax)
+                romCacheSequentialRunMax = romCacheSequentialRun;
+
             // Pick an unused slot first, otherwise the least-recently-used one.
             uint32_t victim = 0;
             uint32_t oldest = 0xFFFFFFFFu;
@@ -167,8 +187,11 @@ void Cartridge::loadRomSection(uint32_t offset, uint32_t size)
 
             if (readable)
             {
+                romCacheSeekCount++;
                 fseek(romFile, pageOffset, SEEK_SET);
-                fread(page, sizeof(uint8_t), readable, romFile);
+                size_t got = fread(page, sizeof(uint8_t), readable, romFile);
+                romCacheReadBytes += got;
+                readable = static_cast<uint32_t>(got);
             }
             if (readable < romCachePageSize)
                 memset(page + readable, 0xFF, romCachePageSize - readable);
