@@ -531,12 +531,11 @@ int main(int argc, char **argv)
         // M5 stream test: keep emulation moving after the first visible frame.
         // This lets boot sequences (for example, a logo appearing later) become
         // visible instead of freezing the very first non-white frame forever.
-        constexpr int STREAM_END_FRAME = 180;
-
         gsKit_sync_flip(gsGlobal);
         gsKit_queue_exec(gsGlobal);
 
-        for (int frameNo = selectedFrame + 1; frameNo <= STREAM_END_FRAME; frameNo++)
+        int frameNo = selectedFrame + 1;
+        while (1)
         {
             if (padReady)
                 pollPadIntoNds(core);
@@ -551,7 +550,7 @@ int main(int argc, char **argv)
             // Report each screen independently at a low cadence. One DS screen
             // contains exactly 49,152 pixels, which makes all-white halves easy
             // to distinguish from a fully-white frame.
-            if ((frameNo % 30) == 0 || frameNo == STREAM_END_FRAME)
+            if ((frameNo % 60) == 0)
             {
                 uint32_t topHash = 2166136261u;
                 uint32_t bottomHash = 2166136261u;
@@ -585,15 +584,8 @@ int main(int argc, char **argv)
             gsKit_texture_upload(gsGlobal, &top);
             gsKit_texture_upload(gsGlobal, &bottom);
             gsKit_queue_exec(gsGlobal);
-        }
 
-        PS2_LOG("[PS2][OK] M5 stream test reached its end; freezing last presented frame.\n");
-        fflush(stdout);
-
-        while (1)
-        {
-            gsKit_sync_flip(gsGlobal);
-            gsKit_queue_exec(gsGlobal);
+            frameNo++;
         }
     }
     catch (const std::bad_alloc &)
