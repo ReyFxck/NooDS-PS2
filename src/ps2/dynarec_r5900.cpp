@@ -1,4 +1,5 @@
 #include "../memory.h"
+#include "../cpu_backend.h"
 #include "dynarec_r5900.h"
 #include "r5900_emitter.h"
 
@@ -112,15 +113,16 @@ bool DynarecR5900::emitArmAluBlock(uint32_t opcode, uint32_t **entry, uint8_t *r
 
     // First correctness subset:
     // - ARM state, AL condition
-    // - data-processing register operand
+    // - data-processing register operand with LSL #0, or immediate operand
     // - no flag writes
-    // - no shift (LSL #0)
     // - no PC source/destination
     if ((opcode >> 28) != 0xEu ||
         (opcode & 0x0C000000u) != 0 ||
-        (opcode & 0x02000000u) != 0 ||
-        (opcode & 0x00100000u) != 0 ||
-        (opcode & 0x00000FF0u) != 0)
+        (opcode & 0x00100000u) != 0)
+        return false;
+
+    bool immediate = (opcode & 0x02000000u) != 0;
+    if (!immediate && (opcode & 0x00000FF0u) != 0)
         return false;
 
     uint8_t operation = static_cast<uint8_t>((opcode >> 21) & 0xF);
@@ -128,7 +130,7 @@ bool DynarecR5900::emitArmAluBlock(uint32_t opcode, uint32_t **entry, uint8_t *r
     uint8_t rd = static_cast<uint8_t>((opcode >> 12) & 0xF);
     uint8_t rm = static_cast<uint8_t>(opcode & 0xF);
 
-    if (rd == 15 || rm == 15 || (operation != 13 && rn == 15))
+    if (rd == 15 || (!immediate && rm == 15) || (operation != 13 && rn == 15))
         return false;
 
     switch (operation)
@@ -151,7 +153,21 @@ bool DynarecR5900::emitArmAluBlock(uint32_t opcode, uint32_t **entry, uint8_t *r
     size_t words = 0;
     if (operation != 13)
         code[words++] = R5900::lw(R5900::R_T0, static_cast<int16_t>(rn * 4), R5900::R_A0);
-    code[words++] = R5900::lw(R5900::R_T1, static_cast<int16_t>(rm * 4), R5900::R_A0);
+
+    if (immediate)
+    {
+        uint32_t value = opcode & 0xFFu;
+        uint32_t rotate = ((opcode >> 8) & 0xFu) * 2u;
+        if (rotate)
+            value = (value >> rotate) | (value << (32u - rotate));
+
+        code[words++] = R5900::lui(R5900::R_T1, static_cast<uint16_t>(value >> 16));
+        code[words++] = R5900::ori(R5900::R_T1, R5900::R_T1, static_cast<uint16_t>(value));
+    }
+    else
+    {
+        code[words++] = R5900::lw(R5900::R_T1, static_cast<int16_t>(rm * 4), R5900::R_A0);
+    }
 
     switch (operation)
     {
@@ -186,12 +202,18 @@ bool DynarecR5900::runArmAluSelfTest()
 
     const Test tests[] =
     {
-        { 0xE1A02001u, 2, 0x01020304u }, // MOV r2,r1
-        { 0xE0803001u, 3, 0x1336597Cu }, // ADD r3,r0,r1
-        { 0xE0404001u, 4, 0x11325374u }, // SUB r4,r0,r1
-        { 0xE0005001u, 5, 0x00000200u }, // AND r5,r0,r1
-        { 0xE0206001u, 6, 0x1336557Cu }, // EOR r6,r0,r1
-        { 0xE1807001u, 7, 0x1336577Cu }  // ORR r7,r0,r1
+        { 0xE1A02001u,  2, 0x01020304u }, // MOV r2,r1
+        { 0xE0803001u,  3, 0x1336597Cu }, // ADD r3,r0,r1
+        { 0xE0404001u,  4, 0x11325374u }, // SUB r4,r0,r1
+        { 0xE0005001u,  5, 0x00000200u }, // AND r5,r0,r1
+        { 0xE0206001u,  6, 0x1336557Cu }, // EOR r6,r0,r1
+        { 0xE1807001u,  7, 0x1336577Cu }, // ORR r7,r0,r1
+        { 0xE3A08012u,  8, 0x00000012u }, // MOV r8,#0x12
+        { 0xE2809034u,  9, 0x123456ACu }, // ADD r9,r0,#0x34
+        { 0xE240A034u, 10, 0x12345644u }, // SUB r10,r0,#0x34
+        { 0xE200B0FFu, 11, 0x00000078u }, // AND r11,r0,#0xFF
+        { 0xE220C001u, 12, 0x12345679u }, // EOR r12,r0,#1
+        { 0xE380D080u, 13, 0x123456F8u }  // ORR r13,r0,#0x80
     };
 
     ArmAluState state = {};
@@ -210,6 +232,77 @@ bool DynarecR5900::runArmAluSelfTest()
         function(&state);
 
         if (state.r[rd] != tests[i].expected)
+            return false;
+    }
+
+    return true;
+}
+
+
+bool DynarecR5900::runArm9StateSelfTest(const Interpreter &cpu, uint32_t *stateHash)
+{
+    if (!CpuBackendAccess::isArm9(cpu) || CpuBackendAccess::isThumb(cpu))
+        return false;
+
+    ArmAluState source = {};
+    uint32_t hash = 2166136261u;
+    for (int i = 0; i < 16; i++)
+    {
+        source.r[i] = CpuBackendAccess::readReg(cpu, i);
+        hash ^= source.r[i];
+        hash *= 16777619u;
+    }
+    hash ^= CpuBackendAccess::readCpsr(cpu);
+    hash *= 16777619u;
+
+    if (stateHash)
+        *stateHash = hash;
+
+    struct LiveTest
+    {
+        uint32_t opcode;
+        uint8_t rd;
+        uint8_t rn;
+        uint8_t rm;
+        uint8_t operation;
+    };
+
+    const LiveTest tests[] =
+    {
+        { 0xE1A0000Cu, 0,  0, 12, 13 }, // MOV r0,r12
+        { 0xE08C100Du, 1, 12, 13,  4 }, // ADD r1,r12,r13
+        { 0xE04D200Cu, 2, 13, 12,  2 }, // SUB r2,r13,r12
+        { 0xE00C300Du, 3, 12, 13,  0 }, // AND r3,r12,r13
+        { 0xE02C400Du, 4, 12, 13,  1 }, // EOR r4,r12,r13
+        { 0xE18C500Du, 5, 12, 13, 12 }  // ORR r5,r12,r13
+    };
+
+    for (size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); i++)
+    {
+        ArmAluState state = source;
+        uint32_t expected = 0;
+
+        switch (tests[i].operation)
+        {
+            case 0:  expected = source.r[tests[i].rn] & source.r[tests[i].rm]; break;
+            case 1:  expected = source.r[tests[i].rn] ^ source.r[tests[i].rm]; break;
+            case 2:  expected = source.r[tests[i].rn] - source.r[tests[i].rm]; break;
+            case 4:  expected = source.r[tests[i].rn] + source.r[tests[i].rm]; break;
+            case 12: expected = source.r[tests[i].rn] | source.r[tests[i].rm]; break;
+            case 13: expected = source.r[tests[i].rm]; break;
+            default: return false;
+        }
+
+        uint32_t *entry = nullptr;
+        uint8_t rd = 0;
+        if (!emitArmAluBlock(tests[i].opcode, &entry, &rd) || rd != tests[i].rd)
+            return false;
+
+        typedef void (*ArmAluFunction)(ArmAluState *);
+        ArmAluFunction function = reinterpret_cast<ArmAluFunction>(entry);
+        function(&state);
+
+        if (state.r[rd] != expected)
             return false;
     }
 
