@@ -123,12 +123,16 @@ bool Gpu::getFrame(uint32_t *out, bool gbaCrop)
     if (!ready.load())
         return false;
 
+    // Keep the queue lookup out of the pixel loops. The producer only appends,
+    // so the front pointer remains valid until we recycle it below.
+    uint32_t *source = framebuffers.front();
+
     if (gbaCrop)
     {
         // Output the frame in RGB8 format, cropped for GBA
         for (int y = 0; y < 160; y++)
             for (int x = 0; x < 240; x++)
-                out[y * 240 + x] = rgb5ToRgb8(framebuffers.front()[y * 256 + x]);
+                out[y * 240 + x] = rgb5ToRgb8(source[y * 256 + x]);
     }
     else if (core->isGbaMode())
     {
@@ -144,7 +148,7 @@ bool Gpu::getFrame(uint32_t *out, bool gbaCrop)
             for (int x = 0; x < 256; x++)
             {
                 if (x >= 8 && x < 256 - 8 && y >= 16 && y < 192 - 16)
-                    out[offset + y * 256 + x] = rgb5ToRgb8(framebuffers.front()[(y - 16) * 256 + (x - 8)]);
+                    out[offset + y * 256 + x] = rgb5ToRgb8(source[(y - 16) * 256 + (x - 8)]);
                 else
                     out[offset + y * 256 + x] = rgb5ToRgb8(core->memory.read<uint16_t>(0, base + (y * 256 + x) * 2));
             }
@@ -157,7 +161,7 @@ bool Gpu::getFrame(uint32_t *out, bool gbaCrop)
     {
         // Output the full frame in RGB8 format
         for (int i = 0; i < 256 * 192 * 2; i++)
-            out[i] = rgb6ToRgb8(framebuffers.front()[i]);
+            out[i] = rgb6ToRgb8(source[i]);
     }
 
     // Recycle the used framebuffer instead of returning ~384 KiB to the
