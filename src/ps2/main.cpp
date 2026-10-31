@@ -16,6 +16,7 @@
 #include <sifrpc.h>
 #include <loadfile.h>
 #include <libpad.h>
+#include <malloc.h>
 #include <dmaKit.h>
 #include <gsKit.h>
 #include <new>
@@ -472,7 +473,10 @@ int main(int argc, char **argv)
         // that contains any non-white pixel.
         constexpr size_t FRAME_PIXELS = 256 * 192 * 2;
         constexpr int MAX_BOOT_FRAMES = 30;
-        uint32_t *frame = new uint32_t[FRAME_PIXELS];
+        uint32_t *frame = static_cast<uint32_t*>(
+            memalign(128, FRAME_PIXELS * sizeof(uint32_t)));
+        if (!frame)
+            throw std::bad_alloc();
 
         uint32_t cyclesBefore = core->getGlobalCycles();
         PS2_LOG("[PS2] M3: running up to %d NDS frames until output is not all-white... cycles=%lu\n",
@@ -494,7 +498,7 @@ int main(int argc, char **argv)
             if (!core->gpu.getFrame(frame, false))
             {
                 PS2_LOG("[PS2][ERROR] M4: frame %d executed but GPU had no completed framebuffer.\n", frameNo);
-                delete[] frame;
+                free(frame);
                 delete core;
                 return 7;
             }
@@ -536,7 +540,7 @@ int main(int argc, char **argv)
         if (!gotFrame)
         {
             PS2_LOG("[PS2][ERROR] M4: no framebuffer was retrieved.\n");
-            delete[] frame;
+            free(frame);
             delete core;
             return 7;
         }
@@ -575,7 +579,7 @@ int main(int argc, char **argv)
         if (!gsGlobal)
         {
             PS2_LOG("[PS2][ERROR] M5: gsKit_init_global() failed.\n");
-            delete[] frame;
+            free(frame);
             delete core;
             return 8;
         }
@@ -618,7 +622,7 @@ int main(int argc, char **argv)
         if (top.Vram == GSKIT_ALLOC_ERROR || bottom.Vram == GSKIT_ALLOC_ERROR)
         {
             PS2_LOG("[PS2][ERROR] M5: GS VRAM allocation failed.\n");
-            delete[] frame;
+            free(frame);
             delete core;
             return 9;
         }
