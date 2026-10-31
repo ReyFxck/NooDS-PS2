@@ -58,7 +58,7 @@
 
 ## Vídeo / GS
 
-- [ ] Exibir um framebuffer simples no GS (implementado no M5; aguardando validação de runtime).
+- [x] Executar o caminho de apresentação de um framebuffer no GS (M5 chegou até upload das duas telas e apresentação no NetherSX2 em 30/10/2026; aparência visual ainda precisa de screenshot).
 - [ ] Exibir as duas telas do NDS.
 - [ ] Implementar layout vertical.
 - [ ] Implementar layout lado a lado.
@@ -144,7 +144,7 @@
 - [x] M2 — BIOS/firmware/ROM são carregados pelo backend PS2 e o `Core` é construído (confirmado no NetherSX2 em 23/10/2026).
 - [x] M3 — ARM9 e ARM7 executam sem crash imediato; primeiro `runFrame()` retornou com 560.190 ciclos no NetherSX2 em 23/10/2026.
 - [x] M4 — primeiro framebuffer completo é produzido e recuperado; hash `E7911DC5` confirmado no NetherSX2 em 30/10/2026.
-- [ ] M5 — duas telas aparecem corretamente no GS.
+- [ ] M5 — duas telas aparecem corretamente no GS. O caminho GS já executou até `both NDS screens uploaded to GS`; falta validar visualmente a saída.
 - [ ] M6 — controles e touchscreen funcionam.
 - [ ] M7 — áudio funciona pelo SPU2.
 - [ ] M8 — homebrew simples executa de forma estável.
