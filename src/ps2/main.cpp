@@ -835,6 +835,35 @@ int main(int argc, char **argv)
                     static_cast<unsigned long long>(runProfile.scheduleCalls),
                     static_cast<unsigned long>(runProfile.maxTaskDepth));
 
+                PS2_LOG("[PS2][PROF] task-count: core=%llu gpu=%llu gpu3d=%llu spu=%llu dma=%llu timer=%llu irq=%llu other=%llu\n",
+                    static_cast<unsigned long long>(runProfile.taskClassCount[TASK_PROFILE_CORE]),
+                    static_cast<unsigned long long>(runProfile.taskClassCount[TASK_PROFILE_GPU]),
+                    static_cast<unsigned long long>(runProfile.taskClassCount[TASK_PROFILE_GPU3D]),
+                    static_cast<unsigned long long>(runProfile.taskClassCount[TASK_PROFILE_SPU]),
+                    static_cast<unsigned long long>(runProfile.taskClassCount[TASK_PROFILE_DMA]),
+                    static_cast<unsigned long long>(runProfile.taskClassCount[TASK_PROFILE_TIMER]),
+                    static_cast<unsigned long long>(runProfile.taskClassCount[TASK_PROFILE_IRQ]),
+                    static_cast<unsigned long long>(runProfile.taskClassCount[TASK_PROFILE_OTHER]));
+
+                auto sampledTaskUs = [&](TaskProfileClass profileClass) -> double
+                {
+                    uint64_t samples = runProfile.taskClassSamples[profileClass];
+                    if (!samples)
+                        return 0.0;
+                    return static_cast<double>(runProfile.taskClassTicks[profileClass]) *
+                        1000000.0 / CLOCKS_PER_SEC / static_cast<double>(samples);
+                };
+
+                PS2_LOG("[PS2][PROF] task-sample-us: core=%.2f gpu=%.2f gpu3d=%.2f spu=%.2f dma=%.2f timer=%.2f irq=%.2f other=%.2f (1/64 sampled)\n",
+                    sampledTaskUs(TASK_PROFILE_CORE),
+                    sampledTaskUs(TASK_PROFILE_GPU),
+                    sampledTaskUs(TASK_PROFILE_GPU3D),
+                    sampledTaskUs(TASK_PROFILE_SPU),
+                    sampledTaskUs(TASK_PROFILE_DMA),
+                    sampledTaskUs(TASK_PROFILE_TIMER),
+                    sampledTaskUs(TASK_PROFILE_IRQ),
+                    sampledTaskUs(TASK_PROFILE_OTHER));
+
                 uint32_t currentRomHits = core->cartridgeNds.getRomCacheHits();
                 uint32_t currentRomMisses = core->cartridgeNds.getRomCacheMisses();
                 uint32_t windowHits = currentRomHits - profLastRomHits;
