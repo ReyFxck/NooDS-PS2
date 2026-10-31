@@ -379,6 +379,7 @@ int main(int argc, char **argv)
             if (padReady)
                 pollPadIntoNds(core);
             core->runFrame();
+            benchFrames++;
 
             if (!core->gpu.getFrame(frame, false))
             {
@@ -556,7 +557,6 @@ int main(int argc, char **argv)
             // to distinguish from a fully-white frame.
             if ((frameNo % 60) == 0)
             {
-                benchFrames += 60;
                 clock_t now = clock();
                 double elapsed = static_cast<double>(now - benchStart) / CLOCKS_PER_SEC;
                 double emuFps = (elapsed > 0.0) ? (benchFrames / elapsed) : 0.0;
