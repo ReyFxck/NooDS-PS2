@@ -22,6 +22,7 @@
 #include <string>
 
 #include "../core.h"
+#include "dynarec_r5900.h"
 #include "../settings.h"
 
 namespace
@@ -350,6 +351,20 @@ int main(int argc, char **argv)
     try
     {
         Core *core = new Core(romPath, "");
+
+        PS2_LOG("[PS2] sparse page tables: %u bytes, generation=%lu\n",
+            static_cast<unsigned int>(core->memory.getPageTableBytes()),
+            static_cast<unsigned long>(core->memory.getMapGeneration()));
+
+        // Prepare, but do not activate, the R5900 dynarec. The interpreter
+        // remains the only CPU execution path until compiled blocks are
+        // validated against deterministic CPU tests.
+        DynarecR5900 dynarec(&core->memory);
+        if (dynarec.init())
+            PS2_LOG("[PS2][OK] R5900 dynarec infrastructure: 2 MiB code cache, probe=%u bytes.\n",
+                static_cast<unsigned int>(dynarec.codeCacheUsed()));
+        else
+            PS2_LOG("[PS2][WARN] R5900 dynarec infrastructure unavailable; interpreter remains active.\n");
         PS2_LOG("[PS2][OK] M2: Core constructed, BIOS/firmware/ROM paths were accepted.\n");
 
         if (bios9Synthetic)

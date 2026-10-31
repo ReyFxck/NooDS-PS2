@@ -315,3 +315,18 @@ To compile for Android, the easiest way would be to use [Android Studio](https:/
 - A granularidade continua sendo 4 KiB; RAM/WRAM/TCM/VRAM e fallbacks preservam a mesma semântica.
 - O core expõe `getDirectReadPage()`, `getDirectWritePage()` e `getMapGeneration()` para backends de CPU.
 - `mapGeneration` permite invalidar code cache quando TCM/WRAM/VRAM são remapeados, sem acoplar o core ao PS2.
+
+
+### Infraestrutura R5900 / dynarec
+
+- [x] Code cache PS2 alocado dinamicamente e alinhado a 64 bytes.
+- [x] Sincronização EE D-cache/I-cache após emissão de código.
+- [x] Emitter inicial R5900/MIPS para operações ALU, shifts, branches e loads/stores.
+- [x] Blocos carregam `mapGeneration` para impedir uso de ponteiros diretos após remap de TCM/WRAM/VRAM.
+- [x] Probe R5900 é emitido e sincronizado, mas **não é executado pelo scheduler**.
+- [ ] Definir ABI ARM-state ↔ registradores R5900.
+- [ ] Compilar primeiro subconjunto ARM9 determinístico.
+- [ ] Comparar interpreter × dynarec opcode a opcode.
+- [ ] Ativar dynarec ARM9 somente após equivalência; ARM7 vem depois.
+
+O código PS2 fica em `src/ps2/`; o core não inclui headers do PS2SDK. VU0/VU1, GS e SPU2 permanecem backends/accelerators separados do CPU core.

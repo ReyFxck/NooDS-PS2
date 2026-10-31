@@ -40,7 +40,12 @@ CORE_SOURCES := \
 	src/timers.cpp \
 	src/wifi.cpp
 
-SOURCES := src/ps2/main.cpp $(CORE_SOURCES)
+PS2_SOURCES := \
+	src/ps2/main.cpp \
+	src/ps2/r5900_code_cache.cpp \
+	src/ps2/dynarec_r5900.cpp
+
+SOURCES := $(PS2_SOURCES) $(CORE_SOURCES)
 OBJECTS := $(patsubst src/%.cpp,$(BUILD)/%.o,$(SOURCES))
 
 DEBUG ?= 0
