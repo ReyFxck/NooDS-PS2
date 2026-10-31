@@ -103,7 +103,7 @@ void Cartridge::configureRomCache(uint32_t bytes)
     romCacheBytes = bytes;
 }
 
-void Cartridge::loadRomSection(uint32_t offset, uint32_t size)
+void Cartridge::loadRomSection(uint32_t offset, uint32_t size, bool useCache)
 {
     // Reuse the transfer buffer to avoid heap churn during cartridge traffic.
     if (static_cast<int>(size) > romCapacity)
@@ -116,7 +116,7 @@ void Cartridge::loadRomSection(uint32_t offset, uint32_t size)
     if (!size)
         return;
 
-    if (!romCache || !romCachePageCount)
+    if (!useCache || !romCache || !romCachePageCount)
     {
         if (romFilePosition != static_cast<long>(offset))
         {
@@ -386,7 +386,7 @@ void CartridgeNds::directBoot()
     // Load the initial ARM9 code from file if needed
     if (romFile)
     {
-        loadRomSection(offset9, size9);
+        loadRomSection(offset9, size9, false);
         offset = 0;
     }
     else
@@ -421,7 +421,7 @@ void CartridgeNds::directBoot()
     // Load the initial ARM7 code from file if needed
     if (romFile)
     {
-        loadRomSection(offset7, size7);
+        loadRomSection(offset7, size7, false);
         offset = 0;
     }
     else
