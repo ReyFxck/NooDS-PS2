@@ -1088,6 +1088,8 @@ template <typename T> T Memory::ioRead7(uint32_t address)
             case 0x400010F: base -= 0x400010E; size = 2; data = core->timers[1].readTmCntH(3);        break; // TM3CNT_H (ARM7)
             case 0x4000130:
             case 0x4000131: base -= 0x4000130; size = 2; data = core->input.readKeyInput();           break; // KEYINPUT
+            case 0x4000134:
+            case 0x4000135: base -= 0x4000134; size = 2; data = readRcnt();                            break; // RCNT (ARM7)
             case 0x4000136:
             case 0x4000137: base -= 0x4000136; size = 2; data = core->input.readExtKeyIn();           break; // EXTKEYIN
             case 0x4000138: base -= 0x4000138; size = 1; data = core->rtc.readRtc();                  break; // RTC
@@ -2264,6 +2266,8 @@ template <typename T> void Memory::ioWrite7(uint32_t address, T value)
             case 0x400010D: base -= 0x400010C; size = 2; core->timers[1].writeTmCntL(3, mask << (base * 8), data << (base * 8));        break; // TM3CNT_L (ARM7)
             case 0x400010E:
             case 0x400010F: base -= 0x400010E; size = 2; core->timers[1].writeTmCntH(3, mask << (base * 8), data << (base * 8));        break; // TM3CNT_H (ARM7)
+            case 0x4000134:
+            case 0x4000135: base -= 0x4000134; size = 2; writeRcnt(mask << (base * 8), data << (base * 8));                            break; // RCNT (ARM7)
             case 0x4000138: base -= 0x4000138; size = 1; core->rtc.writeRtc(data << (base * 8));                                        break; // RTC
             case 0x4000180:
             case 0x4000181: base -= 0x4000180; size = 2; core->ipc.writeIpcSync(1, mask << (base * 8), data << (base * 8));             break; // IPCSYNC (ARM7)

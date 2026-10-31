@@ -112,6 +112,7 @@ class Memory
         uint8_t vramStat = 0;
         uint8_t wramCnt = 0;
         uint8_t haltCnt = 0;
+        uint16_t rcnt = 0;
 
         template <typename T> T readFallback(bool cpu, uint32_t address);
         template <typename T> void writeFallback(bool cpu, uint32_t address, T value);
@@ -128,6 +129,14 @@ class Memory
         uint8_t  readVramStat()           { return vramStat;         }
         uint8_t  readWramCnt()            { return wramCnt;          }
         uint8_t  readHaltCnt()            { return haltCnt;          }
+        uint16_t readRcnt()                { return rcnt;             }
+
+        void writeRcnt(uint16_t mask, uint16_t value)
+        {
+            // RCNT writable bits: 0-8 and 14-15. Bits 9-13 read as zero.
+            mask &= 0xC1FF;
+            rcnt = (rcnt & ~mask) | (value & mask);
+        }
 
         void writeDmaFill(int channel, uint32_t mask, uint32_t value);
         void writeVramCnt(int index, uint8_t value);
