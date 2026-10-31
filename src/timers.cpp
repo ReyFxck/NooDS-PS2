@@ -45,7 +45,7 @@ void Timers::overflow(int timer)
     timers[timer] = tmCntL[timer];
     if (timer == 0 || !(tmCntH[timer] & BIT(2)))
     {
-        core->schedule(Task(&overflowTask[timer], (0x10000 - timers[timer]) << shifts[timer]));
+        core->schedule(Task(&overflowTask[timer], (0x10000 - timers[timer], TASK_PROFILE_TIMER) << shifts[timer]));
         endCycles[timer] = core->getGlobalCycles() + ((0x10000 - timers[timer]) << shifts[timer]);
     }
 
@@ -104,7 +104,7 @@ void Timers::writeTmCntH(int timer, uint16_t mask, uint16_t value)
     // Schedule a timer overflow if the timer changed and isn't in count-up mode
     if (dirty && (tmCntH[timer] & BIT(7)) && (timer == 0 || !(tmCntH[timer] & BIT(2))))
     {
-        core->schedule(Task(&overflowTask[timer], (0x10000 - timers[timer]) << shifts[timer]));
+        core->schedule(Task(&overflowTask[timer], (0x10000 - timers[timer], TASK_PROFILE_TIMER) << shifts[timer]));
         endCycles[timer] = core->getGlobalCycles() + ((0x10000 - timers[timer]) << shifts[timer]);
     }
 }
