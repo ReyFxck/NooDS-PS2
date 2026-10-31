@@ -103,7 +103,18 @@ void Cp15::write(int cn, int cm, int cp, uint32_t value)
 
         default:
         {
+#ifdef NOODS_PS2
+#ifdef DEBUG
+            static unsigned int unknownWriteLogs = 0;
+            if (unknownWriteLogs < 64)
+                LOG("Unknown CP15 register write: C%d,C%d,%d\n", cn, cm, cp);
+            else if (unknownWriteLogs == 64)
+                LOG("Unknown CP15 register writes: further messages suppressed on PS2 debug build.\n");
+            unknownWriteLogs++;
+#endif
+#else
             LOG("Unknown CP15 register write: C%d,C%d,%d\n", cn, cm, cp);
+#endif
             return;
         }
     }

@@ -38,7 +38,7 @@
 - [ ] Avaliar HDD/APA e outros dispositivos posteriormente sem acoplar o core a um filesystem específico.
 - [x] Forçar no PS2 o modo file-backed/por seções do NooDS para não exigir a ROM inteira na RAM.
 - [x] Tratar ROMs maiores que a memória disponível sem cópia integral no backend PS2.
-- [ ] Validar erros de arquivo ausente, BIOS inválida, firmware inválido e ROM inválida.
+- [ ] Validar erros de arquivo ausente, BIOS inválida, firmware inválido e ROM inválida. O backend já detecta BIOS9 sintético zerado e bloqueia M3+.
 
 ## Core NDS
 
@@ -46,7 +46,7 @@
 - [x] Fazer ARM9 iniciar e executar instruções (primeiro `runFrame()` retornou no NetherSX2 em 23/10/2026).
 - [x] Fazer ARM7 iniciar e executar instruções (primeiro `runFrame()` retornou no NetherSX2 em 23/10/2026).
 - [ ] Validar mapa de memória.
-- [ ] Validar IRQ/exceptions.
+- [ ] Validar IRQ/exceptions. O teste de 30 frames mostrou que jogo comercial não deve ser executado com BIOS9 sintético: IRQ/SWI do ARM9 usam os vetores do BIOS9.
 - [ ] Validar timers.
 - [ ] Validar DMA.
 - [ ] Validar IPC ARM9 ↔ ARM7.
@@ -144,7 +144,7 @@
 - [x] M2 — BIOS/firmware/ROM são carregados pelo backend PS2 e o `Core` é construído (confirmado no NetherSX2 em 23/10/2026).
 - [x] M3 — ARM9 e ARM7 executam sem crash imediato; primeiro `runFrame()` retornou com 560.190 ciclos no NetherSX2 em 23/10/2026.
 - [x] M4 — primeiro framebuffer completo é produzido e recuperado; hash `E7911DC5` confirmado no NetherSX2 em 30/10/2026.
-- [ ] M5 — duas telas aparecem corretamente no GS. O caminho GS executou até o upload/apresentação, mas o primeiro framebuffer validado era 100% branco; novo teste percorre até 30 frames e apresenta o primeiro que tiver qualquer pixel não-branco.
+- [ ] M5 — duas telas aparecem corretamente no GS. O caminho GS está validado, mas o teste com NSMB ficou branco e depois o ARM9 entrou em acessos inválidos porque o ISO ainda usava BIOS9 sintético. Próximo teste comercial exige BIOS9 real.
 - [ ] M6 — controles e touchscreen funcionam.
 - [ ] M7 — áudio funciona pelo SPU2.
 - [ ] M8 — homebrew simples executa de forma estável.
@@ -171,7 +171,7 @@ Este projeto continua sendo considerado POC até que exista, no mínimo:
 
 ## Estado atual do bootstrap PS2
 
-**Estado de compilação:** o CI PS2 compila e linka o core completo em Release e Debug para R5900. M0 e M2 já foram confirmados em runtime no NetherSX2. O `Core` mede 24.317.632 bytes (~23,19 MiB) no R5900. M1 (`host:`) continua pendente no Android porque o NetherSX2 bloqueia HostFS quando o ELF é iniciado pelo ISO. M3 foi confirmado: o primeiro `runFrame()` retornou com 560.190 ciclos. O teste M4 agora consome exatamente um framebuffer completo (`256x192x2`, 393.216 bytes), calcula um checksum e para; M5 inicializa o gsKit em NTSC 640x448, desliga Z/double-buffer e envia as duas telas como texturas CT32 256x192. O hash `E7911DC5` corresponde exatamente a um framebuffer inteiro `0xFFFFFFFF` (98.304 pixels brancos), então a saída branca observada não foi causada pelo GS. O teste agora executa/consome até 30 frames e apresenta o primeiro framebuffer que não seja totalmente branco.
+**Estado de compilação:** o CI PS2 compila e linka o core completo em Release e Debug para R5900. M0 e M2 já foram confirmados em runtime no NetherSX2. O `Core` mede 24.317.632 bytes (~23,19 MiB) no R5900. M1 (`host:`) continua pendente no Android porque o NetherSX2 bloqueia HostFS quando o ELF é iniciado pelo ISO. M3 foi confirmado: o primeiro `runFrame()` retornou com 560.190 ciclos. O teste M4 agora consome exatamente um framebuffer completo (`256x192x2`, 393.216 bytes), calcula um checksum e para; M5 inicializa o gsKit em NTSC 640x448, desliga Z/double-buffer e envia as duas telas como texturas CT32 256x192. O hash `E7911DC5` corresponde exatamente a um framebuffer inteiro `0xFFFFFFFF` (98.304 pixels brancos), então a saída branca observada não foi causada pelo GS. No teste de 30 frames, os frames 1, 5 e 10 continuaram 100% brancos; depois disso o ARM9 entrou em uma enxurrada de writes CP15 e acessos de memória unmapped. O interpreter envia IRQ do ARM9 para `exceptionAddr + 0x18` e SWI para `exceptionAddr + 0x08`, portanto o BIOS9 sintético zerado não é válido para testes comerciais. O bootstrap agora detecta esse BIOS9 sintético e para com segurança após M2; M3+ com jogos requer dump BIOS9 real de 4 KiB.
 
 O bootstrap PS2 valida PS2SDK e `host:` e agora também tenta **construir o core do NooDS sem executar frames**. Isso isola problemas de RAM/BIOS/firmware/ROM antes de envolver execução ARM9/ARM7, GPU e áudio.
 
@@ -200,7 +200,7 @@ O ISO do CI contém também um conjunto **100% sintético** para bring-up:
 - `BIOS9.BIN` e `BIOS7.BIN`: arquivos zerados apenas para permitir testar construção/alocação do core em direct boot.
 - `FIRMWARE.BIN`: firmware sintético zerado de 256 KiB.
 
-Esses arquivos **não são dumps da Nintendo** e não servem para testar compatibilidade de jogos. O backend tenta `host:` primeiro; se HostFS não estiver disponível (caso observado ao iniciar por ISO no NetherSX2 Android), usa os arquivos sintéticos de `cdrom0:` para continuar M1/M2.
+Esses arquivos **não são dumps da Nintendo** e não servem para testar compatibilidade de jogos. O backend tenta `host:` primeiro; se HostFS não estiver disponível (caso observado ao iniciar por ISO no NetherSX2 Android), usa os arquivos sintéticos de `cdrom0:` apenas para M1/M2. **M3 e posteriores são bloqueados quando o BIOS9 detectado é o arquivo sintético zerado**, porque IRQ/SWI do ARM9 precisam de código BIOS real.
 
 
 Algumas builds Android do AetherSX2/NetherSX2 recebem ELFs pelo Storage Access Framework como URLs `content://`. Nessa situação o loader pode falhar antes de executar o ELF. O CI também gera `noods-ps2-poc.iso`, que contém somente o ELF de bootstrap e `SYSTEM.CNF`.

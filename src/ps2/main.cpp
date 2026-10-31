@@ -58,6 +58,43 @@ std::string chooseReadablePath(const char *preferred, const char *fallback)
     return preferred;
 }
 
+
+bool fileIsAllZero(const char *path, size_t expectedSize)
+{
+    FILE *file = fopen(path, "rb");
+    if (!file)
+        return false;
+
+    uint8_t buffer[512];
+    size_t total = 0;
+    bool allZero = true;
+
+    while (total < expectedSize)
+    {
+        size_t want = expectedSize - total;
+        if (want > sizeof(buffer))
+            want = sizeof(buffer);
+
+        size_t got = fread(buffer, 1, want, file);
+        if (!got)
+            break;
+
+        for (size_t i = 0; i < got; i++)
+            if (buffer[i] != 0)
+            {
+                allZero = false;
+                break;
+            }
+
+        total += got;
+        if (!allZero)
+            break;
+    }
+
+    fclose(file);
+    return allZero && total == expectedSize;
+}
+
 long getFileSize(FILE *file)
 {
     if (!file)
@@ -175,6 +212,14 @@ int main(int argc, char **argv)
     bool bios7Ok = probeFile("ARM7 BIOS", bios7Path.c_str(), 0x4000, true);
     bool firmwareOk = probeFile("Firmware", firmwarePath.c_str(), 0x40000, true);
 
+    bool bios9Synthetic = bios9Ok && fileIsAllZero(bios9Path.c_str(), 0x1000);
+    bool firmwareSynthetic = firmwareOk && fileIsAllZero(firmwarePath.c_str(), 0x40000);
+
+    if (bios9Synthetic)
+        PS2_LOG("[PS2][WARN] ARM9 BIOS is the zero-filled synthetic M2 resource.\n");
+    if (firmwareSynthetic)
+        PS2_LOG("[PS2][WARN] Firmware is the zero-filled synthetic bring-up resource.\n");
+
     if (!romOk)
     {
         PS2_LOG("\n[PS2] ROM probe FAILED.\n");
@@ -213,6 +258,18 @@ int main(int argc, char **argv)
     {
         Core *core = new Core(romPath, "");
         PS2_LOG("[PS2][OK] M2: Core constructed, BIOS/firmware/ROM paths were accepted.\n");
+
+        if (bios9Synthetic)
+        {
+            PS2_LOG("[PS2][BLOCKED] M3+ requires a real 4 KiB ARM9 BIOS dump.\n");
+            PS2_LOG("[PS2] IRQ/SWI vectors execute BIOS9 code; the synthetic zero BIOS produced runaway ARM9 reads in the 30-frame test.\n");
+            PS2_LOG("[PS2] Stopping safely after M2 instead of producing a misleading compatibility failure.\n");
+            delete core;
+            return 10;
+        }
+
+        if (firmwareSynthetic)
+            PS2_LOG("[PS2][WARN] Continuing with synthetic firmware; real firmware will be required for compatibility validation.\n");
 
         // M3/M4 progression test. The first NSMB frame was proven to be
         // completely white (0xFFFFFFFF for all 98,304 pixels), so presenting

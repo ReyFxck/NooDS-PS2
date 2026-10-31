@@ -457,10 +457,33 @@ template <typename T> T Memory::readFallback(bool cpu, uint32_t address)
         return value;
     }
 
+#ifdef NOODS_PS2
+#ifdef DEBUG
+    static unsigned int unmappedReadLogs = 0;
+    if (unmappedReadLogs < 64)
+    {
+        if (core->isGbaMode())
+            LOG("Unmapped GBA memory read: 0x%X\n", address);
+        else
+            LOG("Unmapped ARM%d memory read: 0x%X\n", ((cpu == 0) ? 9 : 7), address);
+    }
+    else if (unmappedReadLogs == 64)
+    {
+        LOG("Unmapped memory reads: further messages suppressed on PS2 debug build.\n");
+    }
+    unmappedReadLogs++;
+#else
     if (core->isGbaMode())
         LOG("Unmapped GBA memory read: 0x%X\n", address);
     else
         LOG("Unmapped ARM%d memory read: 0x%X\n", ((cpu == 0) ? 9 : 7), address);
+#endif
+#else
+    if (core->isGbaMode())
+        LOG("Unmapped GBA memory read: 0x%X\n", address);
+    else
+        LOG("Unmapped ARM%d memory read: 0x%X\n", ((cpu == 0) ? 9 : 7), address);
+#endif
     return 0;
 }
 
