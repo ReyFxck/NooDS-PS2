@@ -8,6 +8,10 @@ ifeq ($(strip $(PS2SDK)),)
 $(error PS2SDK is not set. Install ps2dev/ps2sdk and export PS2SDK)
 endif
 
+ifeq ($(strip $(GSKIT)),)
+$(error GSKIT is not set. Install ps2dev/gsKit and export GSKIT)
+endif
+
 EE_TOOL_PREFIX ?= mips64r5900el-ps2-elf-
 EE_CXX         ?= $(EE_TOOL_PREFIX)g++
 
@@ -43,7 +47,7 @@ DEBUG ?= 0
 
 COMMON_FLAGS := -D_EE -DNOODS_PS2 -G0 -Wall -Wextra -std=gnu++11 \
                 -fno-rtti \
-                -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include -Isrc
+                -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include -I$(GSKIT)/include -Isrc
 
 ifeq ($(DEBUG),1)
 OPT_FLAGS := -Og -gdwarf-2 -DDEBUG
@@ -52,12 +56,12 @@ OPT_FLAGS := -O2
 endif
 
 CXXFLAGS := $(COMMON_FLAGS) $(OPT_FLAGS)
-LDFLAGS  := -T$(PS2SDK)/ee/startup/linkfile -L$(PS2SDK)/ee/lib -Wl,-zmax-page-size=128
+LDFLAGS  := -T$(PS2SDK)/ee/startup/linkfile -L$(PS2SDK)/ee/lib -L$(GSKIT)/lib -Wl,-zmax-page-size=128
 
 # NooDS 2021 uses std::thread/mutex/condition_variable in GPU/SPU paths.
 # PS2SDK supplies pthread + pthreadglue; keep them in a group with libstdc++
 # because all of these libraries are static in the PS2 toolchain.
-LIBS := -Wl,--start-group -lstdc++ -latomic -ldebug -lm -lc -lcglue -lpthread -lpthreadglue -lkernel -Wl,--end-group
+LIBS := -Wl,--start-group -lgskit -ldmakit -lstdc++ -latomic -ldebug -lm -lc -lcglue -lpthread -lpthreadglue -lkernel -Wl,--end-group
 
 .PHONY: all clean debug info
 

@@ -13,6 +13,8 @@
 #include <cstring>
 #include <debug.h>
 #include <sifrpc.h>
+#include <dmaKit.h>
+#include <gsKit.h>
 #include <new>
 #include <string>
 
@@ -259,10 +261,92 @@ int main(int argc, char **argv)
             static_cast<unsigned long>(hash),
             static_cast<unsigned long>(black),
             static_cast<unsigned int>(FRAME_PIXELS));
-        PS2_LOG("[PS2] GS presentation is deferred to M5.\n");
 
-        delete[] frame;
-        delete core;
+        // M5: first real PS2 GS presentation path. Keep it intentionally
+        // simple: one framebuffer, no Z-buffer, two 256x192 CT32 textures.
+        // This proves the frontend path before attempting continuous emulation.
+        PS2_LOG("[PS2] M5: initializing GS and uploading both NDS screens...\n");
+        fflush(stdout);
+
+        dmaKit_init(D_CTRL_RELE_OFF, D_CTRL_MFD_OFF, D_CTRL_STS_UNSPEC,
+            D_CTRL_STD_OFF, D_CTRL_RCYC_8, 1 << DMA_CHANNEL_GIF);
+        dmaKit_chan_init(DMA_CHANNEL_GIF);
+
+        GSGLOBAL *gsGlobal = gsKit_init_global();
+        if (!gsGlobal)
+        {
+            PS2_LOG("[PS2][ERROR] M5: gsKit_init_global() failed.\n");
+            delete[] frame;
+            delete core;
+            return 8;
+        }
+
+        gsGlobal->Mode = GS_MODE_NTSC;
+        gsGlobal->Interlace = GS_INTERLACED;
+        gsGlobal->Field = GS_FIELD;
+        gsGlobal->Width = 640;
+        gsGlobal->Height = 448;
+        gsGlobal->PSM = GS_PSM_CT32;
+        gsGlobal->DoubleBuffering = GS_SETTING_OFF;
+        gsGlobal->ZBuffering = GS_SETTING_OFF;
+        gsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
+
+        gsKit_init_screen(gsGlobal);
+        gsKit_mode_switch(gsGlobal, GS_PERSISTENT);
+        gsKit_set_test(gsGlobal, GS_ZTEST_OFF);
+
+        GSTEXTURE top = {};
+        GSTEXTURE bottom = {};
+
+        top.Width = bottom.Width = 256;
+        top.Height = bottom.Height = 192;
+        top.PSM = bottom.PSM = GS_PSM_CT32;
+        top.Filter = bottom.Filter = GS_FILTER_NEAREST;
+        top.Mem = &frame[0];
+        bottom.Mem = &frame[256 * 192];
+
+        const int textureBytes = gsKit_texture_size(256, 192, GS_PSM_CT32);
+        top.Vram = gsKit_vram_alloc(gsGlobal, textureBytes, GSKIT_ALLOC_USERBUFFER);
+        bottom.Vram = gsKit_vram_alloc(gsGlobal, textureBytes, GSKIT_ALLOC_USERBUFFER);
+
+        if (top.Vram == GSKIT_ALLOC_ERROR || bottom.Vram == GSKIT_ALLOC_ERROR)
+        {
+            PS2_LOG("[PS2][ERROR] M5: GS VRAM allocation failed.\n");
+            delete[] frame;
+            delete core;
+            return 9;
+        }
+
+        gsKit_texture_upload(gsGlobal, &top);
+        gsKit_texture_upload(gsGlobal, &bottom);
+
+        const u64 blackColor = GS_SETREG_RGBAQ(0x00, 0x00, 0x00, 0x00, 0x00);
+        const u64 textureColor = GS_SETREG_RGBAQ(0x80, 0x80, 0x80, 0x80, 0x00);
+
+        // Native DS pixels, centered in NTSC 640x448 with a small gap.
+        // Top:    (192, 24) -> (448, 216)
+        // Bottom: (192,232) -> (448, 424)
+        gsKit_clear(gsGlobal, blackColor);
+        gsKit_prim_sprite_texture(gsGlobal, &top,
+            192.0f, 24.0f, 0.0f, 0.0f,
+            448.0f, 216.0f, 256.0f, 192.0f,
+            1, textureColor);
+        gsKit_prim_sprite_texture(gsGlobal, &bottom,
+            192.0f, 232.0f, 0.0f, 0.0f,
+            448.0f, 424.0f, 256.0f, 192.0f,
+            1, textureColor);
+
+        PS2_LOG("[PS2][OK] M5: both NDS screens uploaded to GS. Presenting static first frame.\n");
+        fflush(stdout);
+
+        // Persistent queue: keep the validated first frame on-screen.
+        // Continuous runFrame()/texture streaming is the next step after this
+        // display path is proven on emulator and real hardware.
+        while (1)
+        {
+            gsKit_sync_flip(gsGlobal);
+            gsKit_queue_exec(gsGlobal);
+        }
     }
     catch (const std::bad_alloc &)
     {
