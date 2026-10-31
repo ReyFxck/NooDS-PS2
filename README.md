@@ -144,7 +144,7 @@
 - [x] M2 — BIOS/firmware/ROM são carregados pelo backend PS2 e o `Core` é construído (confirmado no NetherSX2 em 23/10/2026).
 - [x] M3 — ARM9 e ARM7 executam sem crash imediato; primeiro `runFrame()` retornou com 560.190 ciclos no NetherSX2 em 23/10/2026.
 - [x] M4 — primeiro framebuffer completo é produzido e recuperado; hash `E7911DC5` confirmado no NetherSX2 em 30/10/2026.
-- [ ] M5 — duas telas aparecem corretamente no GS. O caminho GS já executou até `both NDS screens uploaded to GS`; falta validar visualmente a saída.
+- [ ] M5 — duas telas aparecem corretamente no GS. O caminho GS executou até o upload/apresentação, mas o primeiro framebuffer validado era 100% branco; novo teste percorre até 30 frames e apresenta o primeiro que tiver qualquer pixel não-branco.
 - [ ] M6 — controles e touchscreen funcionam.
 - [ ] M7 — áudio funciona pelo SPU2.
 - [ ] M8 — homebrew simples executa de forma estável.
@@ -171,7 +171,7 @@ Este projeto continua sendo considerado POC até que exista, no mínimo:
 
 ## Estado atual do bootstrap PS2
 
-**Estado de compilação:** o CI PS2 compila e linka o core completo em Release e Debug para R5900. M0 e M2 já foram confirmados em runtime no NetherSX2. O `Core` mede 24.317.632 bytes (~23,19 MiB) no R5900. M1 (`host:`) continua pendente no Android porque o NetherSX2 bloqueia HostFS quando o ELF é iniciado pelo ISO. M3 foi confirmado: o primeiro `runFrame()` retornou com 560.190 ciclos. O teste M4 agora consome exatamente um framebuffer completo (`256x192x2`, 393.216 bytes), calcula um checksum e para; M5 agora inicializa o gsKit em NTSC 640x448, desliga Z/double-buffer, envia as duas telas como texturas CT32 256x192 e mantém o primeiro frame estático na tela para validação.
+**Estado de compilação:** o CI PS2 compila e linka o core completo em Release e Debug para R5900. M0 e M2 já foram confirmados em runtime no NetherSX2. O `Core` mede 24.317.632 bytes (~23,19 MiB) no R5900. M1 (`host:`) continua pendente no Android porque o NetherSX2 bloqueia HostFS quando o ELF é iniciado pelo ISO. M3 foi confirmado: o primeiro `runFrame()` retornou com 560.190 ciclos. O teste M4 agora consome exatamente um framebuffer completo (`256x192x2`, 393.216 bytes), calcula um checksum e para; M5 inicializa o gsKit em NTSC 640x448, desliga Z/double-buffer e envia as duas telas como texturas CT32 256x192. O hash `E7911DC5` corresponde exatamente a um framebuffer inteiro `0xFFFFFFFF` (98.304 pixels brancos), então a saída branca observada não foi causada pelo GS. O teste agora executa/consome até 30 frames e apresenta o primeiro framebuffer que não seja totalmente branco.
 
 O bootstrap PS2 valida PS2SDK e `host:` e agora também tenta **construir o core do NooDS sem executar frames**. Isso isola problemas de RAM/BIOS/firmware/ROM antes de envolver execução ARM9/ARM7, GPU e áudio.
 

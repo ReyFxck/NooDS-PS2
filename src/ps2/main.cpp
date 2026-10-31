@@ -214,58 +214,105 @@ int main(int argc, char **argv)
         Core *core = new Core(romPath, "");
         PS2_LOG("[PS2][OK] M2: Core constructed, BIOS/firmware/ROM paths were accepted.\n");
 
-        // M3 is deliberately tiny: execute exactly one emulated NDS frame.
-        // Do not present video or start a frontend loop yet. If this hangs or
-        // faults, the failure is isolated to ARM9/ARM7/scheduler/GPU/SPU work
-        // performed by the first frame rather than construction.
+        // M3/M4 progression test. The first NSMB frame was proven to be
+        // completely white (0xFFFFFFFF for all 98,304 pixels), so presenting
+        // only that frame cannot validate visible game output. Run a bounded
+        // number of frames, consuming every queued framebuffer immediately to
+        // avoid queue growth in the PS2's 32MB RAM, and stop at the first frame
+        // that contains any non-white pixel.
+        constexpr size_t FRAME_PIXELS = 256 * 192 * 2;
+        constexpr int MAX_BOOT_FRAMES = 30;
+        uint32_t *frame = new uint32_t[FRAME_PIXELS];
+
         uint32_t cyclesBefore = core->getGlobalCycles();
-        PS2_LOG("[PS2] M3: executing exactly one NDS frame... cycles=%lu\n",
-            static_cast<unsigned long>(cyclesBefore));
+        PS2_LOG("[PS2] M3: running up to %d NDS frames until output is not all-white... cycles=%lu\n",
+            MAX_BOOT_FRAMES, static_cast<unsigned long>(cyclesBefore));
         fflush(stdout);
 
-        core->runFrame();
+        bool gotFrame = false;
+        bool nonWhiteFrame = false;
+        int selectedFrame = 0;
+        uint32_t selectedHash = 0;
+        uint32_t selectedWhite = 0;
 
-        uint32_t cyclesAfter = core->getGlobalCycles();
-        PS2_LOG("[PS2][OK] M3: first runFrame() returned. cycles=%lu -> %lu fps=%d\n",
-            static_cast<unsigned long>(cyclesBefore),
-            static_cast<unsigned long>(cyclesAfter),
-            core->getFps());
-
-        // M4: consume exactly one completed DS framebuffer. This intentionally
-        // does not touch the PS2 GS yet; it only proves the emulated GPU queued
-        // a complete 256x192x2 frame that the frontend can retrieve.
-        constexpr size_t FRAME_PIXELS = 256 * 192 * 2;
-        uint32_t *frame = new uint32_t[FRAME_PIXELS];
-        PS2_LOG("[PS2] M4: requesting completed framebuffer (%u bytes)...\n",
-            static_cast<unsigned int>(FRAME_PIXELS * sizeof(uint32_t)));
-
-        if (!core->gpu.getFrame(frame, false))
+        for (int frameNo = 1; frameNo <= MAX_BOOT_FRAMES; frameNo++)
         {
-            PS2_LOG("[PS2][ERROR] M4: runFrame() returned but GPU had no completed framebuffer.\n");
+            core->runFrame();
+
+            if (!core->gpu.getFrame(frame, false))
+            {
+                PS2_LOG("[PS2][ERROR] M4: frame %d executed but GPU had no completed framebuffer.\n", frameNo);
+                delete[] frame;
+                delete core;
+                return 7;
+            }
+
+            gotFrame = true;
+
+            uint32_t hash = 2166136261u; // FNV-1a over 32-bit pixels
+            uint32_t white = 0;
+            for (size_t i = 0; i < FRAME_PIXELS; i++)
+            {
+                hash ^= frame[i];
+                hash *= 16777619u;
+                if (frame[i] == 0xFFFFFFFFu)
+                    white++;
+            }
+
+            selectedFrame = frameNo;
+            selectedHash = hash;
+            selectedWhite = white;
+
+            if (frameNo == 1 || (frameNo % 5) == 0 || white != FRAME_PIXELS)
+            {
+                PS2_LOG("[PS2] M4: frame=%d hash=%08lX white=%lu/%u cycles=%lu\n",
+                    frameNo,
+                    static_cast<unsigned long>(hash),
+                    static_cast<unsigned long>(white),
+                    static_cast<unsigned int>(FRAME_PIXELS),
+                    static_cast<unsigned long>(core->getGlobalCycles()));
+                fflush(stdout);
+            }
+
+            if (white != FRAME_PIXELS)
+            {
+                nonWhiteFrame = true;
+                break;
+            }
+        }
+
+        if (!gotFrame)
+        {
+            PS2_LOG("[PS2][ERROR] M4: no framebuffer was retrieved.\n");
             delete[] frame;
             delete core;
             return 7;
         }
 
-        uint32_t hash = 2166136261u; // FNV-1a
-        uint32_t black = 0;
-        for (size_t i = 0; i < FRAME_PIXELS; i++)
-        {
-            hash ^= frame[i];
-            hash *= 16777619u;
-            if ((frame[i] & 0x00FFFFFFu) == 0)
-                black++;
-        }
+        uint32_t cyclesAfter = core->getGlobalCycles();
+        PS2_LOG("[PS2][OK] M3: frame execution returned. cycles=%lu -> %lu\n",
+            static_cast<unsigned long>(cyclesBefore),
+            static_cast<unsigned long>(cyclesAfter));
 
-        PS2_LOG("[PS2][OK] M4: framebuffer retrieved. hash=%08lX black=%lu/%u\n",
-            static_cast<unsigned long>(hash),
-            static_cast<unsigned long>(black),
-            static_cast<unsigned int>(FRAME_PIXELS));
+        if (nonWhiteFrame)
+        {
+            PS2_LOG("[PS2][OK] M4: first non-white framebuffer at frame %d. hash=%08lX white=%lu/%u\n",
+                selectedFrame,
+                static_cast<unsigned long>(selectedHash),
+                static_cast<unsigned long>(selectedWhite),
+                static_cast<unsigned int>(FRAME_PIXELS));
+        }
+        else
+        {
+            PS2_LOG("[PS2][WARN] M4: all %d tested frames remained completely white. Last hash=%08lX\n",
+                MAX_BOOT_FRAMES, static_cast<unsigned long>(selectedHash));
+        }
 
         // M5: first real PS2 GS presentation path. Keep it intentionally
         // simple: one framebuffer, no Z-buffer, two 256x192 CT32 textures.
         // This proves the frontend path before attempting continuous emulation.
-        PS2_LOG("[PS2] M5: initializing GS and uploading both NDS screens...\n");
+        PS2_LOG("[PS2] M5: initializing GS and presenting selected frame %d (%s)...\n",
+            selectedFrame, nonWhiteFrame ? "non-white" : "still all-white");
         fflush(stdout);
 
         dmaKit_init(D_CTRL_RELE_OFF, D_CTRL_MFD_OFF, D_CTRL_STS_UNSPEC,
@@ -337,7 +384,8 @@ int main(int argc, char **argv)
             448.0f, 424.0f, 256.0f, 192.0f,
             1, textureColor);
 
-        PS2_LOG("[PS2][OK] M5: both NDS screens uploaded to GS. Presenting static first frame.\n");
+        PS2_LOG("[PS2][OK] M5: both NDS screens uploaded to GS. Presenting selected static frame %d.\n",
+            selectedFrame);
         fflush(stdout);
 
         // Persistent queue: keep the validated first frame on-screen.
