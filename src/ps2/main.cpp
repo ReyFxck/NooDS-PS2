@@ -269,6 +269,7 @@ bool probeNdsRom(const char *path)
     return true;
 }
 
+#ifdef NOODS_PROFILE
 void logInterpreterProfile(const char *label, const InterpreterProfile &profile)
 {
     PS2_LOG("[PS2][PROF] %s instr=%llu ARM=%llu THUMB=%llu | ARM dp=%llu mem=%llu multi=%llu branch=%llu sys=%llu | THUMB alu=%llu mem=%llu stack=%llu multi=%llu branch=%llu\n",
@@ -315,6 +316,7 @@ void logInterpreterProfile(const char *label, const InterpreterProfile &profile)
         static_cast<unsigned long>(top[4].pc), static_cast<unsigned long>(top[4].samples),
         static_cast<unsigned long>(top[5].pc), static_cast<unsigned long>(top[5].samples));
 }
+#endif
 }
 
 int main(int argc, char **argv)
@@ -331,6 +333,9 @@ int main(int argc, char **argv)
     PS2_LOG(" Build: DEBUG\n");
 #else
     PS2_LOG(" Build: RELEASE\n");
+#endif
+#ifdef NOODS_PROFILE
+    PS2_LOG(" Instrumentation: PROFILE\n");
 #endif
     PS2_LOG("============================================================\n");
 
@@ -398,11 +403,15 @@ int main(int argc, char **argv)
 
     try
     {
+#ifdef NOODS_PROFILE
         clock_t coreConstructStart = clock();
+#endif
         Core *core = new Core(romPath, "");
+#ifdef NOODS_PROFILE
         clock_t coreConstructTicks = clock() - coreConstructStart;
         PS2_LOG("[PS2][PROF] core construction: %.2f ms\n",
             static_cast<double>(coreConstructTicks) * 1000.0 / CLOCKS_PER_SEC);
+#endif
 
         // The embedded disc image is a regression/self-test environment.
         // Freeze its RTC so RELEASE and DEBUG runs can be compared by hash.
@@ -533,7 +542,9 @@ int main(int argc, char **argv)
         if (!frame)
             throw std::bad_alloc();
 
+#ifdef NOODS_PROFILE
         clock_t m3Start = clock();
+#endif
         uint32_t cyclesBefore = core->getGlobalCycles();
         PS2_LOG("[PS2] M3: running up to %d NDS frames until output is not all-white... cycles=%lu\n",
             MAX_BOOT_FRAMES, static_cast<unsigned long>(cyclesBefore));
@@ -605,12 +616,15 @@ int main(int argc, char **argv)
         PS2_LOG("[PS2][OK] M3: frame execution returned. cycles=%lu -> %lu\n",
             static_cast<unsigned long>(cyclesBefore),
             static_cast<unsigned long>(cyclesAfter));
+#ifdef NOODS_PROFILE
+        clock_t m3ElapsedTicks = clock() - m3Start;
         PS2_LOG("[PS2][PROF] M3 boot frames: %d frames in %.2f ms (%.2f ms/frame)\n",
             selectedFrame,
-            static_cast<double>(clock() - m3Start) * 1000.0 / CLOCKS_PER_SEC,
+            static_cast<double>(m3ElapsedTicks) * 1000.0 / CLOCKS_PER_SEC,
             selectedFrame > 0
-                ? (static_cast<double>(clock() - m3Start) * 1000.0 / CLOCKS_PER_SEC) / selectedFrame
+                ? (static_cast<double>(m3ElapsedTicks) * 1000.0 / CLOCKS_PER_SEC) / selectedFrame
                 : 0.0);
+#endif
 
         if (nonWhiteFrame)
         {
@@ -733,6 +747,7 @@ int main(int argc, char **argv)
         clock_t benchStart = clock();
         int benchFrames = 0;
 
+#ifdef NOODS_PROFILE
         core->setProfileEnabled(true);
         core->resetProfile();
 
@@ -747,21 +762,29 @@ int main(int argc, char **argv)
         uint64_t profLastRomReadBytes = core->cartridgeNds.getRomCacheReadBytes();
         uint32_t profLastRomSeeks = core->cartridgeNds.getRomCacheSeekCount();
         uint32_t profLastSequentialMisses = core->cartridgeNds.getRomCacheSequentialMisses();
+#endif
 
         while (1)
         {
             if (padReady)
                 pollPadIntoNds(core);
 
+#ifdef NOODS_PROFILE
             clock_t profTick = clock();
+#endif
             core->runFrame();
+#ifdef NOODS_PROFILE
             profCoreTicks += clock() - profTick;
+#endif
             benchFrames++;
+#ifdef NOODS_PROFILE
             profFrames++;
-
             profTick = clock();
+#endif
             bool frameReady = core->gpu.getFrame(frame, false);
+#ifdef NOODS_PROFILE
             profGetFrameTicks += clock() - profTick;
+#endif
 
             if (!frameReady)
             {
@@ -781,6 +804,7 @@ int main(int argc, char **argv)
                 PS2_LOG("[PS2] interpreter benchmark: %d frames in %.3f s = %.2f NDS fps\n",
                     benchFrames, elapsed, emuFps);
 
+#ifdef NOODS_PROFILE
                 double profCoreMs = static_cast<double>(profCoreTicks) * 1000.0 / CLOCKS_PER_SEC;
                 double profGetMs = static_cast<double>(profGetFrameTicks) * 1000.0 / CLOCKS_PER_SEC;
                 double profUploadMs = static_cast<double>(profUploadTicks) * 1000.0 / CLOCKS_PER_SEC;
@@ -855,6 +879,7 @@ int main(int argc, char **argv)
                 profPresentTicks = 0;
                 profWindowStart = clock();
                 profFrames = 0;
+#endif
 
                 uint32_t topHash = 2166136261u;
                 uint32_t bottomHash = 2166136261u;
@@ -896,16 +921,21 @@ int main(int argc, char **argv)
             // then build a fresh ONESHOT render queue targeting the back buffer.
             // Execute the queue before flipping, matching gsKit's framebuffer
             // streaming example and avoiding scanout/render overlap.
+#ifdef NOODS_PROFILE
             profTick = clock();
+#endif
             gsKit_texture_upload(gsGlobal, &top);
             gsKit_texture_upload(gsGlobal, &bottom);
+#ifdef NOODS_PROFILE
             profUploadTicks += clock() - profTick;
-
             profTick = clock();
+#endif
             queueNdsScreens();
             gsKit_queue_exec(gsGlobal);
             gsKit_sync_flip(gsGlobal);
+#ifdef NOODS_PROFILE
             profPresentTicks += clock() - profTick;
+#endif
 
             frameNo++;
         }
