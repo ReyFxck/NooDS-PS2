@@ -302,8 +302,9 @@ int main(int argc, char **argv)
         top.Height = bottom.Height = 192;
         top.PSM = bottom.PSM = GS_PSM_CT32;
         top.Filter = bottom.Filter = GS_FILTER_NEAREST;
-        top.Mem = &frame[0];
-        bottom.Mem = &frame[256 * 192];
+        static_assert(sizeof(uint32_t) == sizeof(u32), "PS2 GS texture word must be 32-bit");
+        top.Mem = reinterpret_cast<u32*>(&frame[0]);
+        bottom.Mem = reinterpret_cast<u32*>(&frame[256 * 192]);
 
         const int textureBytes = gsKit_texture_size(256, 192, GS_PSM_CT32);
         top.Vram = gsKit_vram_alloc(gsGlobal, textureBytes, GSKIT_ALLOC_USERBUFFER);
