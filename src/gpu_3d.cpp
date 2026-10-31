@@ -287,7 +287,7 @@ void Gpu3D::runCommand()
     if (state != GX_HALTED)
     {
         if (!fifo.empty() && fifo.size() >= paramCounts[fifo.front().command])
-            core->schedule(Task(&runCommandTask, 2));
+            core->schedule(Task(&runCommandTask, 2, TASK_PROFILE_GPU3D));
         else
             state = GX_IDLE;
     }
@@ -350,7 +350,7 @@ void Gpu3D::swapBuffers()
     // Unhalt the GXFIFO, and start executing commands if one is ready
     if (!fifo.empty() && fifo.size() >= paramCounts[fifo.front().command])
     {
-        core->schedule(Task(&runCommandTask, 2));
+        core->schedule(Task(&runCommandTask, 2, TASK_PROFILE_GPU3D));
         state = GX_RUNNING;
     }
     else
@@ -1525,7 +1525,7 @@ void Gpu3D::addEntry(Entry entry)
     // Start executing commands if one is ready
     if (state == GX_IDLE && fifo.size() >= paramCounts[fifo.front().command])
     {
-        core->schedule(Task(&runCommandTask, 2));
+        core->schedule(Task(&runCommandTask, 2, TASK_PROFILE_GPU3D));
         state = GX_RUNNING;
     }
 }
