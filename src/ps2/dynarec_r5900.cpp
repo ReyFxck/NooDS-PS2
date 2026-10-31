@@ -308,3 +308,85 @@ bool DynarecR5900::runArm9StateSelfTest(const Interpreter &cpu, uint32_t *stateH
 
     return true;
 }
+
+
+int DynarecR5900::runArm9PipelineSelfTest(const Interpreter &cpu,
+    uint32_t *guestPc, uint32_t *opcodeOut)
+{
+    if (!CpuBackendAccess::isArm9(cpu) || CpuBackendAccess::isThumb(cpu))
+        return 0;
+
+    ArmAluState source = {};
+    for (int i = 0; i < 16; i++)
+        source.r[i] = CpuBackendAccess::readReg(cpu, i);
+
+    uint32_t firstPc = CpuBackendAccess::nextInstructionAddress(cpu);
+
+    for (int slot = 0; slot < 2; slot++)
+    {
+        uint32_t opcode = CpuBackendAccess::pipelineOpcode(cpu, slot);
+        bool immediate = (opcode & 0x02000000u) != 0;
+
+        if ((opcode >> 28) != 0xEu ||
+            (opcode & 0x0C000000u) != 0 ||
+            (opcode & 0x00100000u) != 0 ||
+            (!immediate && (opcode & 0x00000FF0u) != 0))
+            continue;
+
+        uint8_t operation = static_cast<uint8_t>((opcode >> 21) & 0xF);
+        uint8_t rn = static_cast<uint8_t>((opcode >> 16) & 0xF);
+        uint8_t rd = static_cast<uint8_t>((opcode >> 12) & 0xF);
+        uint8_t rm = static_cast<uint8_t>(opcode & 0xF);
+
+        if (rd == 15 || (!immediate && rm == 15) || (operation != 13 && rn == 15))
+            continue;
+
+        if (operation != 0 && operation != 1 && operation != 2 &&
+            operation != 4 && operation != 12 && operation != 13)
+            continue;
+
+        uint32_t operand2;
+        if (immediate)
+        {
+            operand2 = opcode & 0xFFu;
+            uint32_t rotate = ((opcode >> 8) & 0xFu) * 2u;
+            if (rotate)
+                operand2 = (operand2 >> rotate) | (operand2 << (32u - rotate));
+        }
+        else
+        {
+            operand2 = source.r[rm];
+        }
+
+        uint32_t expected;
+        switch (operation)
+        {
+            case 0:  expected = source.r[rn] & operand2; break;
+            case 1:  expected = source.r[rn] ^ operand2; break;
+            case 2:  expected = source.r[rn] - operand2; break;
+            case 4:  expected = source.r[rn] + operand2; break;
+            case 12: expected = source.r[rn] | operand2; break;
+            case 13: expected = operand2; break;
+            default: continue;
+        }
+
+        uint32_t *entry = nullptr;
+        uint8_t emittedRd = 0;
+        if (!emitArmAluBlock(opcode, &entry, &emittedRd) || emittedRd != rd)
+            return -1;
+
+        ArmAluState state = source;
+        typedef void (*ArmAluFunction)(ArmAluState *);
+        ArmAluFunction function = reinterpret_cast<ArmAluFunction>(entry);
+        function(&state);
+
+        if (guestPc)
+            *guestPc = firstPc + static_cast<uint32_t>(slot * 4);
+        if (opcodeOut)
+            *opcodeOut = opcode;
+
+        return state.r[rd] == expected ? 1 : -1;
+    }
+
+    return 0;
+}
