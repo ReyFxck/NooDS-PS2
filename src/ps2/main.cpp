@@ -740,6 +740,7 @@ int main(int argc, char **argv)
         clock_t profGetFrameTicks = 0;
         clock_t profUploadTicks = 0;
         clock_t profPresentTicks = 0;
+        clock_t profWindowStart = clock();
         int profFrames = 0;
         uint32_t profLastRomHits = core->cartridgeNds.getRomCacheHits();
         uint32_t profLastRomMisses = core->cartridgeNds.getRomCacheMisses();
@@ -784,8 +785,15 @@ int main(int argc, char **argv)
                 double profKnownMs = profCoreMs + profGetMs + profUploadMs + profPresentMs;
                 double profFrameDiv = profFrames > 0 ? static_cast<double>(profFrames) : 1.0;
 
-                PS2_LOG("[PS2][PROF] %d frames: core=%.2fms/f getFrame=%.2fms/f uploadGS=%.2fms/f present=%.2fms/f known=%.2fms/f\n",
+                double profWindowSeconds =
+                    static_cast<double>(clock() - profWindowStart) / CLOCKS_PER_SEC;
+                double profWindowFps = profWindowSeconds > 0.0
+                    ? profFrames / profWindowSeconds : 0.0;
+
+                PS2_LOG("[PS2][PROF] %d-frame window: %.3fs = %.2f fps | core=%.2fms/f getFrame=%.2fms/f uploadGS=%.2fms/f present=%.2fms/f known=%.2fms/f\n",
                     profFrames,
+                    profWindowSeconds,
+                    profWindowFps,
                     profCoreMs / profFrameDiv,
                     profGetMs / profFrameDiv,
                     profUploadMs / profFrameDiv,
@@ -824,6 +832,7 @@ int main(int argc, char **argv)
                 profGetFrameTicks = 0;
                 profUploadTicks = 0;
                 profPresentTicks = 0;
+                profWindowStart = clock();
                 profFrames = 0;
 
                 uint32_t topHash = 2166136261u;
