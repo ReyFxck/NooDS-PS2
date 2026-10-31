@@ -46,12 +46,28 @@
 #include "timers.h"
 #include "wifi.h"
 
+enum TaskProfileClass : uint8_t
+{
+    TASK_PROFILE_CORE = 0,
+    TASK_PROFILE_GPU,
+    TASK_PROFILE_GPU3D,
+    TASK_PROFILE_SPU,
+    TASK_PROFILE_DMA,
+    TASK_PROFILE_TIMER,
+    TASK_PROFILE_IRQ,
+    TASK_PROFILE_OTHER,
+    TASK_PROFILE_COUNT
+};
+
 struct Task
 {
-    Task(std::function<void()> *task, uint32_t cycles): task(task), cycles(cycles) {}
+    Task(std::function<void()> *task, uint32_t cycles,
+        TaskProfileClass profileClass = TASK_PROFILE_OTHER):
+        task(task), cycles(cycles), profileClass(profileClass) {}
 
     std::function<void()> *task;
     uint32_t cycles;
+    TaskProfileClass profileClass;
 
     bool operator<(const Task &task) const { return cycles < task.cycles; }
 };
@@ -63,6 +79,11 @@ struct CoreRunProfile
     uint64_t taskExecutions = 0;
     uint64_t scheduleCalls = 0;
     uint32_t maxTaskDepth = 0;
+
+    uint64_t taskClassCount[TASK_PROFILE_COUNT] = {};
+    uint64_t taskClassTicks[TASK_PROFILE_COUNT] = {};
+    uint64_t taskClassSamples[TASK_PROFILE_COUNT] = {};
+    uint64_t taskSampleCounter = 0;
 };
 
 class Core
