@@ -1320,6 +1320,21 @@ template <typename T> T Memory::ioRead7(uint32_t address)
             case 0x4000305: base -= 0x4000304; size = 2; data = 0;                                            break; // POWCNT1 is ARM9-only
             default:
             {
+                // ARM7 owns the DS WiFi block. Preserve stable readback for
+                // control registers whose side effects are not implemented yet,
+                // just like the ARM9 fallback path. This keeps reserved/control
+                // accesses deterministic without pretending packets were sent.
+                if ((base >= 0x04800000 && base < 0x04804000) ||
+                    (base >= 0x04806000 && base < 0x04808000))
+                {
+                    uint32_t reg = 0x04800000 | (base & 0x0FFE);
+                    uint32_t offset = base & 1;
+                    size = 2;
+                    data = core->wifi.readControlShadow(reg);
+                    base = offset;
+                    break;
+                }
+
                 // Handle unknown reads by returning 0
                 if (i == 0)
                 {
@@ -2718,6 +2733,20 @@ template <typename T> void Memory::ioWrite7(uint32_t address, T value)
             case 0x4000305: base -= 0x4000304; size = 2;                                                              break; // ARM9-only POWCNT1
             default:
             {
+                // Mirror unimplemented ARM7 WiFi control registers into the
+                // shared shadow bank. Dedicated implemented registers above
+                // still take precedence and keep their real side effects.
+                if ((base >= 0x04800000 && base < 0x04804000) ||
+                    (base >= 0x04806000 && base < 0x04808000))
+                {
+                    uint32_t reg = 0x04800000 | (base & 0x0FFE);
+                    uint32_t offset = base & 1;
+                    core->wifi.writeControlShadow(reg,
+                        mask << (offset * 8), data << (offset * 8));
+                    i += 2 - offset;
+                    continue;
+                }
+
                 // Catch unknown writes
                 if (i == 0)
                 {
