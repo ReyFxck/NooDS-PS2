@@ -97,6 +97,7 @@ int Interpreter::runOpcode()
     // Push the next opcode through the pipeline
     uint32_t opcode = pipeline[0];
 
+#ifdef NOODS_PROFILE
     if (profileEnabled)
     {
         bool thumb = (cpsr & BIT(5)) != 0;
@@ -155,6 +156,7 @@ int Interpreter::runOpcode()
             }
         }
     }
+#endif
 
     pipeline[0] = pipeline[1];
 
