@@ -50,6 +50,12 @@ class DynarecR5900
         // bank. The emulated CPU itself is never modified by this test.
         bool runArm9StateSelfTest(const Interpreter &cpu, uint32_t *stateHash = nullptr);
 
+        // Try the live ARM9 pipeline without mutating it. Returns 1 on a
+        // validated real opcode, 0 when neither pipeline slot is in the current
+        // subset, and -1 on a mismatch.
+        int runArm9PipelineSelfTest(const Interpreter &cpu,
+            uint32_t *guestPc = nullptr, uint32_t *opcode = nullptr);
+
         size_t codeCacheUsed() const { return cache.usedBytes(); }
         size_t codeCacheCapacity() const { return cache.capacity(); }
         size_t blockCount() const { return blocks.size(); }
