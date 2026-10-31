@@ -63,6 +63,7 @@ class Cartridge
         FILE *romFile = nullptr;
         uint8_t *rom = nullptr, *save = nullptr;
         int romSize = 0, saveSize = 0;
+        long romFilePosition = -1;
         int romCapacity = 0;
         bool saveDirty = false;
 
