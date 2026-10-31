@@ -57,6 +57,7 @@ class Gpu
         Core *core;
 
         std::queue<uint32_t*> framebuffers;
+        std::queue<uint32_t*> recycledFramebuffers;
         std::atomic<bool> ready;
         std::mutex mutex;
 
