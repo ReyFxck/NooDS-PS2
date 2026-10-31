@@ -68,30 +68,47 @@ void Gpu::gbaScheduleInit()
     core->schedule(Task(&gbaScanline308Task, 308 * 4, TASK_PROFILE_GPU));
 }
 
+namespace
+{
+static const uint8_t rgb6To8Lut[64] =
+{
+      0,   4,   8,  12,  16,  20,  24,  28,
+     32,  36,  40,  44,  48,  52,  56,  60,
+     64,  68,  72,  76,  80,  85,  89,  93,
+     97, 101, 105, 109, 113, 117, 121, 125,
+    129, 133, 137, 141, 145, 149, 153, 157,
+    161, 165, 170, 174, 178, 182, 186, 190,
+    194, 198, 202, 206, 210, 214, 218, 222,
+    226, 230, 234, 238, 242, 246, 250, 255
+};
+}
+
 uint32_t Gpu::rgb5ToRgb8(uint32_t color)
 {
-    // Convert an RGB5 value to an RGB8 value, with RGB6 as an intermediate
-    uint8_t r = (((color >>  0) & 0x1F) << 1) * 255 / 63;
-    uint8_t g = (((color >>  5) & 0x1F) << 1) * 255 / 63;
-    uint8_t b = (((color >> 10) & 0x1F) << 1) * 255 / 63;
-    return (0xFF << 24) | (b << 16) | (g << 8) | r;
+    // Preserve the original RGB5 -> even RGB6 -> RGB8 mapping exactly, but
+    // replace three integer divisions per pixel with tiny L1-friendly lookups.
+    uint8_t r = rgb6To8Lut[((color >>  0) & 0x1F) << 1];
+    uint8_t g = rgb6To8Lut[((color >>  5) & 0x1F) << 1];
+    uint8_t b = rgb6To8Lut[((color >> 10) & 0x1F) << 1];
+    return (0xFFu << 24) | (uint32_t(b) << 16) | (uint32_t(g) << 8) | r;
 }
 
 uint32_t Gpu::rgb6ToRgb8(uint32_t color)
 {
-    // Convert an RGB6 value to an RGB8 value
-    uint8_t r = ((color >>  0) & 0x3F) * 255 / 63;
-    uint8_t g = ((color >>  6) & 0x3F) * 255 / 63;
-    uint8_t b = ((color >> 12) & 0x3F) * 255 / 63;
-    return (0xFF << 24) | (b << 16) | (g << 8) | r;
+    // Full NDS output converts 98,304 pixels every frame. The LUT is bit-for-
+    // bit identical to floor(component * 255 / 63), avoiding ~295k divides.
+    uint8_t r = rgb6To8Lut[(color >>  0) & 0x3F];
+    uint8_t g = rgb6To8Lut[(color >>  6) & 0x3F];
+    uint8_t b = rgb6To8Lut[(color >> 12) & 0x3F];
+    return (0xFFu << 24) | (uint32_t(b) << 16) | (uint32_t(g) << 8) | r;
 }
 
 uint16_t Gpu::rgb6ToRgb5(uint32_t color)
 {
-    // Convert an RGB6 value to an RGB5 value
-    uint8_t r = ((color >>  0) & 0x3F) / 2;
-    uint8_t g = ((color >>  6) & 0x3F) / 2;
-    uint8_t b = ((color >> 12) & 0x3F) / 2;
+    // Division by two is an exact shift for the unsigned 6-bit components.
+    uint8_t r = ((color >>  0) & 0x3F) >> 1;
+    uint8_t g = ((color >>  6) & 0x3F) >> 1;
+    uint8_t b = ((color >> 12) & 0x3F) >> 1;
     return BIT(15) | (b << 10) | (g << 5) | r;
 }
 
