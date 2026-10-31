@@ -393,13 +393,13 @@ int main(int argc, char **argv)
                         int pipelineGate = dynarec.runArm9PipelineSelfTest(
                             core->interpreter[0], &livePc, &liveOpcode);
                         if (pipelineGate > 0)
-                            PS2_LOG("[PS2][OK] ARM9 pipeline opcode shadow gate passed: pc=%08lX opcode=%08lX.\n",
+                            PS2_LOG("[PS2][OK] ARM9 next-opcode shadow gate passed: pc=%08lX opcode=%08lX.\n",
                                 static_cast<unsigned long>(livePc),
                                 static_cast<unsigned long>(liveOpcode));
                         else if (pipelineGate == 0)
-                            PS2_LOG("[PS2] ARM9 pipeline opcode shadow gate: current two opcodes are outside ALU subset.\n");
+                            PS2_LOG("[PS2] ARM9 next-opcode shadow gate: opcode is outside current ALU subset.\n");
                         else
-                            PS2_LOG("[PS2][WARN] ARM9 pipeline opcode shadow gate mismatch: pc=%08lX opcode=%08lX.\n",
+                            PS2_LOG("[PS2][WARN] ARM9 next-opcode shadow gate mismatch: pc=%08lX opcode=%08lX.\n",
                                 static_cast<unsigned long>(livePc),
                                 static_cast<unsigned long>(liveOpcode));
                     }
