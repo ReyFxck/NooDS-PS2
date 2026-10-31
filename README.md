@@ -307,3 +307,11 @@ To compile for Android, the easiest way would be to use [Android Studio](https:/
 - Registradores WiFi já implementados continuam usando lógica dedicada.
 - Registradores WiFi restantes usam um shadow bank de readback estável, sem stubs espalhados por jogo/endereço.
 - Multiplayer/rede WiFi continua pendente; o shadow bank não finge transmissão de pacotes.
+
+
+### Memória preparada para dynarec
+
+- Os quatro mapas diretos de 1.048.576 ponteiros foram substituídos por `SparsePageTable` de dois níveis.
+- A granularidade continua sendo 4 KiB; RAM/WRAM/TCM/VRAM e fallbacks preservam a mesma semântica.
+- O core expõe `getDirectReadPage()`, `getDirectWritePage()` e `getMapGeneration()` para backends de CPU.
+- `mapGeneration` permite invalidar code cache quando TCM/WRAM/VRAM são remapeados, sem acoplar o core ao PS2.

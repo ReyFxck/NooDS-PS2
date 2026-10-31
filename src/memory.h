@@ -21,10 +21,68 @@
 #define MEMORY_H
 
 #include <cstdint>
+#include <cstddef>
 
 #include "defines.h"
 
 class Core;
+
+class SparsePageTable
+{
+    public:
+        SparsePageTable() = default;
+        ~SparsePageTable()
+        {
+            for (size_t i = 0; i < 0x1000; i++)
+                delete level1[i];
+        }
+
+        SparsePageTable(const SparsePageTable&) = delete;
+        SparsePageTable &operator=(const SparsePageTable&) = delete;
+
+        FORCE_INLINE uint8_t *get(uint32_t address) const
+        {
+            Level2 *table = level1[address >> 20];
+            return table ? table->pages[(address >> 12) & 0xFF] : nullptr;
+        }
+
+        bool set(uint32_t address, uint8_t *data)
+        {
+            uint32_t l1 = address >> 20;
+            uint32_t l2 = (address >> 12) & 0xFF;
+
+            Level2 *table = level1[l1];
+            if (!table)
+            {
+                if (!data)
+                    return false;
+
+                table = new Level2();
+                level1[l1] = table;
+                allocatedTables++;
+            }
+
+            if (table->pages[l2] == data)
+                return false;
+
+            table->pages[l2] = data;
+            return true;
+        }
+
+        size_t allocatedBytes() const
+        {
+            return sizeof(level1) + allocatedTables * sizeof(Level2);
+        }
+
+    private:
+        struct Level2
+        {
+            uint8_t *pages[0x100] = {};
+        };
+
+        Level2 *level1[0x1000] = {};
+        size_t allocatedTables = 0;
+};
 
 class VramMapping
 {
@@ -63,14 +121,38 @@ class Memory
         uint8_t **getTex3D()      { return tex3D;      }
         uint8_t **getPal3D()      { return pal3D;      }
 
+        // Direct-page helpers for CPU backends/dynarecs. A null result means
+        // the access must use the normal fallback path.
+        FORCE_INLINE uint8_t *getDirectReadPage(bool cpu, uint32_t address) const
+        {
+            return (cpu == 0 ? readMap9 : readMap7).get(address);
+        }
+
+        FORCE_INLINE uint8_t *getDirectWritePage(bool cpu, uint32_t address) const
+        {
+            return (cpu == 0 ? writeMap9 : writeMap7).get(address);
+        }
+
+        uint32_t getMapGeneration() const { return mapGeneration; }
+
+        size_t getPageTableBytes() const
+        {
+            return readMap9.allocatedBytes() + readMap7.allocatedBytes() +
+                   writeMap9.allocatedBytes() + writeMap7.allocatedBytes();
+        }
+
     private:
         Core *core;
 
-        // 32-bit address space, split into 4KB blocks
-        uint8_t *readMap9[0x100000]  = {};
-        uint8_t *readMap7[0x100000]  = {};
-        uint8_t *writeMap9[0x100000] = {};
-        uint8_t *writeMap7[0x100000] = {};
+        // 32-bit address space, still split into 4KB blocks, but represented
+        // by sparse two-level tables. This keeps the exact fast-map semantics
+        // without reserving four million page pointers inside Core.
+        SparsePageTable readMap9;
+        SparsePageTable readMap7;
+        SparsePageTable writeMap9;
+        SparsePageTable writeMap7;
+
+        uint32_t mapGeneration = 1;
 
         uint8_t bios9[0x8000]   = {}; // 32KB ARM9 BIOS
         uint8_t bios7[0x4000]   = {}; // 16KB ARM7 BIOS
@@ -153,11 +235,11 @@ template <typename T> FORCE_INLINE T Memory::read(bool cpu, uint32_t address)
     // Align the address
     address &= ~(sizeof(T) - 1);
 
-    uint8_t **readMap = (cpu == 0) ? readMap9 : readMap7;
-    if (readMap[address >> 12])
+    const SparsePageTable &readMap = (cpu == 0) ? readMap9 : readMap7;
+    if (uint8_t *page = readMap.get(address))
     {
         // Get a pointer to readable memory mapped to the given address
-        uint8_t *data = &readMap[address >> 12][address & 0xFFF];
+        uint8_t *data = &page[address & 0xFFF];
 
         // Form an LSB-first value from the data at the pointer
         T value = 0;
@@ -177,11 +259,11 @@ template <typename T> FORCE_INLINE void Memory::write(bool cpu, uint32_t address
     // Align the address
     address &= ~(sizeof(T) - 1);
 
-    uint8_t **writeMap = (cpu == 0) ? writeMap9 : writeMap7;
-    if (writeMap[address >> 12])
+    const SparsePageTable &writeMap = (cpu == 0) ? writeMap9 : writeMap7;
+    if (uint8_t *page = writeMap.get(address))
     {
         // Get a pointer to writable memory mapped to the given address
-        uint8_t *data = &writeMap[address >> 12][address & 0xFFF];
+        uint8_t *data = &page[address & 0xFFF];
 
         // Write an LSB-first value to the data at the pointer
         for (size_t i = 0; i < sizeof(T); i++)

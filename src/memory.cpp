@@ -79,6 +79,8 @@ void Memory::loadGbaBios()
 
 void Memory::updateMap9(uint32_t start, uint32_t end)
 {
+    bool changed = false;
+
     // Update the ARM9 read memory map in the given range
     for (uint64_t address = start; address < end; address += 0x1000)
     {
@@ -139,7 +141,7 @@ void Memory::updateMap9(uint32_t start, uint32_t end)
             }
         }
 
-        readMap9[address >> 12] = data;
+        changed |= readMap9.set(static_cast<uint32_t>(address), data);
     }
 
     // Update the ARM9 write memory map in the given range
@@ -190,12 +192,19 @@ void Memory::updateMap9(uint32_t start, uint32_t end)
             }
         }
 
-        writeMap9[address >> 12] = data;
+        changed |= writeMap9.set(static_cast<uint32_t>(address), data);
+    }
+    if (changed)
+    {
+        if (++mapGeneration == 0)
+            mapGeneration = 1;
     }
 }
 
 void Memory::updateMap7(uint32_t start, uint32_t end)
 {
+    bool changed = false;
+
     // Update the ARM7 read memory map in the given range
     for (uint64_t address = start; address < end; address += 0x1000)
     {
@@ -281,7 +290,7 @@ void Memory::updateMap7(uint32_t start, uint32_t end)
             }
         }
 
-        readMap7[address >> 12] = data;
+        changed |= readMap7.set(static_cast<uint32_t>(address), data);
     }
 
     // Update the ARM7 write memory map in the given range
@@ -352,7 +361,7 @@ void Memory::updateMap7(uint32_t start, uint32_t end)
             }
         }
 
-        writeMap7[address >> 12] = data;
+        changed |= writeMap7.set(static_cast<uint32_t>(address), data);
     }
 }
 
