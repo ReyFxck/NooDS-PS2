@@ -63,8 +63,8 @@ bool DynarecR5900::emitProbe()
     // Emit a tiny valid leaf function:
     //   v0 = 0x4E44 ("ND")
     //   return
-    // It is deliberately not called yet. Its purpose is to validate allocator,
-    // encoding and EE cache synchronization without changing emulator behavior.
+    // It is executed only as a bootstrap self-test. Its purpose is to validate
+    // allocator, encoding and EE cache synchronization without touching emulated state.
     uint32_t *code = cache.reserveWords(4);
     if (!code)
         return false;
