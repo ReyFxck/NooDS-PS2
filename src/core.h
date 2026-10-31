@@ -88,10 +88,9 @@ struct CoreRunProfile
     uint64_t taskClassCount[TASK_PROFILE_COUNT] = {};
     uint64_t taskClassTicks[TASK_PROFILE_COUNT] = {};
     uint64_t taskClassSamples[TASK_PROFILE_COUNT] = {};
-    // Sample each class independently. A single global modulo counter can
-    // alias with the scheduler's repeating event pattern and repeatedly time
-    // the same cheap/expensive phase.
-    uint64_t taskClassSampleCounter[TASK_PROFILE_COUNT] = {};
+    // Sample each class with an independent deterministic PRNG stream so a
+    // periodic task schedule cannot repeatedly select or skip one class.
+    uint32_t taskClassSampleState[TASK_PROFILE_COUNT] = {};
 };
 
 class Core
@@ -122,6 +121,8 @@ class Core
             interpreter[1].setProfileEnabled(enabled);
 #ifdef NOODS_PROFILE
             gpu.setProfileEnabled(enabled);
+            gpu2D[0].setProfileEnabled(enabled);
+            gpu2D[1].setProfileEnabled(enabled);
 #endif
         }
 
@@ -132,6 +133,8 @@ class Core
             interpreter[1].resetProfile();
 #ifdef NOODS_PROFILE
             gpu.resetProfile();
+            gpu2D[0].resetProfile();
+            gpu2D[1].resetProfile();
 #endif
         }
 

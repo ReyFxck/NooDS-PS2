@@ -20,6 +20,7 @@
 #ifndef DEFINES_H
 #define DEFINES_H
 
+#include <cstdint>
 #include <cstdio>
 
 // Enable or disable debug log printing
@@ -34,6 +35,20 @@
 #define FORCE_INLINE __forceinline
 #else
 #define FORCE_INLINE inline __attribute__((always_inline))
+#endif
+
+#ifdef NOODS_PROFILE
+// Deterministic low-cost sampling without modulo aliasing against scanline or
+// scheduler periods. Each caller owns a state and supplies a stable stream ID.
+FORCE_INLINE bool profileSample64(uint32_t &state, uint32_t stream)
+{
+    if (!state)
+        state = 0xA341316Cu ^ ((stream + 1u) * 0x9E3779B9u);
+    state ^= state << 13;
+    state ^= state >> 17;
+    state ^= state << 5;
+    return (state & 63u) == 0;
+}
 #endif
 
 // Simple bit macro

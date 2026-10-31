@@ -44,6 +44,30 @@ Gpu2D::Gpu2D(Core *core, bool engine): core(core), engine(engine)
     }
 }
 
+#ifdef NOODS_PROFILE
+bool Gpu2D::beginProfilePhase(Gpu2DProfilePhase phase, clock_t &start)
+{
+    if (!profileEnabled)
+        return false;
+
+    runProfile.phaseCount[phase]++;
+    bool sampled = profileSample64(runProfile.phaseSampleState[phase],
+        phase + (engine ? 0x300u : 0x200u));
+    if (sampled)
+        start = clock();
+    return sampled;
+}
+
+void Gpu2D::endProfilePhase(Gpu2DProfilePhase phase, clock_t start, bool sampled)
+{
+    if (!sampled)
+        return;
+
+    runProfile.phaseTicks[phase] += static_cast<uint64_t>(clock() - start);
+    runProfile.phaseSamples[phase]++;
+}
+#endif
+
 uint32_t Gpu2D::rgb5ToRgb6(uint32_t color)
 {
     // Convert an RGB5 value to an RGB6 value (the way the 2D engine does it)
@@ -65,13 +89,18 @@ void Gpu2D::drawGbaScanline(int line)
         internalY[1] = bgY[1];
     }
 
-    // Clear the layers with the backdrop (first palette index)
-    uint16_t backdrop = U8TO16(palette, 0) & ~BIT(15);
-    for (int i = 0; i < 2; i++)
     {
-        for (int j = 0; j < 240; j++) layers[i][j] = backdrop;
-        memset(priorities[i], 4, 240 * sizeof(uint8_t));
-        memset(blendBits[i],  5, 240 * sizeof(uint8_t));
+#ifdef NOODS_PROFILE
+        ProfileScope profile(this, GPU2D_PROFILE_CLEAR);
+#endif
+        // Clear the layers with the backdrop (first palette index)
+        uint16_t backdrop = U8TO16(palette, 0) & ~BIT(15);
+        for (int i = 0; i < 2; i++)
+        {
+            for (int j = 0; j < 240; j++) layers[i][j] = backdrop;
+            memset(priorities[i], 4, 240 * sizeof(uint8_t));
+            memset(blendBits[i],  5, 240 * sizeof(uint8_t));
+        }
     }
 
     // Draw the objects, object window first if enabled
@@ -111,10 +140,14 @@ void Gpu2D::drawGbaScanline(int line)
             break;
     }
 
-    // Blend the layers to form the final image
-    for (int i = 0; i < 240; i++)
     {
-        uint8_t mode = (bldCnt >> 6) & 0x3;
+#ifdef NOODS_PROFILE
+        ProfileScope profile(this, GPU2D_PROFILE_COMPOSE);
+#endif
+        // Blend the layers to form the final image
+        for (int i = 0; i < 240; i++)
+        {
+            uint8_t mode = (bldCnt >> 6) & 0x3;
 
         // Check if blending can/should be performed
         if (layers[0][i] & BIT(25)) // Semi-transparent pixel
@@ -147,8 +180,8 @@ void Gpu2D::drawGbaScanline(int line)
         }
 
         // Apply blending, using 15-bit colors in GBA mode
-        switch (mode)
-        {
+            switch (mode)
+            {
             case 1: // Alpha blending
             alpha:
             {
@@ -178,11 +211,17 @@ void Gpu2D::drawGbaScanline(int line)
                 layers[0][i] = (b << 10) | (g << 5) | r;
                 continue;
             }
+            }
         }
     }
 
-    // Copy the final image to the framebuffer
-    memcpy(&framebuffer[line * 256], layers[0], 240 * sizeof(uint32_t));
+    {
+#ifdef NOODS_PROFILE
+        ProfileScope profile(this, GPU2D_PROFILE_OUTPUT);
+#endif
+        // Copy the final image to the framebuffer
+        memcpy(&framebuffer[line * 256], layers[0], 240 * sizeof(uint32_t));
+    }
 }
 
 void Gpu2D::drawScanline(int line)
@@ -196,13 +235,18 @@ void Gpu2D::drawScanline(int line)
         internalY[1] = bgY[1];
     }
 
-    // Clear the layers with the backdrop (first palette index)
-    uint16_t backdrop = U8TO16(palette, 0) & ~BIT(15);
-    for (int i = 0; i < 2; i++)
     {
-        for (int j = 0; j < 256; j++) layers[i][j] = backdrop;
-        memset(priorities[i], 4, 256 * sizeof(uint8_t));
-        memset(blendBits[i],  5, 256 * sizeof(uint8_t));
+#ifdef NOODS_PROFILE
+        ProfileScope profile(this, GPU2D_PROFILE_CLEAR);
+#endif
+        // Clear the layers with the backdrop (first palette index)
+        uint16_t backdrop = U8TO16(palette, 0) & ~BIT(15);
+        for (int i = 0; i < 2; i++)
+        {
+            for (int j = 0; j < 256; j++) layers[i][j] = backdrop;
+            memset(priorities[i], 4, 256 * sizeof(uint8_t));
+            memset(blendBits[i],  5, 256 * sizeof(uint8_t));
+        }
     }
 
     // Draw the objects, object window first if enabled
@@ -266,10 +310,14 @@ void Gpu2D::drawScanline(int line)
             break;
     }
 
-    // Blend the layers to form the final image
-    for (int i = 0; i < 256; i++)
     {
-        uint8_t mode = (bldCnt >> 6) & 0x3;
+#ifdef NOODS_PROFILE
+        ProfileScope profile(this, GPU2D_PROFILE_COMPOSE);
+#endif
+        // Blend the layers to form the final image
+        for (int i = 0; i < 256; i++)
+        {
+            uint8_t mode = (bldCnt >> 6) & 0x3;
 
         // Check if blending can/should be performed
         if (layers[0][i] & BIT(26)) // 3D pixel
@@ -328,8 +376,8 @@ void Gpu2D::drawScanline(int line)
         }
 
         // Apply blending, using 18-bit colors in DS mode
-        switch (mode)
-        {
+            switch (mode)
+            {
             case 1: // Alpha blending
             alpha:
             {
@@ -360,70 +408,81 @@ void Gpu2D::drawScanline(int line)
                 layers[0][i] = (b << 12) | (g << 6) | r;
                 continue;
             }
+            }
         }
     }
 
-    // Copy the final image to the framebuffer
-    switch ((dispCnt >> 16) & 0x3) // Display mode
     {
-        case 0: // Display off
+#ifdef NOODS_PROFILE
+        ProfileScope profile(this, GPU2D_PROFILE_OUTPUT);
+#endif
+        // Copy the final image to the framebuffer
+        switch ((dispCnt >> 16) & 0x3) // Display mode
         {
-            // Fill the display with white
-            memset(&framebuffer[line * 256], 0xFF, 256 * sizeof(uint32_t));
-            break;
-        }
+            case 0: // Display off
+            {
+                // Fill the display with white
+                memset(&framebuffer[line * 256], 0xFF, 256 * sizeof(uint32_t));
+                break;
+            }
 
-        case 1: // Layers
-        {
-            memcpy(&framebuffer[line * 256], layers[0], 256 * sizeof(uint32_t));
-            break;
-        }
+            case 1: // Layers
+            {
+                memcpy(&framebuffer[line * 256], layers[0], 256 * sizeof(uint32_t));
+                break;
+            }
 
-        case 2: // VRAM display
-        {
-            // Draw raw bitmap data from a VRAM block
-            uint32_t address = 0x6800000 + ((dispCnt & 0x000C0000) >> 18) * 0x20000 + line * 256 * 2;
-            for (int i = 0; i < 256; i++)
-                framebuffer[line * 256 + i] = rgb5ToRgb6(core->memory.read<uint16_t>(0, address + i * 2));
-            break;
-        }
+            case 2: // VRAM display
+            {
+                // Draw raw bitmap data from a VRAM block
+                uint32_t address = 0x6800000 + ((dispCnt & 0x000C0000) >> 18) * 0x20000 + line * 256 * 2;
+                for (int i = 0; i < 256; i++)
+                    framebuffer[line * 256 + i] = rgb5ToRgb6(core->memory.read<uint16_t>(0, address + i * 2));
+                break;
+            }
 
-        case 3: // Main memory display
-        {
-            LOG("Unimplemented engine %c display mode: display FIFO\n", ((engine == 0) ? 'A' : 'B'));
-            break;
+            case 3: // Main memory display
+            {
+                LOG("Unimplemented engine %c display mode: display FIFO\n", ((engine == 0) ? 'A' : 'B'));
+                break;
+            }
         }
     }
 
-    // Apply master brightness (DS-only, 18-bit)
-    switch ((masterBright >> 14) & 0x3) // Mode
     {
-        case 1: // Increase
+#ifdef NOODS_PROFILE
+        ProfileScope profile(this, GPU2D_PROFILE_BRIGHTNESS);
+#endif
+        // Apply master brightness (DS-only, 18-bit)
+        switch ((masterBright >> 14) & 0x3) // Mode
         {
-            uint8_t factor = std::min(masterBright & 0x1F, 16);
-            for (int i = 0; i < 256; i++)
+            case 1: // Increase
             {
-                uint32_t *pixel = &framebuffer[line * 256 + i];
-                uint8_t r = (*pixel >>  0) & 0x3F; r += (63 - r) * factor / 16;
-                uint8_t g = (*pixel >>  6) & 0x3F; g += (63 - g) * factor / 16;
-                uint8_t b = (*pixel >> 12) & 0x3F; b += (63 - b) * factor / 16;
-                *pixel = (b << 12) | (g << 6) | r;
+                uint8_t factor = std::min(masterBright & 0x1F, 16);
+                for (int i = 0; i < 256; i++)
+                {
+                    uint32_t *pixel = &framebuffer[line * 256 + i];
+                    uint8_t r = (*pixel >>  0) & 0x3F; r += (63 - r) * factor / 16;
+                    uint8_t g = (*pixel >>  6) & 0x3F; g += (63 - g) * factor / 16;
+                    uint8_t b = (*pixel >> 12) & 0x3F; b += (63 - b) * factor / 16;
+                    *pixel = (b << 12) | (g << 6) | r;
+                }
+                break;
             }
-            break;
-        }
 
-        case 2: // Decrease
-        {
-            uint8_t factor = std::min(masterBright & 0x1F, 16);
-            for (int i = 0; i < 256; i++)
+            case 2: // Decrease
             {
-                uint32_t *pixel = &framebuffer[line * 256 + i];
-                uint8_t r = (*pixel >>  0) & 0x3F; r -= r * factor / 16;
-                uint8_t g = (*pixel >>  6) & 0x3F; g -= g * factor / 16;
-                uint8_t b = (*pixel >> 12) & 0x3F; b -= b * factor / 16;
-                *pixel = (b << 12) | (g << 6) | r;
+                uint8_t factor = std::min(masterBright & 0x1F, 16);
+                for (int i = 0; i < 256; i++)
+                {
+                    uint32_t *pixel = &framebuffer[line * 256 + i];
+                    uint8_t r = (*pixel >>  0) & 0x3F; r -= r * factor / 16;
+                    uint8_t g = (*pixel >>  6) & 0x3F; g -= g * factor / 16;
+                    uint8_t b = (*pixel >> 12) & 0x3F; b -= b * factor / 16;
+                    *pixel = (b << 12) | (g << 6) | r;
+                }
+                break;
             }
-            break;
         }
     }
 }
@@ -496,6 +555,10 @@ void Gpu2D::drawObjPixel(int line, int x, uint32_t pixel, int8_t priority)
 
 void Gpu2D::drawText(int bg, int line)
 {
+#ifdef NOODS_PROFILE
+    ProfileScope profile(this, GPU2D_PROFILE_TEXT);
+#endif
+
     // If 3D is enabled, override BG0 in text mode
     if (!core->isGbaMode() && bg == 0 && (dispCnt & BIT(3)))
     {
@@ -604,6 +667,10 @@ void Gpu2D::drawText(int bg, int line)
 
 void Gpu2D::drawAffine(int bg, int line)
 {
+#ifdef NOODS_PROFILE
+    ProfileScope profile(this, GPU2D_PROFILE_AFFINE);
+#endif
+
     // Get the base data addresses
     uint32_t tileBase  = bgVramAddr + ((bgCnt[bg] & 0x1F00) >> 8) * 0x0800 + ((dispCnt & 0x38000000) >> 27) * 0x10000;
     uint32_t indexBase = bgVramAddr + ((bgCnt[bg] & 0x003C) >> 2) * 0x4000 + ((dispCnt & 0x07000000) >> 24) * 0x10000;
@@ -648,6 +715,10 @@ void Gpu2D::drawAffine(int bg, int line)
 
 void Gpu2D::drawExtended(int bg, int line)
 {
+#ifdef NOODS_PROFILE
+    ProfileScope profile(this, GPU2D_PROFILE_EXTENDED);
+#endif
+
     if (core->isGbaMode() || (bgCnt[bg] & BIT(7))) // Bitmap
     {
         uint32_t dataBase = bgVramAddr;
@@ -804,6 +875,10 @@ void Gpu2D::drawExtended(int bg, int line)
 
 void Gpu2D::drawLarge(int bg, int line)
 {
+#ifdef NOODS_PROFILE
+    ProfileScope profile(this, GPU2D_PROFILE_LARGE);
+#endif
+
     // Get the bitmap size
     int sizeX, sizeY;
     if (((bgCnt[bg] & 0xC000) >> 14) == 0)
@@ -855,6 +930,10 @@ void Gpu2D::drawLarge(int bg, int line)
 
 void Gpu2D::drawObjects(int line, bool window)
 {
+#ifdef NOODS_PROFILE
+    ProfileScope profile(this, GPU2D_PROFILE_OBJECTS);
+#endif
+
     // Loop through and draw the 128 sprites in OAM
     for (int i = 0; i < 128; i++)
     {

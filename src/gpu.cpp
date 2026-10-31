@@ -83,8 +83,8 @@ bool Gpu::beginProfilePhase(GpuProfilePhase phase, clock_t &start)
 
     // V-blank runs only once per frame, so measuring every call is cheap and
     // gives useful data in a 60-frame window. Scanline phases remain sampled.
-    uint64_t mask = (phase == GPU_PROFILE_VBLANK) ? 0u : 63u;
-    bool sampled = ((runProfile.phaseSampleCounter[phase]++ & mask) == 0);
+    bool sampled = (phase == GPU_PROFILE_VBLANK) ||
+        profileSample64(runProfile.phaseSampleState[phase], phase + 0x100u);
     if (sampled)
         start = clock();
     return sampled;

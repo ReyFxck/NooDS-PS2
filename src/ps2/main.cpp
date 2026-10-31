@@ -355,6 +355,47 @@ void logInterpreterProfile(const char *label, const InterpreterProfile &profile)
             static_cast<unsigned long>(top[i].nextEventCycles));
     }
 }
+
+void logGpu2DProfile(const char *label, const Gpu2DRunProfile &profile)
+{
+    auto averageUs = [&](Gpu2DProfilePhase phase) -> double
+    {
+        uint64_t samples = profile.phaseSamples[phase];
+        if (!samples)
+            return 0.0;
+        return static_cast<double>(profile.phaseTicks[phase]) *
+            1000000.0 / CLOCKS_PER_SEC / static_cast<double>(samples);
+    };
+    auto estimatedMs = [&](Gpu2DProfilePhase phase) -> double
+    {
+        return averageUs(phase) * static_cast<double>(profile.phaseCount[phase]) / 1000.0;
+    };
+
+    PS2_LOG("[PS2][PROF] %s count/avg-us/est-ms: clear=%llu/%.2f/%.2f obj=%llu/%.2f/%.2f text=%llu/%.2f/%.2f\n",
+        label,
+        static_cast<unsigned long long>(profile.phaseCount[GPU2D_PROFILE_CLEAR]),
+        averageUs(GPU2D_PROFILE_CLEAR), estimatedMs(GPU2D_PROFILE_CLEAR),
+        static_cast<unsigned long long>(profile.phaseCount[GPU2D_PROFILE_OBJECTS]),
+        averageUs(GPU2D_PROFILE_OBJECTS), estimatedMs(GPU2D_PROFILE_OBJECTS),
+        static_cast<unsigned long long>(profile.phaseCount[GPU2D_PROFILE_TEXT]),
+        averageUs(GPU2D_PROFILE_TEXT), estimatedMs(GPU2D_PROFILE_TEXT));
+    PS2_LOG("[PS2][PROF] %s count/avg-us/est-ms: affine=%llu/%.2f/%.2f extended=%llu/%.2f/%.2f large=%llu/%.2f/%.2f\n",
+        label,
+        static_cast<unsigned long long>(profile.phaseCount[GPU2D_PROFILE_AFFINE]),
+        averageUs(GPU2D_PROFILE_AFFINE), estimatedMs(GPU2D_PROFILE_AFFINE),
+        static_cast<unsigned long long>(profile.phaseCount[GPU2D_PROFILE_EXTENDED]),
+        averageUs(GPU2D_PROFILE_EXTENDED), estimatedMs(GPU2D_PROFILE_EXTENDED),
+        static_cast<unsigned long long>(profile.phaseCount[GPU2D_PROFILE_LARGE]),
+        averageUs(GPU2D_PROFILE_LARGE), estimatedMs(GPU2D_PROFILE_LARGE));
+    PS2_LOG("[PS2][PROF] %s count/avg-us/est-ms: compose=%llu/%.2f/%.2f output=%llu/%.2f/%.2f bright=%llu/%.2f/%.2f\n",
+        label,
+        static_cast<unsigned long long>(profile.phaseCount[GPU2D_PROFILE_COMPOSE]),
+        averageUs(GPU2D_PROFILE_COMPOSE), estimatedMs(GPU2D_PROFILE_COMPOSE),
+        static_cast<unsigned long long>(profile.phaseCount[GPU2D_PROFILE_OUTPUT]),
+        averageUs(GPU2D_PROFILE_OUTPUT), estimatedMs(GPU2D_PROFILE_OUTPUT),
+        static_cast<unsigned long long>(profile.phaseCount[GPU2D_PROFILE_BRIGHTNESS]),
+        averageUs(GPU2D_PROFILE_BRIGHTNESS), estimatedMs(GPU2D_PROFILE_BRIGHTNESS));
+}
 #endif
 }
 
@@ -939,6 +980,9 @@ int main(int argc, char **argv)
                     sampledGpuUs(GPU_PROFILE_3D_RENDER),
                     static_cast<unsigned long long>(gpuProfile.phaseCount[GPU_PROFILE_VBLANK]),
                     sampledGpuUs(GPU_PROFILE_VBLANK));
+
+                logGpu2DProfile("gpu2dA", core->gpu2D[0].getProfile());
+                logGpu2DProfile("gpu2dB", core->gpu2D[1].getProfile());
 
                 uint32_t currentRomHits = core->cartridgeNds.getRomCacheHits();
                 uint32_t currentRomMisses = core->cartridgeNds.getRomCacheMisses();

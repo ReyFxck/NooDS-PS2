@@ -21,8 +21,35 @@
 #define GPU_2D_H
 
 #include <cstdint>
+#ifdef NOODS_PROFILE
+#include <ctime>
+#endif
 
 class Core;
+
+#ifdef NOODS_PROFILE
+enum Gpu2DProfilePhase : uint8_t
+{
+    GPU2D_PROFILE_CLEAR = 0,
+    GPU2D_PROFILE_OBJECTS,
+    GPU2D_PROFILE_TEXT,
+    GPU2D_PROFILE_AFFINE,
+    GPU2D_PROFILE_EXTENDED,
+    GPU2D_PROFILE_LARGE,
+    GPU2D_PROFILE_COMPOSE,
+    GPU2D_PROFILE_OUTPUT,
+    GPU2D_PROFILE_BRIGHTNESS,
+    GPU2D_PROFILE_PHASE_COUNT
+};
+
+struct Gpu2DRunProfile
+{
+    uint64_t phaseCount[GPU2D_PROFILE_PHASE_COUNT] = {};
+    uint64_t phaseTicks[GPU2D_PROFILE_PHASE_COUNT] = {};
+    uint64_t phaseSamples[GPU2D_PROFILE_PHASE_COUNT] = {};
+    uint32_t phaseSampleState[GPU2D_PROFILE_PHASE_COUNT] = {};
+};
+#endif
 
 class Gpu2D
 {
@@ -34,6 +61,12 @@ class Gpu2D
 
         uint32_t *getFramebuffer() { return framebuffer; }
         uint32_t *getRawLine()     { return layers[0];   }
+
+#ifdef NOODS_PROFILE
+        void setProfileEnabled(bool enabled) { profileEnabled = enabled; }
+        void resetProfile() { runProfile = Gpu2DRunProfile(); }
+        const Gpu2DRunProfile &getProfile() const { return runProfile; }
+#endif
 
         uint32_t readDispCnt()      { return dispCnt;      }
         uint16_t readBgCnt(int bg)  { return bgCnt[bg];    }
@@ -100,6 +133,28 @@ class Gpu2D
         uint16_t bldAlpha = 0;
         uint8_t bldY = 0;
         uint16_t masterBright = 0;
+
+#ifdef NOODS_PROFILE
+        bool profileEnabled = false;
+        Gpu2DRunProfile runProfile;
+
+        bool beginProfilePhase(Gpu2DProfilePhase phase, clock_t &start);
+        void endProfilePhase(Gpu2DProfilePhase phase, clock_t start, bool sampled);
+
+        class ProfileScope
+        {
+            public:
+                ProfileScope(Gpu2D *gpu, Gpu2DProfilePhase phase):
+                    gpu(gpu), phase(phase), sampled(gpu->beginProfilePhase(phase, start)) {}
+                ~ProfileScope() { gpu->endProfilePhase(phase, start, sampled); }
+
+            private:
+                Gpu2D *gpu;
+                Gpu2DProfilePhase phase;
+                clock_t start = 0;
+                bool sampled;
+        };
+#endif
 
         static uint32_t rgb5ToRgb6(uint32_t color);
 

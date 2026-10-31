@@ -48,7 +48,7 @@ struct GpuRunProfile
     uint64_t phaseCount[GPU_PROFILE_PHASE_COUNT] = {};
     uint64_t phaseTicks[GPU_PROFILE_PHASE_COUNT] = {};
     uint64_t phaseSamples[GPU_PROFILE_PHASE_COUNT] = {};
-    uint64_t phaseSampleCounter[GPU_PROFILE_PHASE_COUNT] = {};
+    uint32_t phaseSampleState[GPU_PROFILE_PHASE_COUNT] = {};
 };
 #endif
 
