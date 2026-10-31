@@ -393,9 +393,28 @@ int main(int argc, char **argv)
                         int pipelineGate = dynarec.runArm9PipelineSelfTest(
                             core->interpreter[0], &livePc, &liveOpcode);
                         if (pipelineGate > 0)
+                        {
                             PS2_LOG("[PS2][OK] ARM9 next-opcode shadow gate passed: pc=%08lX opcode=%08lX.\n",
                                 static_cast<unsigned long>(livePc),
                                 static_cast<unsigned long>(liveOpcode));
+
+                            uint32_t blockPc = 0;
+                            uint32_t blockInstructions = 0;
+                            uint32_t blockHash = 0;
+                            int blockGate = dynarec.runArm9BlockShadowSelfTest(
+                                core->interpreter[0], &blockPc, &blockInstructions, &blockHash);
+                            if (blockGate > 0)
+                                PS2_LOG("[PS2][OK] ARM9 real-block shadow gate passed: pc=%08lX instructions=%lu blocks=%u cache=%u hash=%08lX.\n",
+                                    static_cast<unsigned long>(blockPc),
+                                    static_cast<unsigned long>(blockInstructions),
+                                    static_cast<unsigned int>(dynarec.blockCount()),
+                                    static_cast<unsigned int>(dynarec.codeCacheUsed()),
+                                    static_cast<unsigned long>(blockHash));
+                            else if (blockGate == 0)
+                                PS2_LOG("[PS2] ARM9 real-block shadow gate: no straight-line ALU block available at current PC.\n");
+                            else
+                                PS2_LOG("[PS2][WARN] ARM9 real-block shadow gate mismatch; scheduler remains interpreter-only.\n");
+                        }
                         else if (pipelineGate == 0)
                             PS2_LOG("[PS2] ARM9 next-opcode shadow gate: opcode is outside current ALU subset.\n");
                         else
