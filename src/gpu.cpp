@@ -46,11 +46,16 @@ Gpu::~Gpu()
         delete thread;
     }
 
-    // Clean up any queued framebuffers
+    // Clean up queued and recycled framebuffers.
     while (!framebuffers.empty())
     {
         delete[] framebuffers.front();
         framebuffers.pop();
+    }
+    while (!recycledFramebuffers.empty())
+    {
+        delete[] recycledFramebuffers.front();
+        recycledFramebuffers.pop();
     }
 }
 
@@ -155,12 +160,12 @@ bool Gpu::getFrame(uint32_t *out, bool gbaCrop)
             out[i] = rgb6ToRgb8(framebuffers.front()[i]);
     }
 
-    // Free the used framebuffer
-    delete[] framebuffers.front();
-
-    // Remove the frame from the queue
+    // Recycle the used framebuffer instead of returning ~384 KiB to the
+    // heap every frame. The producer will reuse it on the next V-blank.
     mutex.lock();
+    uint32_t *usedFramebuffer = framebuffers.front();
     framebuffers.pop();
+    recycledFramebuffers.push(usedFramebuffer);
     ready.store(!framebuffers.empty());
     mutex.unlock();
 
@@ -488,8 +493,20 @@ void Gpu::scanline355()
             // Allow up to 2 framebuffers to be queued, to preserve frame pacing if emulation runs ahead
             if (framebuffers.size() < 2)
             {
-                // Copy the completed sub-framebuffers to a new framebuffer
-                uint32_t *framebuffer = new uint32_t[256 * 192 * 2];
+                // Reuse completed buffers to avoid large new[]/delete[] churn on
+                // every V-blank. At most the same small queue depth is retained.
+                uint32_t *framebuffer = nullptr;
+                mutex.lock();
+                if (!recycledFramebuffers.empty())
+                {
+                    framebuffer = recycledFramebuffers.front();
+                    recycledFramebuffers.pop();
+                }
+                mutex.unlock();
+
+                if (!framebuffer)
+                    framebuffer = new uint32_t[256 * 192 * 2];
+
                 if (powCnt1 & BIT(0)) // LCDs enabled
                 {
                     if (powCnt1 & BIT(15)) // Display swap
