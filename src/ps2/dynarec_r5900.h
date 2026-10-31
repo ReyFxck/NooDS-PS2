@@ -17,6 +17,8 @@ struct R5900CompiledBlock
     uint32_t mapGeneration = 0;
     uint32_t guestInstructions = 0;
     uint32_t cycles = 0;
+    uint16_t readMask = 0;
+    uint16_t writeMask = 0;
     bool thumb = false;
 
     uint32_t *hostCode = nullptr;
