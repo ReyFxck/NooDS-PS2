@@ -384,7 +384,7 @@ template <typename T> T Memory::readFallback(bool cpu, uint32_t address)
                     case 0x06600000: mapping = &engBObj[(address & 0x1FFFF) >> 14]; break;
                     default:         mapping =    &lcdc[(address & 0xFFFFF) >> 14]; break;
                 }
-                if (mapping->getCount() == 0) break;
+                if (mapping->getCount() == 0) return 0;
                 return mapping->read<T>(address & 0x3FFF);
             }
 
@@ -436,7 +436,7 @@ template <typename T> T Memory::readFallback(bool cpu, uint32_t address)
             case 0x06000000: // VRAM
             {
                 VramMapping *mapping = &vram7[(address & 0x3FFFF) >> 17];
-                if (mapping->getCount() == 0) break;
+                if (mapping->getCount() == 0) return 0;
                 return mapping->read<T>(address & 0x1FFFF);
             }
 
@@ -516,7 +516,7 @@ template <typename T> void Memory::writeFallback(bool cpu, uint32_t address, T v
                     case 0x06600000: mapping = &engBObj[(address & 0x1FFFF) >> 14]; break;
                     default:         mapping =    &lcdc[(address & 0xFFFFF) >> 14]; break;
                 }
-                if (mapping->getCount() == 0) break;
+                if (mapping->getCount() == 0) return;
                 mapping->write<T>(address & 0x3FFF, value);
                 return;
             }
@@ -567,7 +567,7 @@ template <typename T> void Memory::writeFallback(bool cpu, uint32_t address, T v
             case 0x06000000: // VRAM
             {
                 VramMapping *mapping = &vram7[(address & 0x3FFFF) >> 17];
-                if (mapping->getCount() == 0) break;
+                if (mapping->getCount() == 0) return;
                 mapping->write<T>(address & 0x1FFFF, value);
                 return;
             }
@@ -1292,6 +1292,16 @@ template <typename T> T Memory::ioRead7(uint32_t address)
             case 0x480015D: base -= 0x480015C; size = 2; data = core->wifi.readWBbRead();             break; // W_BB_READ
             case 0x4000204:
             case 0x4000205: base -= 0x4000204; size = 2; data = 0x6000;                                       break; // EXMEMSTAT (stub)
+            case 0x4000206:
+            case 0x4000207: base -= 0x4000206; size = 2; data = 0;                                            break; // reserved
+            case 0x4000304:
+            case 0x4000305: base -= 0x4000304; size = 2; data = 0;                                            break; // POWCNT1 is ARM9-only
+            case 0x480015E:
+            case 0x480015F: base -= 0x480015E; size = 2; data = 0;                                            break; // WiFi reserved/stub
+            case 0x4800180:
+            case 0x4800181: base -= 0x4800180; size = 2; data = 0;                                            break; // WiFi stub
+            case 0x4800184:
+            case 0x4800185: base -= 0x4800184; size = 2; data = 0;                                            break; // WiFi stub
 
             default:
             {
@@ -1561,6 +1571,8 @@ template <typename T> void Memory::ioWrite9(uint32_t address, T value)
             case 0x4000049: base -= 0x4000048; size = 2; core->gpu2D[0].writeWinIn(mask << (base * 8), data << (base * 8));              break; // WININ (engine A)
             case 0x400004A:
             case 0x400004B: base -= 0x400004A; size = 2; core->gpu2D[0].writeWinOut(mask << (base * 8), data << (base * 8));             break; // WINOUT (engine A)
+            case 0x400004C:
+            case 0x400004D: base -= 0x400004C; size = 2; core->gpu2D[0].writeMosaic(mask << (base * 8), data << (base * 8));             break; // MOSAIC (engine A)
             case 0x4000050:
             case 0x4000051: base -= 0x4000050; size = 2; core->gpu2D[0].writeBldCnt(mask << (base * 8), data << (base * 8));             break; // BLDCNT (engine A)
             case 0x4000052:
@@ -1749,6 +1761,8 @@ template <typename T> void Memory::ioWrite9(uint32_t address, T value)
             case 0x4000353: base -= 0x4000350; size = 4; core->gpu3DRenderer.writeClearColor(mask << (base * 8), data << (base * 8));    break; // CLEAR_COLOR
             case 0x4000354:
             case 0x4000355: base -= 0x4000354; size = 2; core->gpu3DRenderer.writeClearDepth(mask << (base * 8), data << (base * 8));    break; // CLEAR_DEPTH
+            case 0x4000356:
+            case 0x4000357: base -= 0x4000356; size = 2;                                                                     break; // reserved/ignored
             case 0x4000358:
             case 0x4000359:
             case 0x400035A:
@@ -2139,6 +2153,8 @@ template <typename T> void Memory::ioWrite9(uint32_t address, T value)
             case 0x4001049: base -= 0x4001048; size = 2; core->gpu2D[1].writeWinIn(mask << (base * 8), data << (base * 8));              break; // WININ (engine B)
             case 0x400104A:
             case 0x400104B: base -= 0x400104A; size = 2; core->gpu2D[1].writeWinOut(mask << (base * 8), data << (base * 8));             break; // WINOUT (engine B)
+            case 0x400104C:
+            case 0x400104D: base -= 0x400104C; size = 2; core->gpu2D[1].writeMosaic(mask << (base * 8), data << (base * 8));             break; // MOSAIC (engine B)
             case 0x4001050:
             case 0x4001051: base -= 0x4001050; size = 2; core->gpu2D[1].writeBldCnt(mask << (base * 8), data << (base * 8));             break; // BLDCNT (engine B)
             case 0x4001052:
@@ -2670,6 +2686,26 @@ template <typename T> void Memory::ioWrite7(uint32_t address, T value)
             case 0x480021D: base -= 0x480021C; size = 2; core->wifi.writeWIrfSet(mask << (base * 8), data << (base * 8));               break; // W_IF_SET
             case 0x4000204:
             case 0x4000205: base -= 0x4000204; size = 2;                                                              break; // EXMEMSTAT stub: accept/ignore writes
+            case 0x4000206:
+            case 0x4000207: base -= 0x4000206; size = 2;                                                              break; // reserved
+            case 0x4000304:
+            case 0x4000305: base -= 0x4000304; size = 2;                                                              break; // ARM9-only POWCNT1
+            case 0x48000AE:
+            case 0x48000AF: base -= 0x48000AE; size = 2;                                                              break; // W_TXREQ_SET stub
+            case 0x4800036:
+            case 0x4800037:
+            case 0x4800038:
+            case 0x4800039: base &= 1; size = 2;                                                                       break; // WiFi reserved/stub
+            case 0x4800168:
+            case 0x4800169: base -= 0x4800168; size = 2;                                                              break; // WiFi stub
+            case 0x480017C:
+            case 0x480017D:
+            case 0x480017E:
+            case 0x480017F: base &= 1; size = 2;                                                                       break; // WiFi stub
+            case 0x4800180:
+            case 0x4800181:
+            case 0x4800184:
+            case 0x4800185: base &= 1; size = 2;                                                                       break; // WiFi stub
 
             default:
             {

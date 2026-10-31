@@ -287,3 +287,15 @@ To compile for Android, the easiest way would be to use [Android Studio](https:/
 ### Other Links
 * [Hydra's Lair](https://hydr8gon.github.io/) - you can read about my progress here!
 * [NooDS Discord](https://discord.gg/JbNz7y4) - here we can chat and do other fun stuff!
+
+
+### Compatibilidade corrigida após o primeiro boot completo do NSMB
+
+- SPI firmware: RDSR `0x05`, WREN `0x06` e WRDI `0x04`.
+- SPI device 0: power-management básico com registradores estáveis.
+- MOSAIC A/B: registrador + mosaic vertical de BG/sprites.
+- VRAM vazia/desmapeada: leitura neutra e escrita ignorada, sem alterar bancos válidos.
+- CP15: latches de MPU/cache e cache-maintenance como no-op no interpreter sem cache.
+- I/O ARM7 reservados/ARM9-only e WiFi ainda ausentes usam stubs explícitos.
+- Os stubs WiFi **não** implementam multiplayer/rede.
+
