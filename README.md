@@ -299,3 +299,11 @@ To compile for Android, the easiest way would be to use [Android Studio](https:/
 - I/O ARM7 reservados/ARM9-only e WiFi ainda ausentes usam stubs explícitos.
 - Os stubs WiFi **não** implementam multiplayer/rede.
 
+
+
+### Pós-boot: RTC e WiFi control space
+
+- RTC serial completo para NDS: bit-order dos comandos, Status 1/2, data/hora, alarmes, clock-adjust e free register.
+- Registradores WiFi já implementados continuam usando lógica dedicada.
+- Registradores WiFi restantes usam um shadow bank de readback estável, sem stubs espalhados por jogo/endereço.
+- Multiplayer/rede WiFi continua pendente; o shadow bank não finge transmissão de pacotes.

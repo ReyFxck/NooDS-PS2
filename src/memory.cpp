@@ -966,6 +966,19 @@ template <typename T> T Memory::ioRead9(uint32_t address)
 
             default:
             {
+                // Keep stable WiFi control readback for registers whose side
+                // effects are not implemented by the 2021 core yet.
+                if ((base >= 0x04800000 && base < 0x04804000) ||
+                    (base >= 0x04806000 && base < 0x04808000))
+                {
+                    uint32_t reg = 0x04800000 | (base & 0x0FFE);
+                    uint32_t offset = base & 1;
+                    size = 2;
+                    data = core->wifi.readControlShadow(reg);
+                    base = offset;
+                    break;
+                }
+
                 // Handle unknown reads by returning 0
                 if (i == 0)
                 {
@@ -1296,13 +1309,6 @@ template <typename T> T Memory::ioRead7(uint32_t address)
             case 0x4000207: base -= 0x4000206; size = 2; data = 0;                                            break; // reserved
             case 0x4000304:
             case 0x4000305: base -= 0x4000304; size = 2; data = 0;                                            break; // POWCNT1 is ARM9-only
-            case 0x480015E:
-            case 0x480015F: base -= 0x480015E; size = 2; data = 0;                                            break; // WiFi reserved/stub
-            case 0x4800180:
-            case 0x4800181: base -= 0x4800180; size = 2; data = 0;                                            break; // WiFi stub
-            case 0x4800184:
-            case 0x4800185: base -= 0x4800184; size = 2; data = 0;                                            break; // WiFi stub
-
             default:
             {
                 // Handle unknown reads by returning 0
@@ -2167,6 +2173,17 @@ template <typename T> void Memory::ioWrite9(uint32_t address, T value)
 
             default:
             {
+                if ((base >= 0x04800000 && base < 0x04804000) ||
+                    (base >= 0x04806000 && base < 0x04808000))
+                {
+                    uint32_t reg = 0x04800000 | (base & 0x0FFE);
+                    uint32_t offset = base & 1;
+                    core->wifi.writeControlShadow(reg,
+                        mask << (offset * 8), data << (offset * 8));
+                    i += 2 - offset;
+                    continue;
+                }
+
                 // Catch unknown writes
                 if (i == 0)
                 {
@@ -2690,23 +2707,6 @@ template <typename T> void Memory::ioWrite7(uint32_t address, T value)
             case 0x4000207: base -= 0x4000206; size = 2;                                                              break; // reserved
             case 0x4000304:
             case 0x4000305: base -= 0x4000304; size = 2;                                                              break; // ARM9-only POWCNT1
-            case 0x48000AE:
-            case 0x48000AF: base -= 0x48000AE; size = 2;                                                              break; // W_TXREQ_SET stub
-            case 0x4800036:
-            case 0x4800037:
-            case 0x4800038:
-            case 0x4800039: base &= 1; size = 2;                                                                       break; // WiFi reserved/stub
-            case 0x4800168:
-            case 0x4800169: base -= 0x4800168; size = 2;                                                              break; // WiFi stub
-            case 0x480017C:
-            case 0x480017D:
-            case 0x480017E:
-            case 0x480017F: base &= 1; size = 2;                                                                       break; // WiFi stub
-            case 0x4800180:
-            case 0x4800181:
-            case 0x4800184:
-            case 0x4800185: base &= 1; size = 2;                                                                       break; // WiFi stub
-
             default:
             {
                 // Catch unknown writes

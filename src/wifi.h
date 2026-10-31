@@ -54,6 +54,17 @@ class Wifi
         uint16_t readWBbRead()           { return wBbRead;         }
         uint16_t readWRxbufRdData();
 
+        uint16_t readControlShadow(uint32_t address) const
+        {
+            return controlShadow[(address & 0x0FFF) >> 1];
+        }
+
+        void writeControlShadow(uint32_t address, uint16_t mask, uint16_t value)
+        {
+            uint16_t &reg = controlShadow[(address & 0x0FFF) >> 1];
+            reg = (reg & ~mask) | (value & mask);
+        }
+
         void writeWModeWep(uint16_t mask, uint16_t value);
         void writeWIrf(uint16_t mask, uint16_t value);
         void writeWIe(uint16_t mask, uint16_t value);
@@ -85,6 +96,7 @@ class Wifi
         Core *core;
 
         uint8_t bbRegisters[0x100] = {};
+        uint16_t controlShadow[0x800] = {};
 
         uint16_t wModeWep = 0;
         uint16_t wIrf = 0;

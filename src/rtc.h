@@ -36,12 +36,28 @@ class Rtc
     private:
         Core *core;
 
+        bool csCur = false;
+        bool sckCur = false;
+        bool sioCur = false;
+
         uint8_t writeCount = 0;
         uint8_t command = 0;
+
         uint8_t status1 = 0;
+        uint8_t status2 = 0;
         uint8_t dateTime[7] = {};
+        uint8_t alarm1[3] = {};
+        uint8_t alarm2[3] = {};
+        uint8_t clockAdjust = 0;
+        uint8_t freeReg = 0;
 
         uint8_t rtc = 0;
+
+        void reset();
+        void updateRtc(bool cs, bool sck, bool sio);
+        void updateDateTime();
+        bool readRegister(uint8_t index);
+        void writeRegister(uint8_t index, bool value);
 };
 
 #endif // RTC_H
