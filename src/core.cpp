@@ -122,8 +122,10 @@ Core::Core(std::string ndsPath, std::string gbaPath):
 void Core::resetCycles()
 {
     // Reset the global cycle count periodically to prevent overflow
-    for (unsigned int i = 0; i < tasks.size(); i++)
-        tasks[i].cycles -= globalCycles;
+    tasks.forEachPending([&](Task &task)
+    {
+        task.cycles -= globalCycles;
+    });
     arm9Cycles -= std::min(globalCycles, arm9Cycles);
     arm7Cycles -= std::min(globalCycles, arm7Cycles);
     timers[0].resetCycles();
@@ -141,7 +143,7 @@ void Core::runGbaFrame()
 
         // Run the ARM7 until the next scheduled task
         if (arm7Cycles > globalCycles) globalCycles = arm7Cycles;
-        while (interpreter[1].shouldRun() && tasks[0].cycles > arm7Cycles)
+        while (interpreter[1].shouldRun() && tasks.front().cycles > arm7Cycles)
         {
 #ifdef NOODS_PROFILE
             if (profileEnabled)
@@ -151,14 +153,15 @@ void Core::runGbaFrame()
         }
 
         // Jump to the next scheduled task
-        globalCycles = tasks[0].cycles;
+        globalCycles = tasks.front().cycles;
         frameCycles += globalCycles - i;
 
         // Run all tasks that are scheduled now
-        while (tasks[0].cycles <= globalCycles)
+        while (tasks.front().cycles <= globalCycles)
         {
+            Task currentTask = tasks.front();
 #ifdef NOODS_PROFILE
-            TaskProfileClass profileClass = tasks[0].profileClass;
+            TaskProfileClass profileClass = currentTask.profileClass;
             bool sampleTask = false;
             clock_t taskStart = 0;
             if (profileEnabled)
@@ -170,7 +173,7 @@ void Core::runGbaFrame()
                     taskStart = clock();
             }
 #endif
-            (*tasks[0].task)();
+            (*currentTask.task)();
 #ifdef NOODS_PROFILE
             if (profileEnabled && sampleTask)
             {
@@ -178,8 +181,10 @@ void Core::runGbaFrame()
                     static_cast<uint64_t>(clock() - taskStart);
                 runProfile.taskClassSamples[profileClass]++;
             }
+            if (profileEnabled)
+                runProfile.legacyFrontShiftMoves += tasks.size() - 1;
 #endif
-            tasks.erase(tasks.begin());
+            tasks.popFront();
         }
     }
 
@@ -205,7 +210,7 @@ void Core::runNdsFrame()
         uint32_t i = globalCycles;
 
         // Run the CPUs until the next scheduled task
-        while (tasks[0].cycles > globalCycles)
+        while (tasks.front().cycles > globalCycles)
         {
             // Run the ARM9
             if (interpreter[0].shouldRun() && globalCycles >= arm9Cycles)
@@ -228,19 +233,20 @@ void Core::runNdsFrame()
             }
 
             // Count cycles up to the next soonest event
-            globalCycles = std::min((interpreter[0].shouldRun() ? arm9Cycles : tasks[0].cycles),
-                (interpreter[1].shouldRun() ? arm7Cycles : tasks[0].cycles));
+            globalCycles = std::min((interpreter[0].shouldRun() ? arm9Cycles : tasks.front().cycles),
+                (interpreter[1].shouldRun() ? arm7Cycles : tasks.front().cycles));
         }
 
         // Jump to the next scheduled task
-        globalCycles = tasks[0].cycles;
+        globalCycles = tasks.front().cycles;
         frameCycles += globalCycles - i;
 
         // Run all tasks that are scheduled now
-        while (tasks[0].cycles <= globalCycles)
+        while (tasks.front().cycles <= globalCycles)
         {
+            Task currentTask = tasks.front();
 #ifdef NOODS_PROFILE
-            TaskProfileClass profileClass = tasks[0].profileClass;
+            TaskProfileClass profileClass = currentTask.profileClass;
             bool sampleTask = false;
             clock_t taskStart = 0;
             if (profileEnabled)
@@ -252,7 +258,7 @@ void Core::runNdsFrame()
                     taskStart = clock();
             }
 #endif
-            (*tasks[0].task)();
+            (*currentTask.task)();
 #ifdef NOODS_PROFILE
             if (profileEnabled && sampleTask)
             {
@@ -260,8 +266,10 @@ void Core::runNdsFrame()
                     static_cast<uint64_t>(clock() - taskStart);
                 runProfile.taskClassSamples[profileClass]++;
             }
+            if (profileEnabled)
+                runProfile.legacyFrontShiftMoves += tasks.size() - 1;
 #endif
-            tasks.erase(tasks.begin());
+            tasks.popFront();
         }
     }
 
@@ -283,13 +291,17 @@ void Core::schedule(Task task)
 {
     // Add a task to the scheduler, sorted by least to most cycles until execution
     task.cycles += globalCycles;
-    auto it = std::upper_bound(tasks.cbegin(), tasks.cend(), task);
-    tasks.insert(it, task);
+    size_t compactedMoves = tasks.insert(task);
 
 #ifdef NOODS_PROFILE
     if (profileEnabled)
     {
         runProfile.scheduleCalls++;
+        if (compactedMoves)
+        {
+            runProfile.queueCompactions++;
+            runProfile.queueCompactionMoves += compactedMoves;
+        }
         if (tasks.size() > runProfile.maxTaskDepth)
             runProfile.maxTaskDepth = static_cast<uint32_t>(tasks.size());
     }

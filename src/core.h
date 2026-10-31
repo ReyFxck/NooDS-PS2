@@ -41,6 +41,7 @@
 #include "ipc.h"
 #include "memory.h"
 #include "rtc.h"
+#include "scheduler_queue.h"
 #include "spi.h"
 #include "spu.h"
 #include "timers.h"
@@ -79,6 +80,9 @@ struct CoreRunProfile
     uint64_t arm7Opcodes = 0;
     uint64_t taskExecutions = 0;
     uint64_t scheduleCalls = 0;
+    uint64_t legacyFrontShiftMoves = 0;
+    uint64_t queueCompactions = 0;
+    uint64_t queueCompactionMoves = 0;
     uint32_t maxTaskDepth = 0;
 
     uint64_t taskClassCount[TASK_PROFILE_COUNT] = {};
@@ -105,9 +109,9 @@ class Core
 #ifdef NOODS_PROFILE
         uint32_t getCyclesUntilNextEvent() const
         {
-            if (tasks.empty() || tasks[0].cycles <= globalCycles)
+            if (tasks.empty() || tasks.front().cycles <= globalCycles)
                 return 0;
-            return tasks[0].cycles - globalCycles;
+            return tasks.front().cycles - globalCycles;
         }
 #endif
 
@@ -160,7 +164,7 @@ class Core
         bool gbaMode = false;
         void (Core::*runFunc)() = &Core::runNdsFrame;
 
-        std::vector<Task> tasks;
+        SchedulerQueue<Task> tasks;
         bool profileEnabled = false;
         CoreRunProfile runProfile;
 

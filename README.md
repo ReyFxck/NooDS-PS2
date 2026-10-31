@@ -325,6 +325,7 @@ To compile for Android, the easiest way would be to use [Android Studio](https:/
 - [x] O profiler separa draw/timing da GPU, engine 2D A/B, capture, renderer 3D e VBlank; cada classe usa amostragem independente para não sincronizar acidentalmente com o padrão periódico do scheduler.
 - [x] O profiler mede tempo bloqueado em leitura/seek da ROM e mostra `coreExIO`, chamadas, bytes, leituras curtas e piores latências por janela.
 - [x] Cada hot PC amostrado registra opcode atual/seguinte, modo ARM/Thumb, CPSR, valores de Rn/Rd/Rm, endereço efetivo seguro para transfers imediatos, alvo de B/BL e distância até o próximo evento; o profiler nunca relê MMIO.
+- [x] A fila do scheduler usa cursor estável e compactação em lotes, eliminando `vector.erase(begin())` por evento; PROFILE compara movimentos antigos estimados com movimentos reais da compactação. No teste de 100.000 eventos com a profundidade máxima 13 observada no log, os movimentos caem para menos de 2%; microbenchmark host de 5 milhões de eventos: 79,706 ms → 36,566 ms (2,18× no mecanismo da fila, ainda pendente medir FPS no R5900).
 - [x] Code cache PS2 alocado dinamicamente e alinhado a 64 bytes.
 - [x] Sincronização EE D-cache/I-cache após emissão de código.
 - [x] Emitter inicial R5900/MIPS para operações ALU, shifts, branches e loads/stores.

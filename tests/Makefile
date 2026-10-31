@@ -1,6 +1,6 @@
 CXX ?= g++
 
-TARGETS := cartridge_io_test arm_alu_test
+TARGETS := cartridge_io_test arm_alu_test scheduler_queue_test
 
 CXXFLAGS := -O2 -Wall -Wextra -std=gnu++11 -fno-rtti \
 	-DNOODS_PS2 -DNOODS_PROFILE -ffunction-sections -fdata-sections -I../src
@@ -16,9 +16,13 @@ cartridge_io_test: cartridge_io_test.cpp ../src/cartridge.cpp
 arm_alu_test: arm_alu_test.cpp ../src/ps2/arm_alu.cpp
 	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -o $@
 
+scheduler_queue_test: scheduler_queue_test.cpp
+	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -o $@
+
 test: $(TARGETS)
 	./cartridge_io_test
 	./arm_alu_test
+	./scheduler_queue_test
 
 clean:
 	rm -f $(TARGETS) cartridge_io_test.nds cartridge_io_test.sav

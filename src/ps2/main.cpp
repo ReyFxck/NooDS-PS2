@@ -877,12 +877,15 @@ int main(int argc, char **argv)
                     profKnownMs / profFrameDiv);
 
                 const CoreRunProfile &runProfile = core->getRunProfile();
-                PS2_LOG("[PS2][PROF] scheduler: ARM9=%llu ARM7=%llu tasks=%llu schedules=%llu maxDepth=%lu\n",
+                PS2_LOG("[PS2][PROF] scheduler: ARM9=%llu ARM7=%llu tasks=%llu schedules=%llu maxDepth=%lu legacyFrontMoves=%llu cursorCompactions=%llu cursorMoves=%llu\n",
                     static_cast<unsigned long long>(runProfile.arm9Opcodes),
                     static_cast<unsigned long long>(runProfile.arm7Opcodes),
                     static_cast<unsigned long long>(runProfile.taskExecutions),
                     static_cast<unsigned long long>(runProfile.scheduleCalls),
-                    static_cast<unsigned long>(runProfile.maxTaskDepth));
+                    static_cast<unsigned long>(runProfile.maxTaskDepth),
+                    static_cast<unsigned long long>(runProfile.legacyFrontShiftMoves),
+                    static_cast<unsigned long long>(runProfile.queueCompactions),
+                    static_cast<unsigned long long>(runProfile.queueCompactionMoves));
 
                 PS2_LOG("[PS2][PROF] task-count: core=%llu gpuDraw=%llu gpuTiming=%llu gpu3d=%llu spu=%llu dma=%llu timer=%llu irq=%llu other=%llu\n",
                     static_cast<unsigned long long>(runProfile.taskClassCount[TASK_PROFILE_CORE]),
