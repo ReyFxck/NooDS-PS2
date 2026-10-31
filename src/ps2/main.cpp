@@ -680,22 +680,21 @@ int main(int argc, char **argv)
         gsKit_mode_switch(gsGlobal, GS_ONESHOT);
         gsKit_set_test(gsGlobal, GS_ZTEST_OFF);
 
-        GSTEXTURE top = {};
-        GSTEXTURE bottom = {};
-
-        top.Width = bottom.Width = 256;
-        top.Height = bottom.Height = 192;
-        top.PSM = bottom.PSM = GS_PSM_CT32;
-        top.Filter = bottom.Filter = GS_FILTER_NEAREST;
+        // Both DS screens are contiguous in EE memory. Upload them as one
+        // 256x384 texture so gsKit only builds/waits for one GIF DMA transfer
+        // per NDS frame instead of two independent 256x192 transfers.
+        GSTEXTURE stacked = {};
+        stacked.Width = 256;
+        stacked.Height = 384;
+        stacked.PSM = GS_PSM_CT32;
+        stacked.Filter = GS_FILTER_NEAREST;
         static_assert(sizeof(uint32_t) == sizeof(u32), "PS2 GS texture word must be 32-bit");
-        top.Mem = reinterpret_cast<u32*>(&frame[0]);
-        bottom.Mem = reinterpret_cast<u32*>(&frame[256 * 192]);
+        stacked.Mem = reinterpret_cast<u32*>(&frame[0]);
 
-        const int textureBytes = gsKit_texture_size(256, 192, GS_PSM_CT32);
-        top.Vram = gsKit_vram_alloc(gsGlobal, textureBytes, GSKIT_ALLOC_USERBUFFER);
-        bottom.Vram = gsKit_vram_alloc(gsGlobal, textureBytes, GSKIT_ALLOC_USERBUFFER);
+        const int textureBytes = gsKit_texture_size(256, 384, GS_PSM_CT32);
+        stacked.Vram = gsKit_vram_alloc(gsGlobal, textureBytes, GSKIT_ALLOC_USERBUFFER);
 
-        if (top.Vram == GSKIT_ALLOC_ERROR || bottom.Vram == GSKIT_ALLOC_ERROR)
+        if (stacked.Vram == GSKIT_ALLOC_ERROR)
         {
             PS2_LOG("[PS2][ERROR] M5: GS VRAM allocation failed.\n");
             free(frame);
@@ -703,8 +702,7 @@ int main(int argc, char **argv)
             return 9;
         }
 
-        gsKit_texture_upload(gsGlobal, &top);
-        gsKit_texture_upload(gsGlobal, &bottom);
+        gsKit_texture_upload(gsGlobal, &stacked);
 
         const u64 blackColor = GS_SETREG_RGBAQ(0x00, 0x00, 0x00, 0x00, 0x00);
         const u64 textureColor = GS_SETREG_RGBAQ(0x80, 0x80, 0x80, 0x80, 0x00);
@@ -715,13 +713,13 @@ int main(int argc, char **argv)
         auto queueNdsScreens = [&]()
         {
             gsKit_clear(gsGlobal, blackColor);
-            gsKit_prim_sprite_texture(gsGlobal, &top,
+            gsKit_prim_sprite_texture(gsGlobal, &stacked,
                 192.0f, 24.0f, 0.0f, 0.0f,
                 448.0f, 216.0f, 256.0f, 192.0f,
                 1, textureColor);
-            gsKit_prim_sprite_texture(gsGlobal, &bottom,
-                192.0f, 232.0f, 0.0f, 0.0f,
-                448.0f, 424.0f, 256.0f, 192.0f,
+            gsKit_prim_sprite_texture(gsGlobal, &stacked,
+                192.0f, 232.0f, 0.0f, 192.0f,
+                448.0f, 424.0f, 256.0f, 384.0f,
                 1, textureColor);
         };
 
@@ -953,8 +951,7 @@ int main(int argc, char **argv)
 #ifdef NOODS_PROFILE
             profTick = clock();
 #endif
-            gsKit_texture_upload(gsGlobal, &top);
-            gsKit_texture_upload(gsGlobal, &bottom);
+            gsKit_texture_upload(gsGlobal, &stacked);
 #ifdef NOODS_PROFILE
             profUploadTicks += clock() - profTick;
             profTick = clock();
