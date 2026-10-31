@@ -22,6 +22,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <ctime>
 #include <functional>
 #include <thread>
 #include <mutex>
@@ -30,6 +31,26 @@
 #include "defines.h"
 
 class Core;
+
+#ifdef NOODS_PROFILE
+enum GpuProfilePhase : uint8_t
+{
+    GPU_PROFILE_2D_A = 0,
+    GPU_PROFILE_2D_B,
+    GPU_PROFILE_CAPTURE,
+    GPU_PROFILE_3D_RENDER,
+    GPU_PROFILE_VBLANK,
+    GPU_PROFILE_PHASE_COUNT
+};
+
+struct GpuRunProfile
+{
+    uint64_t phaseCount[GPU_PROFILE_PHASE_COUNT] = {};
+    uint64_t phaseTicks[GPU_PROFILE_PHASE_COUNT] = {};
+    uint64_t phaseSamples[GPU_PROFILE_PHASE_COUNT] = {};
+    uint64_t phaseSampleCounter[GPU_PROFILE_PHASE_COUNT] = {};
+};
+#endif
 
 class Gpu
 {
@@ -52,6 +73,12 @@ class Gpu
         void writeDispStat(bool cpu, uint16_t mask, uint16_t value);
         void writeDispCapCnt(uint32_t mask, uint32_t value);
         void writePowCnt1(uint16_t mask, uint16_t value);
+
+#ifdef NOODS_PROFILE
+        void setProfileEnabled(bool enabled) { profileEnabled = enabled; }
+        void resetProfile() { runProfile = GpuRunProfile(); }
+        const GpuRunProfile &getProfile() const { return runProfile; }
+#endif
 
     private:
         Core *core;
@@ -78,6 +105,14 @@ class Gpu
         std::function<void()> gbaScanline308Task;
         std::function<void()> scanline256Task;
         std::function<void()> scanline355Task;
+
+#ifdef NOODS_PROFILE
+        bool profileEnabled = false;
+        GpuRunProfile runProfile;
+
+        bool beginProfilePhase(GpuProfilePhase phase, clock_t &start);
+        void endProfilePhase(GpuProfilePhase phase, clock_t start, bool sampled);
+#endif
 
         static uint32_t rgb5ToRgb8(uint32_t color);
         static uint32_t rgb6ToRgb8(uint32_t color);

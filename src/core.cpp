@@ -165,7 +165,7 @@ void Core::runGbaFrame()
             {
                 runProfile.taskExecutions++;
                 runProfile.taskClassCount[profileClass]++;
-                sampleTask = ((runProfile.taskSampleCounter++ & 63u) == 0);
+                sampleTask = ((runProfile.taskClassSampleCounter[profileClass]++ & 63u) == 0);
                 if (sampleTask)
                     taskStart = clock();
             }
@@ -247,7 +247,7 @@ void Core::runNdsFrame()
             {
                 runProfile.taskExecutions++;
                 runProfile.taskClassCount[profileClass]++;
-                sampleTask = ((runProfile.taskSampleCounter++ & 63u) == 0);
+                sampleTask = ((runProfile.taskClassSampleCounter[profileClass]++ & 63u) == 0);
                 if (sampleTask)
                     taskStart = clock();
             }

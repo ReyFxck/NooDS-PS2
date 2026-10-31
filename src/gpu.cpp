@@ -62,16 +62,43 @@ Gpu::~Gpu()
 void Gpu::scheduleInit()
 {
     // Schedule initial NDS GPU tasks (these will reschedule themselves indefinitely)
-    core->schedule(Task(&scanline256Task, 256 * 6, TASK_PROFILE_GPU));
-    core->schedule(Task(&scanline355Task, 355 * 6, TASK_PROFILE_GPU));
+    core->schedule(Task(&scanline256Task, 256 * 6, TASK_PROFILE_GPU_DRAW));
+    core->schedule(Task(&scanline355Task, 355 * 6, TASK_PROFILE_GPU_TIMING));
 }
 
 void Gpu::gbaScheduleInit()
 {
     // Schedule initial GBA GPU tasks (these will reschedule themselves indefinitely)
-    core->schedule(Task(&gbaScanline240Task, 240 * 4, TASK_PROFILE_GPU));
-    core->schedule(Task(&gbaScanline308Task, 308 * 4, TASK_PROFILE_GPU));
+    core->schedule(Task(&gbaScanline240Task, 240 * 4, TASK_PROFILE_GPU_DRAW));
+    core->schedule(Task(&gbaScanline308Task, 308 * 4, TASK_PROFILE_GPU_TIMING));
 }
+
+#ifdef NOODS_PROFILE
+bool Gpu::beginProfilePhase(GpuProfilePhase phase, clock_t &start)
+{
+    if (!profileEnabled)
+        return false;
+
+    runProfile.phaseCount[phase]++;
+
+    // V-blank runs only once per frame, so measuring every call is cheap and
+    // gives useful data in a 60-frame window. Scanline phases remain sampled.
+    uint64_t mask = (phase == GPU_PROFILE_VBLANK) ? 0u : 63u;
+    bool sampled = ((runProfile.phaseSampleCounter[phase]++ & mask) == 0);
+    if (sampled)
+        start = clock();
+    return sampled;
+}
+
+void Gpu::endProfilePhase(GpuProfilePhase phase, clock_t start, bool sampled)
+{
+    if (!sampled)
+        return;
+
+    runProfile.phaseTicks[phase] += static_cast<uint64_t>(clock() - start);
+    runProfile.phaseSamples[phase]++;
+}
+#endif
 
 namespace
 {
@@ -204,7 +231,7 @@ void Gpu::gbaScanline240()
         core->interpreter[1].sendInterrupt(1);
 
     // Reschedule the task for the next scanline
-    core->schedule(Task(&gbaScanline240Task, 308 * 4, TASK_PROFILE_GPU));
+    core->schedule(Task(&gbaScanline240Task, 308 * 4, TASK_PROFILE_GPU_DRAW));
 }
 
 void Gpu::gbaScanline308()
@@ -297,7 +324,7 @@ void Gpu::gbaScanline308()
     }
 
     // Reschedule the task for the next scanline
-    core->schedule(Task(&gbaScanline308Task, 308 * 4, TASK_PROFILE_GPU));
+    core->schedule(Task(&gbaScanline308Task, 308 * 4, TASK_PROFILE_GPU_TIMING));
 }
 
 void Gpu::scanline256()
@@ -326,8 +353,20 @@ void Gpu::scanline256()
         else
         {
             // Draw the current scanlines
+#ifdef NOODS_PROFILE
+            clock_t phaseStart = 0;
+            bool phaseSampled = beginProfilePhase(GPU_PROFILE_2D_A, phaseStart);
+#endif
             core->gpu2D[0].drawScanline(vCount);
+#ifdef NOODS_PROFILE
+            endProfilePhase(GPU_PROFILE_2D_A, phaseStart, phaseSampled);
+            phaseStart = 0;
+            phaseSampled = beginProfilePhase(GPU_PROFILE_2D_B, phaseStart);
+#endif
             core->gpu2D[1].drawScanline(vCount);
+#ifdef NOODS_PROFILE
+            endProfilePhase(GPU_PROFILE_2D_B, phaseStart, phaseSampled);
+#endif
         }
 
         // Trigger H-blank DMA transfers for visible scanlines (ARM9 only)
@@ -340,6 +379,10 @@ void Gpu::scanline256()
         // Perform a display capture
         if (displayCapture)
         {
+#ifdef NOODS_PROFILE
+            clock_t captureStart = 0;
+            bool captureSampled = beginProfilePhase(GPU_PROFILE_CAPTURE, captureStart);
+#endif
             // Determine the capture size
             int width, height;
             switch ((dispCapCnt & 0x00300000) >> 20) // Capture size
@@ -434,6 +477,9 @@ void Gpu::scanline256()
                 displayCapture = false;
                 dispCapCnt &= ~BIT(31);
             }
+#ifdef NOODS_PROFILE
+            endProfilePhase(GPU_PROFILE_CAPTURE, captureStart, captureSampled);
+#endif
         }
     }
 
@@ -443,7 +489,14 @@ void Gpu::scanline256()
     if (dirty3D && (core->gpu2D[0].readDispCnt() & BIT(3)) && ((vCount + 48) % 263) < 192)
     {
         if (vCount == 215) dirty3D = BIT(1);
+#ifdef NOODS_PROFILE
+        clock_t render3DStart = 0;
+        bool render3DSampled = beginProfilePhase(GPU_PROFILE_3D_RENDER, render3DStart);
+#endif
         core->gpu3DRenderer.drawScanline((vCount + 48) % 263);
+#ifdef NOODS_PROFILE
+        endProfilePhase(GPU_PROFILE_3D_RENDER, render3DStart, render3DSampled);
+#endif
         if (vCount == 143) dirty3D &= ~BIT(1);
     }
 
@@ -458,7 +511,7 @@ void Gpu::scanline256()
     }
 
     // Reschedule the task for the next scanline
-    core->schedule(Task(&scanline256Task, 355 * 6, TASK_PROFILE_GPU));
+    core->schedule(Task(&scanline256Task, 355 * 6, TASK_PROFILE_GPU_DRAW));
 }
 
 void Gpu::scanline355()
@@ -468,6 +521,10 @@ void Gpu::scanline355()
     {
         case 192: // End of visible scanlines
         {
+#ifdef NOODS_PROFILE
+            clock_t vblankStart = 0;
+            bool vblankSampled = beginProfilePhase(GPU_PROFILE_VBLANK, vblankStart);
+#endif
             // Stop the thread now that the frame has been drawn
             if (thread)
             {
@@ -536,6 +593,10 @@ void Gpu::scanline355()
                 mutex.unlock();
             }
 
+#ifdef NOODS_PROFILE
+            endProfilePhase(GPU_PROFILE_VBLANK, vblankStart, vblankSampled);
+#endif
+
             break;
         }
 
@@ -590,7 +651,7 @@ void Gpu::scanline355()
     }
 
     // Reschedule the task for the next scanline
-    core->schedule(Task(&scanline355Task, 355 * 6, TASK_PROFILE_GPU));
+    core->schedule(Task(&scanline355Task, 355 * 6, TASK_PROFILE_GPU_TIMING));
 }
 
 void Gpu::drawGbaThreaded()

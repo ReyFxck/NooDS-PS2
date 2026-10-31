@@ -26,6 +26,10 @@
 #include "dynarec_r5900.h"
 #include "../settings.h"
 
+#ifndef NOODS_BUILD_REVISION
+#define NOODS_BUILD_REVISION "unknown"
+#endif
+
 namespace
 {
 #define PS2_LOG(...) do { printf(__VA_ARGS__); scr_printf(__VA_ARGS__); } while (0)
@@ -329,6 +333,7 @@ int main(int argc, char **argv)
     PS2_LOG("============================================================\n");
     PS2_LOG(" NooDS-PS2 POC bootstrap\n");
     PS2_LOG(" Base: %s (%s)\n", BASE_COMMIT, BASE_DATE);
+    PS2_LOG(" Source HEAD: %s\n", NOODS_BUILD_REVISION);
 #ifdef DEBUG
     PS2_LOG(" Build: DEBUG\n");
 #else
@@ -409,8 +414,19 @@ int main(int argc, char **argv)
         Core *core = new Core(romPath, "");
 #ifdef NOODS_PROFILE
         clock_t coreConstructTicks = clock() - coreConstructStart;
+        const RomIoProfile &constructRomIo = core->cartridgeNds.getRomIoProfile();
+        uint64_t constructRomIoTicks = constructRomIo.seekTicks + constructRomIo.readTicks;
         PS2_LOG("[PS2][PROF] core construction: %.2f ms\n",
             static_cast<double>(coreConstructTicks) * 1000.0 / CLOCKS_PER_SEC);
+        PS2_LOG("[PS2][PROF] construction ROM I/O: %.2f ms reads=%llu seeks=%llu bytes=%lluKiB maxRead=%.2fms maxSeek=%.2fms short=%llu\n",
+            static_cast<double>(constructRomIoTicks) * 1000.0 / CLOCKS_PER_SEC,
+            static_cast<unsigned long long>(constructRomIo.readCalls),
+            static_cast<unsigned long long>(constructRomIo.seekCalls),
+            static_cast<unsigned long long>(constructRomIo.readBytes / 1024u),
+            static_cast<double>(constructRomIo.maxReadTicks) * 1000.0 / CLOCKS_PER_SEC,
+            static_cast<double>(constructRomIo.maxSeekTicks) * 1000.0 / CLOCKS_PER_SEC,
+            static_cast<unsigned long long>(constructRomIo.shortReads));
+        core->cartridgeNds.resetRomIoProfile();
 #endif
 
         // The embedded disc image is a regression/self-test environment.
@@ -833,9 +849,10 @@ int main(int argc, char **argv)
                     static_cast<unsigned long long>(runProfile.scheduleCalls),
                     static_cast<unsigned long>(runProfile.maxTaskDepth));
 
-                PS2_LOG("[PS2][PROF] task-count: core=%llu gpu=%llu gpu3d=%llu spu=%llu dma=%llu timer=%llu irq=%llu other=%llu\n",
+                PS2_LOG("[PS2][PROF] task-count: core=%llu gpuDraw=%llu gpuTiming=%llu gpu3d=%llu spu=%llu dma=%llu timer=%llu irq=%llu other=%llu\n",
                     static_cast<unsigned long long>(runProfile.taskClassCount[TASK_PROFILE_CORE]),
-                    static_cast<unsigned long long>(runProfile.taskClassCount[TASK_PROFILE_GPU]),
+                    static_cast<unsigned long long>(runProfile.taskClassCount[TASK_PROFILE_GPU_DRAW]),
+                    static_cast<unsigned long long>(runProfile.taskClassCount[TASK_PROFILE_GPU_TIMING]),
                     static_cast<unsigned long long>(runProfile.taskClassCount[TASK_PROFILE_GPU3D]),
                     static_cast<unsigned long long>(runProfile.taskClassCount[TASK_PROFILE_SPU]),
                     static_cast<unsigned long long>(runProfile.taskClassCount[TASK_PROFILE_DMA]),
@@ -852,15 +869,38 @@ int main(int argc, char **argv)
                         1000000.0 / CLOCKS_PER_SEC / static_cast<double>(samples);
                 };
 
-                PS2_LOG("[PS2][PROF] task-sample-us: core=%.2f gpu=%.2f gpu3d=%.2f spu=%.2f dma=%.2f timer=%.2f irq=%.2f other=%.2f (1/64 sampled)\n",
+                PS2_LOG("[PS2][PROF] task-sample-us: core=%.2f gpuDraw=%.2f gpuTiming=%.2f gpu3d=%.2f spu=%.2f dma=%.2f timer=%.2f irq=%.2f other=%.2f (per-class 1/64 sampled)\n",
                     sampledTaskUs(TASK_PROFILE_CORE),
-                    sampledTaskUs(TASK_PROFILE_GPU),
+                    sampledTaskUs(TASK_PROFILE_GPU_DRAW),
+                    sampledTaskUs(TASK_PROFILE_GPU_TIMING),
                     sampledTaskUs(TASK_PROFILE_GPU3D),
                     sampledTaskUs(TASK_PROFILE_SPU),
                     sampledTaskUs(TASK_PROFILE_DMA),
                     sampledTaskUs(TASK_PROFILE_TIMER),
                     sampledTaskUs(TASK_PROFILE_IRQ),
                     sampledTaskUs(TASK_PROFILE_OTHER));
+
+                const GpuRunProfile &gpuProfile = core->gpu.getProfile();
+                auto sampledGpuUs = [&](GpuProfilePhase phase) -> double
+                {
+                    uint64_t samples = gpuProfile.phaseSamples[phase];
+                    if (!samples)
+                        return 0.0;
+                    return static_cast<double>(gpuProfile.phaseTicks[phase]) *
+                        1000000.0 / CLOCKS_PER_SEC / static_cast<double>(samples);
+                };
+
+                PS2_LOG("[PS2][PROF] gpu-phase count/avg-us: 2dA=%llu/%.2f 2dB=%llu/%.2f capture=%llu/%.2f render3d=%llu/%.2f vblank=%llu/%.2f\n",
+                    static_cast<unsigned long long>(gpuProfile.phaseCount[GPU_PROFILE_2D_A]),
+                    sampledGpuUs(GPU_PROFILE_2D_A),
+                    static_cast<unsigned long long>(gpuProfile.phaseCount[GPU_PROFILE_2D_B]),
+                    sampledGpuUs(GPU_PROFILE_2D_B),
+                    static_cast<unsigned long long>(gpuProfile.phaseCount[GPU_PROFILE_CAPTURE]),
+                    sampledGpuUs(GPU_PROFILE_CAPTURE),
+                    static_cast<unsigned long long>(gpuProfile.phaseCount[GPU_PROFILE_3D_RENDER]),
+                    sampledGpuUs(GPU_PROFILE_3D_RENDER),
+                    static_cast<unsigned long long>(gpuProfile.phaseCount[GPU_PROFILE_VBLANK]),
+                    sampledGpuUs(GPU_PROFILE_VBLANK));
 
                 uint32_t currentRomHits = core->cartridgeNds.getRomCacheHits();
                 uint32_t currentRomMisses = core->cartridgeNds.getRomCacheMisses();
@@ -890,6 +930,22 @@ int main(int argc, char **argv)
                     static_cast<unsigned long>(core->cartridgeNds.getRomCacheSequentialRunMax()),
                     static_cast<unsigned long>(core->cartridgeNds.getRomCacheBytes() / 1024u));
 
+                const RomIoProfile &romIo = core->cartridgeNds.getRomIoProfile();
+                uint64_t romIoTicks = romIo.seekTicks + romIo.readTicks;
+                double romIoMs = static_cast<double>(romIoTicks) * 1000.0 / CLOCKS_PER_SEC;
+                double coreExIoMs = (profCoreMs > romIoMs) ? (profCoreMs - romIoMs) : 0.0;
+                PS2_LOG("[PS2][PROF] ROM I/O: total=%.2fms (%.2fms/f) coreExIO=%.2fms/f reads=%llu seeks=%llu requested=%lluKiB got=%lluKiB maxRead=%.2fms maxSeek=%.2fms short=%llu\n",
+                    romIoMs,
+                    romIoMs / profFrameDiv,
+                    coreExIoMs / profFrameDiv,
+                    static_cast<unsigned long long>(romIo.readCalls),
+                    static_cast<unsigned long long>(romIo.seekCalls),
+                    static_cast<unsigned long long>(romIo.requestedBytes / 1024u),
+                    static_cast<unsigned long long>(romIo.readBytes / 1024u),
+                    static_cast<double>(romIo.maxReadTicks) * 1000.0 / CLOCKS_PER_SEC,
+                    static_cast<double>(romIo.maxSeekTicks) * 1000.0 / CLOCKS_PER_SEC,
+                    static_cast<unsigned long long>(romIo.shortReads));
+
                 profLastRomHits = currentRomHits;
                 profLastRomMisses = currentRomMisses;
                 profLastRomReadBytes = currentRomReadBytes;
@@ -900,6 +956,7 @@ int main(int argc, char **argv)
                 logInterpreterProfile("ARM7", core->interpreter[1].getProfile());
 
                 core->resetProfile();
+                core->cartridgeNds.resetRomIoProfile();
                 profCoreTicks = 0;
                 profGetFrameTicks = 0;
                 profUploadTicks = 0;

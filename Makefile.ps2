@@ -15,6 +15,10 @@ endif
 EE_TOOL_PREFIX ?= mips64r5900el-ps2-elf-
 EE_CXX         ?= $(EE_TOOL_PREFIX)g++
 
+# Stamp every PS2 binary with the exact source revision used by CI/local builds.
+# The upstream base commit is intentionally kept separate in the runtime banner.
+BUILD_REVISION ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+
 TARGET := noods-ps2.elf
 BUILD  := build-ps2
 
@@ -53,6 +57,7 @@ PROFILE ?= 0
 
 COMMON_FLAGS := -D_EE -DNOODS_PS2 -G0 -Wall -Wextra -std=gnu++11 \
                 -fno-rtti \
+                -DNOODS_BUILD_REVISION=\"$(BUILD_REVISION)\" \
                 -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include -I$(GSKIT)/include -Isrc
 
 ifeq ($(PROFILE),1)

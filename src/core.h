@@ -49,7 +49,8 @@
 enum TaskProfileClass : uint8_t
 {
     TASK_PROFILE_CORE = 0,
-    TASK_PROFILE_GPU,
+    TASK_PROFILE_GPU_DRAW,
+    TASK_PROFILE_GPU_TIMING,
     TASK_PROFILE_GPU3D,
     TASK_PROFILE_SPU,
     TASK_PROFILE_DMA,
@@ -83,7 +84,10 @@ struct CoreRunProfile
     uint64_t taskClassCount[TASK_PROFILE_COUNT] = {};
     uint64_t taskClassTicks[TASK_PROFILE_COUNT] = {};
     uint64_t taskClassSamples[TASK_PROFILE_COUNT] = {};
-    uint64_t taskSampleCounter = 0;
+    // Sample each class independently. A single global modulo counter can
+    // alias with the scheduler's repeating event pattern and repeatedly time
+    // the same cheap/expensive phase.
+    uint64_t taskClassSampleCounter[TASK_PROFILE_COUNT] = {};
 };
 
 class Core
@@ -103,6 +107,9 @@ class Core
             profileEnabled = enabled;
             interpreter[0].setProfileEnabled(enabled);
             interpreter[1].setProfileEnabled(enabled);
+#ifdef NOODS_PROFILE
+            gpu.setProfileEnabled(enabled);
+#endif
         }
 
         void resetProfile()
@@ -110,6 +117,9 @@ class Core
             runProfile = CoreRunProfile();
             interpreter[0].resetProfile();
             interpreter[1].resetProfile();
+#ifdef NOODS_PROFILE
+            gpu.resetProfile();
+#endif
         }
 
         const CoreRunProfile &getRunProfile() const { return runProfile; }

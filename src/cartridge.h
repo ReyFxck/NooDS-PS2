@@ -25,6 +25,21 @@
 
 class Core;
 
+#ifdef NOODS_PROFILE
+struct RomIoProfile
+{
+    uint64_t seekCalls = 0;
+    uint64_t seekTicks = 0;
+    uint64_t maxSeekTicks = 0;
+    uint64_t readCalls = 0;
+    uint64_t readTicks = 0;
+    uint64_t maxReadTicks = 0;
+    uint64_t requestedBytes = 0;
+    uint64_t readBytes = 0;
+    uint64_t shortReads = 0;
+};
+#endif
+
 enum NdsCmdMode
 {
     CMD_NONE = 0,
@@ -56,6 +71,11 @@ class Cartridge
         uint32_t getRomCacheSeekCount() const { return romCacheSeekCount; }
         uint32_t getRomCacheSequentialMisses() const { return romCacheSequentialMisses; }
         uint32_t getRomCacheSequentialRunMax() const { return romCacheSequentialRunMax; }
+
+#ifdef NOODS_PROFILE
+        const RomIoProfile &getRomIoProfile() const { return romIoProfile; }
+        void resetRomIoProfile() { romIoProfile = RomIoProfile(); }
+#endif
 
     protected:
         Core *core;
@@ -90,8 +110,14 @@ class Cartridge
         uint32_t romCacheSequentialRunMax = 0;
         uint32_t romCacheLastMissTag = 0xFFFFFFFFu;
 
+#ifdef NOODS_PROFILE
+        RomIoProfile romIoProfile;
+#endif
+
         void configureRomCache(uint32_t bytes);
         void loadRomSection(uint32_t offset, uint32_t size, bool useCache = true);
+        int seekRomFile(long offset, int origin);
+        size_t readRomFile(void *buffer, size_t size);
 
     private:
         std::string romName, saveName;

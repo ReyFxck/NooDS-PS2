@@ -7,7 +7,18 @@ on:
   workflow_dispatch:
 
 jobs:
+  test-core:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Test cartridge cache and ROM I/O accounting
+        run: make -C tests test
+
   build-ps2:
+    needs: test-core
     runs-on: ubuntu-latest
     container: ps2dev/ps2dev:latest
 

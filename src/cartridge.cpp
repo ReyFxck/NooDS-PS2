@@ -18,6 +18,7 @@
 */
 
 #include <cstring>
+#include <ctime>
 #include <new>
 #include <algorithm>
 
@@ -40,13 +41,16 @@ Cartridge::~Cartridge()
 
 void Cartridge::loadRom(std::string path)
 {
+#ifdef NOODS_PROFILE
+    resetRomIoProfile();
+#endif
     // Attempt to open a ROM file
     romName = path;
     romFile = fopen(romName.c_str(), "rb");
     if (!romFile) throw 2;
-    fseek(romFile, 0, SEEK_END);
+    seekRomFile(0, SEEK_END);
     romSize = ftell(romFile);
-    fseek(romFile, 0, SEEK_SET);
+    seekRomFile(0, SEEK_SET);
     romFilePosition = 0;
 
     // Attempt to load the ROM's save into memory
@@ -61,6 +65,42 @@ void Cartridge::loadRom(std::string path)
         fread(save, sizeof(uint8_t), saveSize, saveFile);
         fclose(saveFile);
     }
+}
+
+int Cartridge::seekRomFile(long offset, int origin)
+{
+#ifdef NOODS_PROFILE
+    clock_t start = clock();
+#endif
+    int result = fseek(romFile, offset, origin);
+#ifdef NOODS_PROFILE
+    uint64_t ticks = static_cast<uint64_t>(clock() - start);
+    romIoProfile.seekCalls++;
+    romIoProfile.seekTicks += ticks;
+    if (ticks > romIoProfile.maxSeekTicks)
+        romIoProfile.maxSeekTicks = ticks;
+#endif
+    return result;
+}
+
+size_t Cartridge::readRomFile(void *buffer, size_t size)
+{
+#ifdef NOODS_PROFILE
+    clock_t start = clock();
+#endif
+    size_t got = fread(buffer, sizeof(uint8_t), size, romFile);
+#ifdef NOODS_PROFILE
+    uint64_t ticks = static_cast<uint64_t>(clock() - start);
+    romIoProfile.readCalls++;
+    romIoProfile.readTicks += ticks;
+    if (ticks > romIoProfile.maxReadTicks)
+        romIoProfile.maxReadTicks = ticks;
+    romIoProfile.requestedBytes += size;
+    romIoProfile.readBytes += got;
+    if (got != size)
+        romIoProfile.shortReads++;
+#endif
+    return got;
 }
 
 void Cartridge::configureRomCache(uint32_t bytes)
@@ -120,10 +160,10 @@ void Cartridge::loadRomSection(uint32_t offset, uint32_t size, bool useCache)
     {
         if (romFilePosition != static_cast<long>(offset))
         {
-            fseek(romFile, offset, SEEK_SET);
+            seekRomFile(offset, SEEK_SET);
             romFilePosition = offset;
         }
-        size_t got = fread(rom, sizeof(uint8_t), size, romFile);
+        size_t got = readRomFile(rom, size);
         romFilePosition += static_cast<long>(got);
         return;
     }
@@ -196,11 +236,11 @@ void Cartridge::loadRomSection(uint32_t offset, uint32_t size, bool useCache)
                 if (romFilePosition != static_cast<long>(pageOffset))
                 {
                     romCacheSeekCount++;
-                    fseek(romFile, pageOffset, SEEK_SET);
+                    seekRomFile(pageOffset, SEEK_SET);
                     romFilePosition = pageOffset;
                 }
 
-                size_t got = fread(page, sizeof(uint8_t), readable, romFile);
+                size_t got = readRomFile(page, readable);
                 romCacheReadBytes += got;
                 romFilePosition += static_cast<long>(got);
                 readable = static_cast<uint32_t>(got);
