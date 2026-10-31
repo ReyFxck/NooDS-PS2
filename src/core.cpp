@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <ctime>
 #include <thread>
 
 #include "core.h"
@@ -47,7 +48,7 @@ Core::Core(std::string ndsPath, std::string gbaPath):
 {
     // Schedule initial tasks for NDS mode
     resetCyclesTask = std::bind(&Core::resetCycles, this);
-    schedule(Task(&resetCyclesTask, 0x7FFFFFFF));
+    schedule(Task(&resetCyclesTask, 0x7FFFFFFF, TASK_PROFILE_CORE));
     gpu.scheduleInit();
     spu.scheduleInit();
 
@@ -128,7 +129,7 @@ void Core::resetCycles()
     timers[0].resetCycles();
     timers[1].resetCycles();
     globalCycles -= globalCycles;
-    schedule(Task(&resetCyclesTask, 0x7FFFFFFF));
+    schedule(Task(&resetCyclesTask, 0x7FFFFFFF, TASK_PROFILE_CORE));
 }
 
 void Core::runGbaFrame()
@@ -157,10 +158,27 @@ void Core::runGbaFrame()
         while (tasks[0].cycles <= globalCycles)
         {
 #ifdef NOODS_PROFILE
+            TaskProfileClass profileClass = tasks[0].profileClass;
+            bool sampleTask = false;
+            clock_t taskStart = 0;
             if (profileEnabled)
+            {
                 runProfile.taskExecutions++;
+                runProfile.taskClassCount[profileClass]++;
+                sampleTask = ((runProfile.taskSampleCounter++ & 63u) == 0);
+                if (sampleTask)
+                    taskStart = clock();
+            }
 #endif
             (*tasks[0].task)();
+#ifdef NOODS_PROFILE
+            if (profileEnabled && sampleTask)
+            {
+                runProfile.taskClassTicks[profileClass] +=
+                    static_cast<uint64_t>(clock() - taskStart);
+                runProfile.taskClassSamples[profileClass]++;
+            }
+#endif
             tasks.erase(tasks.begin());
         }
     }
@@ -222,10 +240,27 @@ void Core::runNdsFrame()
         while (tasks[0].cycles <= globalCycles)
         {
 #ifdef NOODS_PROFILE
+            TaskProfileClass profileClass = tasks[0].profileClass;
+            bool sampleTask = false;
+            clock_t taskStart = 0;
             if (profileEnabled)
+            {
                 runProfile.taskExecutions++;
+                runProfile.taskClassCount[profileClass]++;
+                sampleTask = ((runProfile.taskSampleCounter++ & 63u) == 0);
+                if (sampleTask)
+                    taskStart = clock();
+            }
 #endif
             (*tasks[0].task)();
+#ifdef NOODS_PROFILE
+            if (profileEnabled && sampleTask)
+            {
+                runProfile.taskClassTicks[profileClass] +=
+                    static_cast<uint64_t>(clock() - taskStart);
+                runProfile.taskClassSamples[profileClass]++;
+            }
+#endif
             tasks.erase(tasks.begin());
         }
     }
@@ -269,7 +304,7 @@ void Core::enterGbaMode()
 
     // Reset the scheduler and schedule initial tasks for GBA mode
     tasks.clear();
-    schedule(Task(&resetCyclesTask, 1));
+    schedule(Task(&resetCyclesTask, 1, TASK_PROFILE_CORE));
     gpu.gbaScheduleInit();
     spu.gbaScheduleInit();
 
