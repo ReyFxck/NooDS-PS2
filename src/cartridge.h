@@ -52,6 +52,10 @@ class Cartridge
         uint32_t getRomCacheHits() const   { return romCacheHits;   }
         uint32_t getRomCacheMisses() const { return romCacheMisses; }
         uint32_t getRomCacheBytes() const  { return romCacheBytes;  }
+        uint64_t getRomCacheReadBytes() const { return romCacheReadBytes; }
+        uint32_t getRomCacheSeekCount() const { return romCacheSeekCount; }
+        uint32_t getRomCacheSequentialMisses() const { return romCacheSequentialMisses; }
+        uint32_t getRomCacheSequentialRunMax() const { return romCacheSequentialRunMax; }
 
     protected:
         Core *core;
@@ -77,6 +81,13 @@ class Cartridge
         uint32_t romCacheHits = 0;
         uint32_t romCacheMisses = 0;
         uint32_t romCacheBytes = 0;
+
+        uint64_t romCacheReadBytes = 0;
+        uint32_t romCacheSeekCount = 0;
+        uint32_t romCacheSequentialMisses = 0;
+        uint32_t romCacheSequentialRun = 0;
+        uint32_t romCacheSequentialRunMax = 0;
+        uint32_t romCacheLastMissTag = 0xFFFFFFFFu;
 
         void configureRomCache(uint32_t bytes);
         void loadRomSection(uint32_t offset, uint32_t size);
