@@ -104,6 +104,136 @@ struct ArmAluState
 {
     uint32_t r[16];
 };
+
+struct ArmAluDecoded
+{
+    bool immediate;
+    uint8_t operation;
+    uint8_t rn;
+    uint8_t rd;
+    uint8_t rm;
+    uint32_t immediateValue;
+};
+
+bool decodeArmAlu(uint32_t opcode, ArmAluDecoded *decoded)
+{
+    if (!decoded ||
+        (opcode >> 28) != 0xEu ||
+        (opcode & 0x0C000000u) != 0 ||
+        (opcode & 0x00100000u) != 0)
+        return false;
+
+    decoded->immediate = (opcode & 0x02000000u) != 0;
+    if (!decoded->immediate && (opcode & 0x00000FF0u) != 0)
+        return false;
+
+    decoded->operation = static_cast<uint8_t>((opcode >> 21) & 0xF);
+    decoded->rn = static_cast<uint8_t>((opcode >> 16) & 0xF);
+    decoded->rd = static_cast<uint8_t>((opcode >> 12) & 0xF);
+    decoded->rm = static_cast<uint8_t>(opcode & 0xF);
+
+    if (decoded->rd == 15 ||
+        (!decoded->immediate && decoded->rm == 15) ||
+        (decoded->operation != 13 && decoded->rn == 15))
+        return false;
+
+    switch (decoded->operation)
+    {
+        case 0:  // AND
+        case 1:  // EOR
+        case 2:  // SUB
+        case 4:  // ADD
+        case 12: // ORR
+        case 13: // MOV
+            break;
+        default:
+            return false;
+    }
+
+    decoded->immediateValue = 0;
+    if (decoded->immediate)
+    {
+        uint32_t value = opcode & 0xFFu;
+        uint32_t rotate = ((opcode >> 8) & 0xFu) * 2u;
+        if (rotate)
+            value = (value >> rotate) | (value << (32u - rotate));
+        decoded->immediateValue = value;
+    }
+
+    return true;
+}
+
+bool applyArmAlu(uint32_t opcode, ArmAluState *state)
+{
+    if (!state)
+        return false;
+
+    ArmAluDecoded decoded = {};
+    if (!decodeArmAlu(opcode, &decoded))
+        return false;
+
+    uint32_t operand2 = decoded.immediate
+        ? decoded.immediateValue
+        : state->r[decoded.rm];
+    uint32_t result = 0;
+
+    switch (decoded.operation)
+    {
+        case 0:  result = state->r[decoded.rn] & operand2; break;
+        case 1:  result = state->r[decoded.rn] ^ operand2; break;
+        case 2:  result = state->r[decoded.rn] - operand2; break;
+        case 4:  result = state->r[decoded.rn] + operand2; break;
+        case 12: result = state->r[decoded.rn] | operand2; break;
+        case 13: result = operand2; break;
+        default: return false;
+    }
+
+    state->r[decoded.rd] = result;
+    return true;
+}
+
+size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code)
+{
+    if (!code)
+        return 0;
+
+    ArmAluDecoded decoded = {};
+    if (!decodeArmAlu(opcode, &decoded))
+        return 0;
+
+    size_t words = 0;
+    if (decoded.operation != 13)
+        code[words++] = R5900::lw(R5900::R_T0,
+            static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+
+    if (decoded.immediate)
+    {
+        code[words++] = R5900::lui(R5900::R_T1,
+            static_cast<uint16_t>(decoded.immediateValue >> 16));
+        code[words++] = R5900::ori(R5900::R_T1, R5900::R_T1,
+            static_cast<uint16_t>(decoded.immediateValue));
+    }
+    else
+    {
+        code[words++] = R5900::lw(R5900::R_T1,
+            static_cast<int16_t>(decoded.rm * 4), R5900::R_A0);
+    }
+
+    switch (decoded.operation)
+    {
+        case 0:  code[words++] = R5900::and_(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
+        case 1:  code[words++] = R5900::xor_(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
+        case 2:  code[words++] = R5900::subu(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
+        case 4:  code[words++] = R5900::addu(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
+        case 12: code[words++] = R5900::or_(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
+        case 13: code[words++] = R5900::or_(R5900::R_T2, R5900::R_T1, R5900::R_ZERO); break;
+        default: return 0;
+    }
+
+    code[words++] = R5900::sw(R5900::R_T2,
+        static_cast<int16_t>(decoded.rd * 4), R5900::R_A0);
+    return words;
+}
 }
 
 bool DynarecR5900::emitArmAluBlock(uint32_t opcode, uint32_t **entry, uint8_t *rdOut)
@@ -188,6 +318,48 @@ bool DynarecR5900::emitArmAluBlock(uint32_t opcode, uint32_t **entry, uint8_t *r
 
     *entry = code;
     *rdOut = rd;
+    return true;
+}
+
+bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
+    uint32_t guestPc, uint32_t **entry, uint32_t *hostWords)
+{
+    if (!opcodes || !count || !entry || !hostWords)
+        return false;
+
+    // Five host instructions per guest opcode is the current worst case
+    // (Rn load + immediate materialization + ALU + Rd store), plus return.
+    const size_t maxWords = count * 5 + 2;
+    uint32_t *code = cache.reserveWords(maxWords);
+    if (!code)
+        return false;
+
+    size_t words = 0;
+    for (size_t i = 0; i < count; i++)
+    {
+        size_t emitted = emitArmAluInstruction(opcodes[i], code + words);
+        if (!emitted)
+            return false;
+        words += emitted;
+    }
+
+    code[words++] = R5900::jr(R5900::R_RA);
+    code[words++] = R5900::nop();
+
+    cache.commitWords(words);
+    cache.syncExecutable(code, code + words);
+
+    R5900CompiledBlock block = {};
+    block.guestPc = guestPc;
+    block.mapGeneration = mappedGeneration;
+    block.cycles = static_cast<uint32_t>(count);
+    block.thumb = false;
+    block.hostCode = code;
+    block.hostWords = static_cast<uint32_t>(words);
+    blocks.push_back(block);
+
+    *entry = code;
+    *hostWords = static_cast<uint32_t>(words);
     return true;
 }
 
@@ -383,4 +555,86 @@ int DynarecR5900::runArm9PipelineSelfTest(const Interpreter &cpu,
         *opcodeOut = opcode;
 
     return state.r[rd] == expected ? 1 : -1;
+}
+
+
+int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
+    uint32_t *guestPcOut, uint32_t *instructionCount, uint32_t *stateHash)
+{
+    if (!CpuBackendAccess::isArm9(cpu) || CpuBackendAccess::isThumb(cpu))
+        return 0;
+
+    synchronizeMemoryMap();
+
+    constexpr size_t MAX_BLOCK_INSTRUCTIONS = 16;
+    uint32_t opcodes[MAX_BLOCK_INSTRUCTIONS] = {};
+    size_t count = 0;
+
+    uint32_t guestPc = CpuBackendAccess::nextInstructionAddress(cpu);
+
+    // pipeline[0] is authoritative for the next instruction. pipeline[1] is
+    // authoritative for the following instruction; later words can be fetched
+    // directly because this gate only accepts straight-line ALU instructions.
+    for (size_t i = 0; i < MAX_BLOCK_INSTRUCTIONS; i++)
+    {
+        uint32_t opcode;
+        if (i == 0)
+            opcode = CpuBackendAccess::pipelineOpcode(cpu, 0);
+        else if (i == 1)
+            opcode = CpuBackendAccess::pipelineOpcode(cpu, 1);
+        else
+            opcode = memory->read<uint32_t>(0, guestPc + static_cast<uint32_t>(i * 4));
+
+        ArmAluDecoded decoded = {};
+        if (!decodeArmAlu(opcode, &decoded))
+            break;
+
+        opcodes[count++] = opcode;
+    }
+
+    if (!count)
+        return 0;
+
+    ArmAluState source = {};
+    ArmAluState expected = {};
+    for (int i = 0; i < 16; i++)
+        source.r[i] = expected.r[i] = CpuBackendAccess::readReg(cpu, i);
+
+    for (size_t i = 0; i < count; i++)
+        if (!applyArmAlu(opcodes[i], &expected))
+            return -1;
+
+    uint32_t *entry = nullptr;
+    uint32_t hostWords = 0;
+    if (!emitArmAluSequence(opcodes, count, guestPc, &entry, &hostWords))
+        return -1;
+
+    ArmAluState actual = source;
+    typedef void (*ArmAluBlockFunction)(ArmAluState *);
+    ArmAluBlockFunction function = reinterpret_cast<ArmAluBlockFunction>(entry);
+    function(&actual);
+
+    uint32_t hash = 2166136261u;
+    for (int i = 0; i < 16; i++)
+    {
+        if (actual.r[i] != expected.r[i])
+            return -1;
+
+        hash ^= actual.r[i];
+        hash *= 16777619u;
+    }
+
+    hash ^= static_cast<uint32_t>(count);
+    hash *= 16777619u;
+    hash ^= hostWords;
+    hash *= 16777619u;
+
+    if (guestPcOut)
+        *guestPcOut = guestPc;
+    if (instructionCount)
+        *instructionCount = static_cast<uint32_t>(count);
+    if (stateHash)
+        *stateHash = hash;
+
+    return 1;
 }
