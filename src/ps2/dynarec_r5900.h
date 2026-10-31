@@ -8,6 +8,7 @@
 #include "r5900_code_cache.h"
 
 class Memory;
+class Interpreter;
 
 struct R5900CompiledBlock
 {
@@ -44,6 +45,10 @@ class DynarecR5900
         // equivalent R5900 code and execute it against isolated register state.
         // This is the correctness gate before wiring blocks into the scheduler.
         bool runArmAluSelfTest();
+
+        // Repeat the same ALU gate using a snapshot of the live ARM9 register
+        // bank. The emulated CPU itself is never modified by this test.
+        bool runArm9StateSelfTest(const Interpreter &cpu, uint32_t *stateHash = nullptr);
 
         size_t codeCacheUsed() const { return cache.usedBytes(); }
         size_t codeCacheCapacity() const { return cache.capacity(); }
