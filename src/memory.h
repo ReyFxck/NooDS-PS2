@@ -22,6 +22,7 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <cstring>
 
 #include "defines.h"
 
@@ -241,10 +242,17 @@ template <typename T> FORCE_INLINE T Memory::read(bool cpu, uint32_t address)
         // Get a pointer to readable memory mapped to the given address
         uint8_t *data = &page[address & 0xFFF];
 
-        // Form an LSB-first value from the data at the pointer
+        // Direct-mapped pages are naturally aligned by the caller. On the
+        // overwhelmingly common little-endian hosts (including PS2 EE), memcpy
+        // becomes one native load instead of four byte loads/shifts for u32.
         T value = 0;
+#if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && \
+    (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+        std::memcpy(&value, data, sizeof(T));
+#else
         for (size_t i = 0; i < sizeof(T); i++)
-            value |= data[i] << (i * 8);
+            value |= static_cast<T>(data[i]) << (i * 8);
+#endif
         return value;
     }
 
@@ -265,9 +273,15 @@ template <typename T> FORCE_INLINE void Memory::write(bool cpu, uint32_t address
         // Get a pointer to writable memory mapped to the given address
         uint8_t *data = &page[address & 0xFFF];
 
-        // Write an LSB-first value to the data at the pointer
+        // Same fast path as reads: little-endian hosts can store the aligned
+        // value directly while big-endian hosts keep the explicit LSB order.
+#if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && \
+    (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+        std::memcpy(data, &value, sizeof(T));
+#else
         for (size_t i = 0; i < sizeof(T); i++)
             data[i] = value >> (i * 8);
+#endif
         return;
     }
 
