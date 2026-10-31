@@ -550,12 +550,18 @@ int main(int argc, char **argv)
         gsGlobal->Width = 640;
         gsGlobal->Height = 448;
         gsGlobal->PSM = GS_PSM_CT32;
-        gsGlobal->DoubleBuffering = GS_SETTING_OFF;
+        // Streamed NDS frames must not render directly into the buffer that is
+        // currently being scanned out. gsKit's own framebuffer streaming
+        // example documents horizontal tearing when double buffering is off.
+        gsGlobal->DoubleBuffering = GS_SETTING_ON;
         gsGlobal->ZBuffering = GS_SETTING_OFF;
         gsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
 
         gsKit_init_screen(gsGlobal);
-        gsKit_mode_switch(gsGlobal, GS_PERSISTENT);
+        // Rebuild the tiny render list every frame. Persistent mode is ideal
+        // for static scenes, but a streamed framebuffer is safer as ONESHOT:
+        // every back buffer is explicitly cleared and both sprites are drawn.
+        gsKit_mode_switch(gsGlobal, GS_ONESHOT);
         gsKit_set_test(gsGlobal, GS_ZTEST_OFF);
 
         GSTEXTURE top = {};
@@ -590,25 +596,36 @@ int main(int argc, char **argv)
         // Native DS pixels, centered in NTSC 640x448 with a small gap.
         // Top:    (192, 24) -> (448, 216)
         // Bottom: (192,232) -> (448, 424)
-        gsKit_clear(gsGlobal, blackColor);
-        gsKit_prim_sprite_texture(gsGlobal, &top,
-            192.0f, 24.0f, 0.0f, 0.0f,
-            448.0f, 216.0f, 256.0f, 192.0f,
-            1, textureColor);
-        gsKit_prim_sprite_texture(gsGlobal, &bottom,
-            192.0f, 232.0f, 0.0f, 0.0f,
-            448.0f, 424.0f, 256.0f, 192.0f,
-            1, textureColor);
+        auto queueNdsScreens = [&]()
+        {
+            gsKit_clear(gsGlobal, blackColor);
+            gsKit_prim_sprite_texture(gsGlobal, &top,
+                192.0f, 24.0f, 0.0f, 0.0f,
+                448.0f, 216.0f, 256.0f, 192.0f,
+                1, textureColor);
+            gsKit_prim_sprite_texture(gsGlobal, &bottom,
+                192.0f, 232.0f, 0.0f, 0.0f,
+                448.0f, 424.0f, 256.0f, 192.0f,
+                1, textureColor);
+        };
 
-        PS2_LOG("[PS2][OK] M5: both NDS screens uploaded to GS. Presenting selected static frame %d.\n",
+        PS2_LOG("[PS2][OK] M5: both NDS screens uploaded to GS. Priming both display buffers with frame %d.\n",
             selectedFrame);
         fflush(stdout);
+
+        // Paint both GS screen buffers before streaming. init_scr() owned the
+        // display during bootstrap, so explicitly overwriting both buffers
+        // prevents stale debug text from resurfacing on a later flip.
+        for (int prime = 0; prime < 2; prime++)
+        {
+            queueNdsScreens();
+            gsKit_queue_exec(gsGlobal);
+            gsKit_sync_flip(gsGlobal);
+        }
 
         // M5 stream test: keep emulation moving after the first visible frame.
         // This lets boot sequences (for example, a logo appearing later) become
         // visible instead of freezing the very first non-white frame forever.
-        gsKit_sync_flip(gsGlobal);
-        gsKit_queue_exec(gsGlobal);
 
         int frameNo = selectedFrame + 1;
         clock_t benchStart = clock();
@@ -675,10 +692,15 @@ int main(int argc, char **argv)
                 fflush(stdout);
             }
 
-            gsKit_sync_flip(gsGlobal);
+            // Texture uploads happen immediately in gsKit. Upload first,
+            // then build a fresh ONESHOT render queue targeting the back buffer.
+            // Execute the queue before flipping, matching gsKit's framebuffer
+            // streaming example and avoiding scanout/render overlap.
             gsKit_texture_upload(gsGlobal, &top);
             gsKit_texture_upload(gsGlobal, &bottom);
+            queueNdsScreens();
             gsKit_queue_exec(gsGlobal);
+            gsKit_sync_flip(gsGlobal);
 
             frameNo++;
         }
