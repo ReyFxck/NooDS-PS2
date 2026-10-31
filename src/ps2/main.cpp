@@ -268,6 +268,53 @@ bool probeNdsRom(const char *path)
     PS2_LOG("[PS2]      title='%s' gameCode='%s'\n", title, gameCode);
     return true;
 }
+
+void logInterpreterProfile(const char *label, const InterpreterProfile &profile)
+{
+    PS2_LOG("[PS2][PROF] %s instr=%llu ARM=%llu THUMB=%llu | ARM dp=%llu mem=%llu multi=%llu branch=%llu sys=%llu | THUMB alu=%llu mem=%llu stack=%llu multi=%llu branch=%llu\n",
+        label,
+        static_cast<unsigned long long>(profile.instructions),
+        static_cast<unsigned long long>(profile.armInstructions),
+        static_cast<unsigned long long>(profile.thumbInstructions),
+        static_cast<unsigned long long>(profile.armClass[0]),
+        static_cast<unsigned long long>(profile.armClass[1]),
+        static_cast<unsigned long long>(profile.armClass[2]),
+        static_cast<unsigned long long>(profile.armClass[3]),
+        static_cast<unsigned long long>(profile.armClass[4]),
+        static_cast<unsigned long long>(profile.thumbClass[0]),
+        static_cast<unsigned long long>(profile.thumbClass[1]),
+        static_cast<unsigned long long>(profile.thumbClass[2]),
+        static_cast<unsigned long long>(profile.thumbClass[3]),
+        static_cast<unsigned long long>(profile.thumbClass[4]));
+
+    InterpreterHotPc top[6] = {};
+    for (size_t i = 0; i < 256; i++)
+    {
+        const InterpreterHotPc &candidate = profile.hotPc[i];
+        if (!candidate.samples)
+            continue;
+
+        for (int slot = 0; slot < 6; slot++)
+        {
+            if (candidate.samples > top[slot].samples)
+            {
+                for (int move = 5; move > slot; move--)
+                    top[move] = top[move - 1];
+                top[slot] = candidate;
+                break;
+            }
+        }
+    }
+
+    PS2_LOG("[PS2][PROF] %s hotPC(sample/64): %08lX:%lu %08lX:%lu %08lX:%lu %08lX:%lu %08lX:%lu %08lX:%lu\n",
+        label,
+        static_cast<unsigned long>(top[0].pc), static_cast<unsigned long>(top[0].samples),
+        static_cast<unsigned long>(top[1].pc), static_cast<unsigned long>(top[1].samples),
+        static_cast<unsigned long>(top[2].pc), static_cast<unsigned long>(top[2].samples),
+        static_cast<unsigned long>(top[3].pc), static_cast<unsigned long>(top[3].samples),
+        static_cast<unsigned long>(top[4].pc), static_cast<unsigned long>(top[4].samples),
+        static_cast<unsigned long>(top[5].pc), static_cast<unsigned long>(top[5].samples));
+}
 }
 
 int main(int argc, char **argv)
@@ -675,14 +722,31 @@ int main(int argc, char **argv)
         clock_t benchStart = clock();
         int benchFrames = 0;
 
+        core->setProfileEnabled(true);
+        core->resetProfile();
+
+        clock_t profCoreTicks = 0;
+        clock_t profGetFrameTicks = 0;
+        clock_t profUploadTicks = 0;
+        clock_t profPresentTicks = 0;
+        int profFrames = 0;
+
         while (1)
         {
             if (padReady)
                 pollPadIntoNds(core);
-            core->runFrame();
-            benchFrames++;
 
-            if (!core->gpu.getFrame(frame, false))
+            clock_t profTick = clock();
+            core->runFrame();
+            profCoreTicks += clock() - profTick;
+            benchFrames++;
+            profFrames++;
+
+            profTick = clock();
+            bool frameReady = core->gpu.getFrame(frame, false);
+            profGetFrameTicks += clock() - profTick;
+
+            if (!frameReady)
             {
                 PS2_LOG("[PS2][ERROR] M5: frame %d executed but no framebuffer was ready.\n", frameNo);
                 break;
@@ -699,6 +763,39 @@ int main(int argc, char **argv)
 
                 PS2_LOG("[PS2] interpreter benchmark: %d frames in %.3f s = %.2f NDS fps\n",
                     benchFrames, elapsed, emuFps);
+
+                double profCoreMs = static_cast<double>(profCoreTicks) * 1000.0 / CLOCKS_PER_SEC;
+                double profGetMs = static_cast<double>(profGetFrameTicks) * 1000.0 / CLOCKS_PER_SEC;
+                double profUploadMs = static_cast<double>(profUploadTicks) * 1000.0 / CLOCKS_PER_SEC;
+                double profPresentMs = static_cast<double>(profPresentTicks) * 1000.0 / CLOCKS_PER_SEC;
+                double profKnownMs = profCoreMs + profGetMs + profUploadMs + profPresentMs;
+                double profFrameDiv = profFrames > 0 ? static_cast<double>(profFrames) : 1.0;
+
+                PS2_LOG("[PS2][PROF] %d frames: core=%.2fms/f getFrame=%.2fms/f uploadGS=%.2fms/f present=%.2fms/f known=%.2fms/f\n",
+                    profFrames,
+                    profCoreMs / profFrameDiv,
+                    profGetMs / profFrameDiv,
+                    profUploadMs / profFrameDiv,
+                    profPresentMs / profFrameDiv,
+                    profKnownMs / profFrameDiv);
+
+                const CoreRunProfile &runProfile = core->getRunProfile();
+                PS2_LOG("[PS2][PROF] scheduler: ARM9=%llu ARM7=%llu tasks=%llu schedules=%llu maxDepth=%lu\n",
+                    static_cast<unsigned long long>(runProfile.arm9Opcodes),
+                    static_cast<unsigned long long>(runProfile.arm7Opcodes),
+                    static_cast<unsigned long long>(runProfile.taskExecutions),
+                    static_cast<unsigned long long>(runProfile.scheduleCalls),
+                    static_cast<unsigned long>(runProfile.maxTaskDepth));
+
+                logInterpreterProfile("ARM9", core->interpreter[0].getProfile());
+                logInterpreterProfile("ARM7", core->interpreter[1].getProfile());
+
+                core->resetProfile();
+                profCoreTicks = 0;
+                profGetFrameTicks = 0;
+                profUploadTicks = 0;
+                profPresentTicks = 0;
+                profFrames = 0;
 
                 uint32_t topHash = 2166136261u;
                 uint32_t bottomHash = 2166136261u;
@@ -740,11 +837,16 @@ int main(int argc, char **argv)
             // then build a fresh ONESHOT render queue targeting the back buffer.
             // Execute the queue before flipping, matching gsKit's framebuffer
             // streaming example and avoiding scanout/render overlap.
+            profTick = clock();
             gsKit_texture_upload(gsGlobal, &top);
             gsKit_texture_upload(gsGlobal, &bottom);
+            profUploadTicks += clock() - profTick;
+
+            profTick = clock();
             queueNdsScreens();
             gsKit_queue_exec(gsGlobal);
             gsKit_sync_flip(gsGlobal);
+            profPresentTicks += clock() - profTick;
 
             frameNo++;
         }
