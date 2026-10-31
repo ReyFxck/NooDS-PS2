@@ -56,6 +56,13 @@ class DynarecR5900
         int runArm9PipelineSelfTest(const Interpreter &cpu,
             uint32_t *guestPc = nullptr, uint32_t *opcode = nullptr);
 
+        // Compile a contiguous real ARM9 ALU block into one R5900 function and
+        // compare every register against a software shadow result. The live
+        // emulated CPU remains untouched.
+        int runArm9BlockShadowSelfTest(const Interpreter &cpu,
+            uint32_t *guestPc = nullptr, uint32_t *instructionCount = nullptr,
+            uint32_t *stateHash = nullptr);
+
         size_t codeCacheUsed() const { return cache.usedBytes(); }
         size_t codeCacheCapacity() const { return cache.capacity(); }
         size_t blockCount() const { return blocks.size(); }
@@ -68,6 +75,8 @@ class DynarecR5900
         uint32_t *probeCode = nullptr;
 
         bool emitArmAluBlock(uint32_t opcode, uint32_t **entry, uint8_t *rd);
+        bool emitArmAluSequence(const uint32_t *opcodes, size_t count,
+            uint32_t guestPc, uint32_t **entry, uint32_t *hostWords);
 };
 
 #endif
