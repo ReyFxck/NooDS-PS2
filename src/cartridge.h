@@ -91,7 +91,7 @@ class Cartridge
         uint32_t romCacheLastMissTag = 0xFFFFFFFFu;
 
         void configureRomCache(uint32_t bytes);
-        void loadRomSection(uint32_t offset, uint32_t size);
+        void loadRomSection(uint32_t offset, uint32_t size, bool useCache = true);
 
     private:
         std::string romName, saveName;
