@@ -49,10 +49,15 @@ SOURCES := $(PS2_SOURCES) $(CORE_SOURCES)
 OBJECTS := $(patsubst src/%.cpp,$(BUILD)/%.o,$(SOURCES))
 
 DEBUG ?= 0
+PROFILE ?= 0
 
 COMMON_FLAGS := -D_EE -DNOODS_PS2 -G0 -Wall -Wextra -std=gnu++11 \
                 -fno-rtti \
                 -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include -I$(GSKIT)/include -Isrc
+
+ifeq ($(PROFILE),1)
+COMMON_FLAGS += -DNOODS_PROFILE
+endif
 
 ifeq ($(DEBUG),1)
 OPT_FLAGS := -Og -gdwarf-2 -DDEBUG
@@ -68,7 +73,7 @@ LDFLAGS  := -T$(PS2SDK)/ee/startup/linkfile -L$(PS2SDK)/ee/lib -L$(GSKIT)/lib -W
 # because all of these libraries are static in the PS2 toolchain.
 LIBS := -Wl,--start-group -lgskit -ldmakit -lpad -lstdc++ -latomic -ldebug -lm -lc -lcglue -lpthread -lpthreadglue -lkernel -Wl,--end-group
 
-.PHONY: all clean debug info
+.PHONY: all clean debug profile info
 
 all: $(TARGET)
 
@@ -82,6 +87,9 @@ $(BUILD)/%.o: src/%.cpp
 
 debug:
 	$(MAKE) -f Makefile.ps2 DEBUG=1 clean all
+
+profile:
+	$(MAKE) -f Makefile.ps2 PROFILE=1 DEBUG=0 clean all
 
 info:
 	@echo "PS2SDK=$(PS2SDK)"
