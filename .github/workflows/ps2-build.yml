@@ -14,7 +14,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Test cartridge cache and ROM I/O accounting
+      - name: Test portable core and dynarec helpers
         run: make -C tests test
 
   build-ps2:

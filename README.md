@@ -331,7 +331,7 @@ To compile for Android, the easiest way would be to use [Android Studio](https:/
 - [x] Blocos carregam `mapGeneration` para impedir uso de ponteiros diretos após remap de TCM/WRAM/VRAM.
 - [x] Probe R5900 é emitido, sincronizado e executado no bootstrap sem tocar no estado emulado.
 - [x] Definir ABI ARM-state ↔ backends: `CpuBackendAccess` expõe banco ativo, CPSR, próximo PC, pipeline e branch/refill sem duplicar troca de modos.
-- [x] Primeiro subconjunto ARM determinístico: MOV/ADD/SUB/AND/EOR/ORR, com operandos por registrador e imediatos, decodificados de opcodes ARM reais e emitidos para R5900.
+- [x] Subconjunto ARM determinístico: MOV/MVN/ADD/SUB/RSB/AND/EOR/ORR/BIC, imediatos rotacionados e barrel shifts imediatos LSL/LSR/ASR/ROR; RRX permanece em fallback por depender de CPSR.C.
 - [x] Gate de estado real: snapshot dos 16 registradores ativos + CPSR do ARM9 é validado contra o código R5900 gerado sem alterar o estado emulado.
 - [x] Blocos reais straight-line do ARM9 são compilados em uma única função R5900, indexados por PC/mapGeneration e validados em shadow state.
 - [x] Gate diferencial executa o mesmo bloco no interpreter original e no R5900 gerado, compara r0-r14/CPSR e restaura o estado antes do jogo continuar.

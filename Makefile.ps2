@@ -46,6 +46,7 @@ CORE_SOURCES := \
 
 PS2_SOURCES := \
 	src/ps2/main.cpp \
+	src/ps2/arm_alu.cpp \
 	src/ps2/r5900_code_cache.cpp \
 	src/ps2/dynarec_r5900.cpp
 

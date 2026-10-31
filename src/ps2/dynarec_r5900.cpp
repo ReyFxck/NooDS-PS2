@@ -1,5 +1,6 @@
 #include "../memory.h"
 #include "../cpu_backend.h"
+#include "arm_alu.h"
 #include "dynarec_r5900.h"
 #include "r5900_emitter.h"
 
@@ -105,91 +106,9 @@ struct ArmAluState
     uint32_t r[16];
 };
 
-struct ArmAluDecoded
-{
-    bool immediate;
-    uint8_t operation;
-    uint8_t rn;
-    uint8_t rd;
-    uint8_t rm;
-    uint32_t immediateValue;
-};
-
-bool decodeArmAlu(uint32_t opcode, ArmAluDecoded *decoded)
-{
-    if (!decoded ||
-        (opcode >> 28) != 0xEu ||
-        (opcode & 0x0C000000u) != 0 ||
-        (opcode & 0x00100000u) != 0)
-        return false;
-
-    decoded->immediate = (opcode & 0x02000000u) != 0;
-    if (!decoded->immediate && (opcode & 0x00000FF0u) != 0)
-        return false;
-
-    decoded->operation = static_cast<uint8_t>((opcode >> 21) & 0xF);
-    decoded->rn = static_cast<uint8_t>((opcode >> 16) & 0xF);
-    decoded->rd = static_cast<uint8_t>((opcode >> 12) & 0xF);
-    decoded->rm = static_cast<uint8_t>(opcode & 0xF);
-
-    if (decoded->rd == 15 ||
-        (!decoded->immediate && decoded->rm == 15) ||
-        (decoded->operation != 13 && decoded->rn == 15))
-        return false;
-
-    switch (decoded->operation)
-    {
-        case 0:  // AND
-        case 1:  // EOR
-        case 2:  // SUB
-        case 4:  // ADD
-        case 12: // ORR
-        case 13: // MOV
-            break;
-        default:
-            return false;
-    }
-
-    decoded->immediateValue = 0;
-    if (decoded->immediate)
-    {
-        uint32_t value = opcode & 0xFFu;
-        uint32_t rotate = ((opcode >> 8) & 0xFu) * 2u;
-        if (rotate)
-            value = (value >> rotate) | (value << (32u - rotate));
-        decoded->immediateValue = value;
-    }
-
-    return true;
-}
-
 bool applyArmAlu(uint32_t opcode, ArmAluState *state)
 {
-    if (!state)
-        return false;
-
-    ArmAluDecoded decoded = {};
-    if (!decodeArmAlu(opcode, &decoded))
-        return false;
-
-    uint32_t operand2 = decoded.immediate
-        ? decoded.immediateValue
-        : state->r[decoded.rm];
-    uint32_t result = 0;
-
-    switch (decoded.operation)
-    {
-        case 0:  result = state->r[decoded.rn] & operand2; break;
-        case 1:  result = state->r[decoded.rn] ^ operand2; break;
-        case 2:  result = state->r[decoded.rn] - operand2; break;
-        case 4:  result = state->r[decoded.rn] + operand2; break;
-        case 12: result = state->r[decoded.rn] | operand2; break;
-        case 13: result = operand2; break;
-        default: return false;
-    }
-
-    state->r[decoded.rd] = result;
-    return true;
+    return state && Ps2ArmAlu::execute(opcode, state->r);
 }
 
 size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code)
@@ -197,12 +116,12 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code)
     if (!code)
         return 0;
 
-    ArmAluDecoded decoded = {};
-    if (!decodeArmAlu(opcode, &decoded))
+    Ps2ArmAlu::Decoded decoded;
+    if (!Ps2ArmAlu::decode(opcode, &decoded))
         return 0;
 
     size_t words = 0;
-    if (decoded.operation != 13)
+    if (decoded.operation != 13 && decoded.operation != 15)
         code[words++] = R5900::lw(R5900::R_T0,
             static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
 
@@ -217,6 +136,37 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code)
     {
         code[words++] = R5900::lw(R5900::R_T1,
             static_cast<int16_t>(decoded.rm * 4), R5900::R_A0);
+
+        switch (decoded.shiftType)
+        {
+            case 0:
+                if (decoded.shiftAmount)
+                    code[words++] = R5900::sll(R5900::R_T1, R5900::R_T1,
+                        decoded.shiftAmount);
+                break;
+            case 1:
+                if (decoded.shiftAmount)
+                    code[words++] = R5900::srl(R5900::R_T1, R5900::R_T1,
+                        decoded.shiftAmount);
+                else
+                    code[words++] = R5900::or_(R5900::R_T1,
+                        R5900::R_ZERO, R5900::R_ZERO);
+                break;
+            case 2:
+                code[words++] = R5900::sra(R5900::R_T1, R5900::R_T1,
+                    decoded.shiftAmount ? decoded.shiftAmount : 31);
+                break;
+            case 3:
+                code[words++] = R5900::srl(R5900::R_T2, R5900::R_T1,
+                    decoded.shiftAmount);
+                code[words++] = R5900::sll(R5900::R_T3, R5900::R_T1,
+                    32u - decoded.shiftAmount);
+                code[words++] = R5900::or_(R5900::R_T1,
+                    R5900::R_T2, R5900::R_T3);
+                break;
+            default:
+                return 0;
+        }
     }
 
     switch (decoded.operation)
@@ -224,9 +174,15 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code)
         case 0:  code[words++] = R5900::and_(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
         case 1:  code[words++] = R5900::xor_(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
         case 2:  code[words++] = R5900::subu(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
+        case 3:  code[words++] = R5900::subu(R5900::R_T2, R5900::R_T1, R5900::R_T0); break;
         case 4:  code[words++] = R5900::addu(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
         case 12: code[words++] = R5900::or_(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
         case 13: code[words++] = R5900::or_(R5900::R_T2, R5900::R_T1, R5900::R_ZERO); break;
+        case 14:
+            code[words++] = R5900::nor_(R5900::R_T1, R5900::R_T1, R5900::R_ZERO);
+            code[words++] = R5900::and_(R5900::R_T2, R5900::R_T0, R5900::R_T1);
+            break;
+        case 15: code[words++] = R5900::nor_(R5900::R_T2, R5900::R_T1, R5900::R_ZERO); break;
         default: return 0;
     }
 
@@ -241,75 +197,17 @@ bool DynarecR5900::emitArmAluBlock(uint32_t opcode, uint32_t **entry, uint8_t *r
     if (!entry || !rdOut)
         return false;
 
-    // First correctness subset:
-    // - ARM state, AL condition
-    // - data-processing register operand with LSL #0, or immediate operand
-    // - no flag writes
-    // - no PC source/destination
-    if ((opcode >> 28) != 0xEu ||
-        (opcode & 0x0C000000u) != 0 ||
-        (opcode & 0x00100000u) != 0)
+    Ps2ArmAlu::Decoded decoded;
+    if (!Ps2ArmAlu::decode(opcode, &decoded))
         return false;
 
-    bool immediate = (opcode & 0x02000000u) != 0;
-    if (!immediate && (opcode & 0x00000FF0u) != 0)
-        return false;
-
-    uint8_t operation = static_cast<uint8_t>((opcode >> 21) & 0xF);
-    uint8_t rn = static_cast<uint8_t>((opcode >> 16) & 0xF);
-    uint8_t rd = static_cast<uint8_t>((opcode >> 12) & 0xF);
-    uint8_t rm = static_cast<uint8_t>(opcode & 0xF);
-
-    if (rd == 15 || (!immediate && rm == 15) || (operation != 13 && rn == 15))
-        return false;
-
-    switch (operation)
-    {
-        case 0:  // AND
-        case 1:  // EOR
-        case 2:  // SUB
-        case 4:  // ADD
-        case 12: // ORR
-        case 13: // MOV
-            break;
-        default:
-            return false;
-    }
-
-    uint32_t *code = cache.reserveWords(8);
+    uint32_t *code = cache.reserveWords(12);
     if (!code)
         return false;
 
-    size_t words = 0;
-    if (operation != 13)
-        code[words++] = R5900::lw(R5900::R_T0, static_cast<int16_t>(rn * 4), R5900::R_A0);
-
-    if (immediate)
-    {
-        uint32_t value = opcode & 0xFFu;
-        uint32_t rotate = ((opcode >> 8) & 0xFu) * 2u;
-        if (rotate)
-            value = (value >> rotate) | (value << (32u - rotate));
-
-        code[words++] = R5900::lui(R5900::R_T1, static_cast<uint16_t>(value >> 16));
-        code[words++] = R5900::ori(R5900::R_T1, R5900::R_T1, static_cast<uint16_t>(value));
-    }
-    else
-    {
-        code[words++] = R5900::lw(R5900::R_T1, static_cast<int16_t>(rm * 4), R5900::R_A0);
-    }
-
-    switch (operation)
-    {
-        case 0:  code[words++] = R5900::and_(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
-        case 1:  code[words++] = R5900::xor_(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
-        case 2:  code[words++] = R5900::subu(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
-        case 4:  code[words++] = R5900::addu(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
-        case 12: code[words++] = R5900::or_(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
-        case 13: code[words++] = R5900::or_(R5900::R_T2, R5900::R_T1, R5900::R_ZERO); break;
-    }
-
-    code[words++] = R5900::sw(R5900::R_T2, static_cast<int16_t>(rd * 4), R5900::R_A0);
+    size_t words = emitArmAluInstruction(opcode, code);
+    if (!words)
+        return false;
     code[words++] = R5900::jr(R5900::R_RA);
     code[words++] = R5900::nop();
 
@@ -317,7 +215,7 @@ bool DynarecR5900::emitArmAluBlock(uint32_t opcode, uint32_t **entry, uint8_t *r
     cache.syncExecutable(code, code + words);
 
     *entry = code;
-    *rdOut = rd;
+    *rdOut = decoded.rd;
     return true;
 }
 
@@ -327,9 +225,9 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     if (!opcodes || !count || !entry || !hostWords)
         return false;
 
-    // Five host instructions per guest opcode is the current worst case
-    // (Rn load + immediate materialization + ALU + Rd store), plus return.
-    const size_t maxWords = count * 5 + 2;
+    // Eight host instructions per guest opcode is the current worst case
+    // (Rn/Rm loads + ROR + BIC's NOR/AND + Rd store), plus return.
+    const size_t maxWords = count * 8 + 2;
     uint32_t *code = cache.reserveWords(maxWords);
     if (!code)
         return false;
@@ -361,11 +259,11 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
 
     for (size_t i = 0; i < count; i++)
     {
-        ArmAluDecoded decoded = {};
-        if (!decodeArmAlu(opcodes[i], &decoded))
+        Ps2ArmAlu::Decoded decoded;
+        if (!Ps2ArmAlu::decode(opcodes[i], &decoded))
             return false;
 
-        if (decoded.operation != 13)
+        if (decoded.operation != 13 && decoded.operation != 15)
             block.readMask |= static_cast<uint16_t>(1u << decoded.rn);
         if (!decoded.immediate)
             block.readMask |= static_cast<uint16_t>(1u << decoded.rm);
@@ -389,6 +287,8 @@ bool DynarecR5900::runArmAluSelfTest()
 
     const Test tests[] =
     {
+        { 0xE1A0424Bu,  4, 0xFF234567u }, // MOV r4,r11,ASR #4
+        { 0xE1A0704Bu,  7, 0xFFFFFFFFu }, // MOV r7,r11,ASR #32
         { 0xE1A02001u,  2, 0x01020304u }, // MOV r2,r1
         { 0xE0803001u,  3, 0x1336597Cu }, // ADD r3,r0,r1
         { 0xE0404001u,  4, 0x11325374u }, // SUB r4,r0,r1
@@ -400,12 +300,20 @@ bool DynarecR5900::runArmAluSelfTest()
         { 0xE240A034u, 10, 0x12345644u }, // SUB r10,r0,#0x34
         { 0xE200B0FFu, 11, 0x00000078u }, // AND r11,r0,#0xFF
         { 0xE220C001u, 12, 0x12345679u }, // EOR r12,r0,#1
-        { 0xE380D080u, 13, 0x123456F8u }  // ORR r13,r0,#0x80
+        { 0xE380D080u, 13, 0x123456F8u }, // ORR r13,r0,#0x80
+        { 0xE060E001u, 14, 0xEECDAC8Cu }, // RSB r14,r0,r1
+        { 0xE1C0E001u, 14, 0x12345478u }, // BIC r14,r0,r1
+        { 0xE1E0E001u, 14, 0xFEFDFCFBu }, // MVN r14,r1
+        { 0xE1A02181u,  2, 0x08101820u }, // MOV r2,r1,LSL #3
+        { 0xE1A03220u,  3, 0x01234567u }, // MOV r3,r0,LSR #4
+        { 0xE1A05460u,  5, 0x78123456u }, // MOV r5,r0,ROR #8
+        { 0xE1A06020u,  6, 0x00000000u }  // MOV r6,r0,LSR #32
     };
 
     ArmAluState state = {};
     state.r[0] = 0x12345678u;
     state.r[1] = 0x01020304u;
+    state.r[11] = 0xF2345678u;
 
     for (size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); i++)
     {
@@ -509,54 +417,17 @@ int DynarecR5900::runArm9PipelineSelfTest(const Interpreter &cpu,
 
     uint32_t pc = CpuBackendAccess::nextInstructionAddress(cpu);
     uint32_t opcode = CpuBackendAccess::pipelineOpcode(cpu, 0);
-    bool immediate = (opcode & 0x02000000u) != 0;
-
-    if ((opcode >> 28) != 0xEu ||
-        (opcode & 0x0C000000u) != 0 ||
-        (opcode & 0x00100000u) != 0 ||
-        (!immediate && (opcode & 0x00000FF0u) != 0))
+    Ps2ArmAlu::Decoded decoded;
+    if (!Ps2ArmAlu::decode(opcode, &decoded))
         return 0;
 
-    uint8_t operation = static_cast<uint8_t>((opcode >> 21) & 0xF);
-    uint8_t rn = static_cast<uint8_t>((opcode >> 16) & 0xF);
-    uint8_t rd = static_cast<uint8_t>((opcode >> 12) & 0xF);
-    uint8_t rm = static_cast<uint8_t>(opcode & 0xF);
-
-    if (rd == 15 || (!immediate && rm == 15) || (operation != 13 && rn == 15))
-        return 0;
-
-    if (operation != 0 && operation != 1 && operation != 2 &&
-        operation != 4 && operation != 12 && operation != 13)
-        return 0;
-
-    uint32_t operand2;
-    if (immediate)
-    {
-        operand2 = opcode & 0xFFu;
-        uint32_t rotate = ((opcode >> 8) & 0xFu) * 2u;
-        if (rotate)
-            operand2 = (operand2 >> rotate) | (operand2 << (32u - rotate));
-    }
-    else
-    {
-        operand2 = source.r[rm];
-    }
-
-    uint32_t expected;
-    switch (operation)
-    {
-        case 0:  expected = source.r[rn] & operand2; break;
-        case 1:  expected = source.r[rn] ^ operand2; break;
-        case 2:  expected = source.r[rn] - operand2; break;
-        case 4:  expected = source.r[rn] + operand2; break;
-        case 12: expected = source.r[rn] | operand2; break;
-        case 13: expected = operand2; break;
-        default: return 0;
-    }
+    ArmAluState expected = source;
+    if (!applyArmAlu(opcode, &expected))
+        return -1;
 
     uint32_t *entry = nullptr;
     uint8_t emittedRd = 0;
-    if (!emitArmAluBlock(opcode, &entry, &emittedRd) || emittedRd != rd)
+    if (!emitArmAluBlock(opcode, &entry, &emittedRd) || emittedRd != decoded.rd)
         return -1;
 
     ArmAluState state = source;
@@ -569,7 +440,7 @@ int DynarecR5900::runArm9PipelineSelfTest(const Interpreter &cpu,
     if (opcodeOut)
         *opcodeOut = opcode;
 
-    return state.r[rd] == expected ? 1 : -1;
+    return state.r[decoded.rd] == expected.r[decoded.rd] ? 1 : -1;
 }
 
 
@@ -600,8 +471,8 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
         else
             opcode = memory->read<uint32_t>(0, guestPc + static_cast<uint32_t>(i * 4));
 
-        ArmAluDecoded decoded = {};
-        if (!decodeArmAlu(opcode, &decoded))
+        Ps2ArmAlu::Decoded decoded;
+        if (!Ps2ArmAlu::decode(opcode, &decoded))
             break;
 
         opcodes[count++] = opcode;

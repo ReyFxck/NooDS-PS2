@@ -1,6 +1,6 @@
 CXX ?= g++
 
-TARGET := cartridge_io_test
+TARGETS := cartridge_io_test arm_alu_test
 
 CXXFLAGS := -O2 -Wall -Wextra -std=gnu++11 -fno-rtti \
 	-DNOODS_PS2 -DNOODS_PROFILE -ffunction-sections -fdata-sections -I../src
@@ -8,13 +8,17 @@ LDFLAGS := -Wl,--gc-sections
 
 .PHONY: all test clean
 
-all: $(TARGET)
+all: $(TARGETS)
 
-$(TARGET): cartridge_io_test.cpp ../src/cartridge.cpp
+cartridge_io_test: cartridge_io_test.cpp ../src/cartridge.cpp
 	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -o $@
 
-test: $(TARGET)
-	./$(TARGET)
+arm_alu_test: arm_alu_test.cpp ../src/ps2/arm_alu.cpp
+	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -o $@
+
+test: $(TARGETS)
+	./cartridge_io_test
+	./arm_alu_test
 
 clean:
-	rm -f $(TARGET) cartridge_io_test.nds cartridge_io_test.sav
+	rm -f $(TARGETS) cartridge_io_test.nds cartridge_io_test.sav

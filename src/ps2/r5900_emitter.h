@@ -38,8 +38,10 @@ namespace R5900
     constexpr uint32_t and_(int rd,int rs,int rt)    { return rType(rs, rt, rd, 0, 0x24); }
     constexpr uint32_t or_(int rd,int rs,int rt)     { return rType(rs, rt, rd, 0, 0x25); }
     constexpr uint32_t xor_(int rd,int rs,int rt)    { return rType(rs, rt, rd, 0, 0x26); }
+    constexpr uint32_t nor_(int rd,int rs,int rt)    { return rType(rs, rt, rd, 0, 0x27); }
     constexpr uint32_t sll(int rd,int rt,int sh)     { return rType(0, rt, rd, sh, 0x00); }
     constexpr uint32_t srl(int rd,int rt,int sh)     { return rType(0, rt, rd, sh, 0x02); }
+    constexpr uint32_t sra(int rd,int rt,int sh)     { return rType(0, rt, rd, sh, 0x03); }
 
     constexpr uint32_t addiu(int rt,int rs,int16_t i){ return iType(0x09, rs, rt, uint16_t(i)); }
     constexpr uint32_t andi(int rt,int rs,uint16_t i){ return iType(0x0C, rs, rt, i); }
@@ -60,6 +62,8 @@ namespace R5900
     static_assert(jr(R_RA) == 0x03E00008u, "R5900 JR encoding");
     static_assert(lw(R_T0, 4, R_A0) == 0x8C880004u, "R5900 LW encoding");
     static_assert(sw(R_T0, 4, R_A0) == 0xAC880004u, "R5900 SW encoding");
+    static_assert(nor_(R_T2, R_T1, R_ZERO) == 0x01205027u, "R5900 NOR encoding");
+    static_assert(sra(R_T2, R_T1, 4) == 0x00095103u, "R5900 SRA encoding");
 }
 
 #endif
