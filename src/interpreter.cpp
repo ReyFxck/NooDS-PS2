@@ -96,6 +96,66 @@ int Interpreter::runOpcode()
 {
     // Push the next opcode through the pipeline
     uint32_t opcode = pipeline[0];
+
+    if (profileEnabled)
+    {
+        bool thumb = (cpsr & BIT(5)) != 0;
+        uint32_t pc = *registers[15] - (thumb ? 2u : 4u);
+
+        profile.instructions++;
+
+        if (thumb)
+        {
+            profile.thumbInstructions++;
+            uint32_t group = (opcode >> 12) & 0xF;
+            if (group <= 0x4)
+                profile.thumbClass[0]++;
+            else if (group <= 0x9)
+                profile.thumbClass[1]++;
+            else if (group <= 0xB)
+                profile.thumbClass[2]++;
+            else if (group == 0xC)
+                profile.thumbClass[3]++;
+            else
+                profile.thumbClass[4]++;
+        }
+        else
+        {
+            profile.armInstructions++;
+            uint32_t group = (opcode >> 25) & 0x7;
+            if (group <= 0x1)
+                profile.armClass[0]++;
+            else if (group <= 0x3)
+                profile.armClass[1]++;
+            else if (group == 0x4)
+                profile.armClass[2]++;
+            else if (group == 0x5)
+                profile.armClass[3]++;
+            else
+                profile.armClass[4]++;
+        }
+
+        if ((profile.instructions & 63u) == 0)
+        {
+            uint32_t index = ((pc >> 1) ^ (pc >> 9) ^ (pc >> 17)) & 0xFF;
+            InterpreterHotPc &entry = profile.hotPc[index];
+
+            if (entry.pc == pc)
+            {
+                entry.samples++;
+            }
+            else if (entry.samples)
+            {
+                entry.samples--;
+            }
+            else
+            {
+                entry.pc = pc;
+                entry.samples = 1;
+            }
+        }
+    }
+
     pipeline[0] = pipeline[1];
 
     // Execute an instruction
