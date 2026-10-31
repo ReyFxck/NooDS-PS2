@@ -89,11 +89,39 @@ void Spi::writeSpiData(uint8_t value)
         command = value;
         address = 0;
         spiData = 0;
+
+        // Firmware flash single-byte commands.
+        if (((spiCnt & 0x0300) >> 8) == 1)
+        {
+            if (command == 0x06) firmwareStatus |= BIT(1);
+            if (command == 0x04) firmwareStatus &= ~BIT(1);
+        }
     }
     else
     {
         switch ((spiCnt & 0x0300) >> 8) // Device
         {
+            case 0: // Power management
+            {
+                uint8_t index = command & 0x7F;
+                if (index >= 5) { spiData = 0; break; }
+                if (command & BIT(7))
+                    spiData = powerRegs[index];
+                else
+                {
+                    switch (index)
+                    {
+                        case 0: powerRegs[0] = value & 0x7F; break;
+                        case 1: break;
+                        case 2: powerRegs[2] = value & 0x01; break;
+                        case 3: powerRegs[3] = value & 0x03; break;
+                        case 4: powerRegs[4] = value & 0x07; break;
+                    }
+                    spiData = 0;
+                }
+                break;
+            }
+
             case 1: // Firmware
             {
                 switch (command)
@@ -117,9 +145,31 @@ void Spi::writeSpiData(uint8_t value)
                         break;
                     }
 
+                    case 0x05: // RDSR - Read Status Register
+                        spiData = firmwareStatus & 0x03;
+                        break;
+
+                    case 0x04: // WRDI
+                    case 0x06: // WREN
+                        spiData = 0;
+                        break;
+
                     default:
                     {
+#ifdef NOODS_PS2
+#ifdef DEBUG
+                        static unsigned int unknownFirmwareLogs = 0;
+                        if (unknownFirmwareLogs < 16)
+                            LOG("Write to SPI with unknown firmware command: 0x%X\n", command);
+                        else if (unknownFirmwareLogs == 16)
+                            LOG("Unknown firmware SPI commands: further messages suppressed on PS2 debug build.\n");
+                        unknownFirmwareLogs++;
+#else
                         LOG("Write to SPI with unknown firmware command: 0x%X\n", command);
+#endif
+#else
+                        LOG("Write to SPI with unknown firmware command: 0x%X\n", command);
+#endif
                         spiData = 0;
                         break;
                     }
@@ -144,6 +194,15 @@ void Spi::writeSpiData(uint8_t value)
                         spiData = ((touchX << 11) & 0xFF00) | ((touchX >> 5) & 0x00FF) >> ((writeCount - 1) % 2);
                         break;
                     }
+
+                    case 0: // Temperature 0
+                    case 2: // Auxiliary ADC
+                    case 3: // Z1
+                    case 4: // Z2
+                    case 6: // AUX / microphone
+                    case 7: // Temperature 1
+                        spiData = 0;
+                        break;
 
                     default:
                     {

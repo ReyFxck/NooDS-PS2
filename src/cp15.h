@@ -47,6 +47,11 @@ class Cp15
         uint32_t ctrlReg = 0x00000078;
         uint32_t dtcmReg = 0x00000000;
         uint32_t itcmReg = 0x00000000;
+        uint32_t cacheDataReg = 0;
+        uint32_t cacheInstReg = 0;
+        uint32_t writeBufferReg = 0;
+        uint32_t accessPerm[4] = {};
+        uint32_t puRegion[8] = {};
 
         uint32_t exceptionAddr = 0;
         bool dtcmReadEnabled = false, dtcmWriteEnabled = false;

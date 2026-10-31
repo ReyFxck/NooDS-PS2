@@ -50,6 +50,9 @@ class Spi
         uint32_t address = 0;
         uint8_t command = 0;
 
+        uint8_t firmwareStatus = 0; // bit0=WIP, bit1=WEL
+        uint8_t powerRegs[5] = {};
+
         uint16_t touchX = 0x000, touchY = 0xFFF;
         uint16_t spiCnt = 0;
         uint8_t spiData = 0;

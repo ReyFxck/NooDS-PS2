@@ -22,6 +22,13 @@
 
 uint32_t Cp15::read(int cn, int cm, int cp)
 {
+    // Read MPU/cache configuration latches.
+    if (cn == 2 && cm == 0 && cp == 0) return cacheDataReg;
+    if (cn == 2 && cm == 0 && cp == 1) return cacheInstReg;
+    if (cn == 3 && cm == 0 && cp == 0) return writeBufferReg;
+    if (cn == 5 && cm == 0 && cp >= 0 && cp < 4) return accessPerm[cp];
+    if (cn == 6 && cm >= 0 && cm < 8 && (cp == 0 || cp == 1)) return puRegion[cm];
+
     // Read a value from a CP15 register
     switch ((cn << 16) | (cm << 8) | (cp << 0))
     {
@@ -41,6 +48,17 @@ uint32_t Cp15::read(int cn, int cm, int cp)
 
 void Cp15::write(int cn, int cm, int cp, uint32_t value)
 {
+    if (cn == 2 && cm == 0 && cp == 0) { cacheDataReg = value & 0xFF; return; }
+    if (cn == 2 && cm == 0 && cp == 1) { cacheInstReg = value & 0xFF; return; }
+    if (cn == 3 && cm == 0 && cp == 0) { writeBufferReg = value & 0xFF; return; }
+    if (cn == 5 && cm == 0 && cp >= 0 && cp < 4) { accessPerm[cp] = value; return; }
+    if (cn == 6 && cm >= 0 && cm < 8 && (cp == 0 || cp == 1)) { puRegion[cm] = value; return; }
+
+    // Cache maintenance operations have no stateful effect in this
+    // cacheless interpreter. WFI remains handled below.
+    if (cn == 7 && !((cm == 0 && cp == 4) || (cm == 8 && cp == 2)))
+        return;
+
     // Write a value to a CP15 register
     switch ((cn << 16) | (cm << 8) | (cp << 0))
     {
