@@ -29,7 +29,7 @@ class Rtc
     public:
         Rtc(Core *core): core(core) {}
 
-        uint8_t readRtc() { return rtc; }
+        uint8_t readRtc();
 
         void writeRtc(uint8_t value);
 
