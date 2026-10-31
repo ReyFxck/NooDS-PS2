@@ -390,7 +390,6 @@ int main(int argc, char **argv)
             if (padReady)
                 pollPadIntoNds(core);
             core->runFrame();
-            benchFrames++;
 
             if (!core->gpu.getFrame(frame, false))
             {
@@ -556,6 +555,7 @@ int main(int argc, char **argv)
             if (padReady)
                 pollPadIntoNds(core);
             core->runFrame();
+            benchFrames++;
 
             if (!core->gpu.getFrame(frame, false))
             {
