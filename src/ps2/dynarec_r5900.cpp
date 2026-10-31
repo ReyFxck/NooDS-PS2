@@ -358,6 +358,19 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     block.thumb = false;
     block.hostCode = code;
     block.hostWords = static_cast<uint32_t>(words);
+
+    for (size_t i = 0; i < count; i++)
+    {
+        ArmAluDecoded decoded = {};
+        if (!decodeArmAlu(opcodes[i], &decoded))
+            return false;
+
+        if (decoded.operation != 13)
+            block.readMask |= static_cast<uint16_t>(1u << decoded.rn);
+        if (!decoded.immediate)
+            block.readMask |= static_cast<uint16_t>(1u << decoded.rm);
+        block.writeMask |= static_cast<uint16_t>(1u << decoded.rd);
+    }
     blocks.push_back(block);
 
     *entry = code;
