@@ -21,6 +21,7 @@ void DynarecR5900::shutdown()
     blocks.clear();
     cache.shutdown();
     mappedGeneration = 0;
+    probeCode = nullptr;
 }
 
 void DynarecR5900::reset()
@@ -28,6 +29,7 @@ void DynarecR5900::reset()
     blocks.clear();
     cache.reset();
     mappedGeneration = memory ? memory->getMapGeneration() : 0;
+    probeCode = nullptr;
 }
 
 bool DynarecR5900::synchronizeMemoryMap()
@@ -67,6 +69,7 @@ bool DynarecR5900::emitProbe()
     if (!code)
         return false;
 
+    probeCode = code;
     code[0] = R5900::lui(R5900::R_V0, 0);
     code[1] = R5900::ori(R5900::R_V0, R5900::R_V0, 0x4E44);
     code[2] = R5900::jr(R5900::R_RA);
@@ -75,4 +78,20 @@ bool DynarecR5900::emitProbe()
     cache.commitWords(4);
     cache.syncExecutable(code, code + 4);
     return true;
+}
+
+
+bool DynarecR5900::runProbe(uint32_t *value) const
+{
+    if (!probeCode)
+        return false;
+
+    typedef uint32_t (*ProbeFunction)();
+    ProbeFunction function = reinterpret_cast<ProbeFunction>(probeCode);
+    uint32_t result = function();
+
+    if (value)
+        *value = result;
+
+    return result == 0x4E44u;
 }
