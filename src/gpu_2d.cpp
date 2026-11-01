@@ -945,8 +945,8 @@ void Gpu2D::drawExtended(int bg, int line)
             // Handle display area overflow
             if (wrap)
             {
-                rotscaleX %= size; if (rotscaleX < 0) rotscaleX += size;
-                rotscaleY %= size; if (rotscaleY < 0) rotscaleY += size;
+                rotscaleX = gpu2dWrapPowerOfTwo(rotscaleX, size);
+                rotscaleY = gpu2dWrapPowerOfTwo(rotscaleY, size);
                 GPU2D_EXT_COUNT(wrapped, 1);
             }
             else if (rotscaleX < 0 || rotscaleX >= size || rotscaleY < 0 || rotscaleY >= size) // Transparent
@@ -956,7 +956,8 @@ void Gpu2D::drawExtended(int bg, int line)
             }
 
             // Get the current tile
-            uint32_t tileAddr = tileBase + ((rotscaleY / 8) * (size / 8) + (rotscaleX / 8)) * 2;
+            uint32_t tileAddr = tileBase +
+                gpu2dExtendedTileOffset(rotscaleX, rotscaleY, size);
             GPU2D_EXT_COUNT(vramReads, 1);
             uint16_t tile = core->memory.read<uint16_t>(gba, tileAddr);
 
@@ -978,9 +979,8 @@ void Gpu2D::drawExtended(int bg, int line)
             }
 
             // Get the palette index for the current pixel of the tile, flipped vertically or horizontally if enabled
-            uint32_t indexAddr = indexBase + (tile & 0x03FF) * 64;
-            indexAddr += ((tile & BIT(11)) ? (7 - rotscaleY % 8) : (rotscaleY % 8)) * 8;
-            indexAddr += ((tile & BIT(10)) ? (7 - rotscaleX % 8) : (rotscaleX % 8));
+            uint32_t indexAddr = indexBase +
+                gpu2dExtendedPixelOffset(tile, rotscaleX, rotscaleY);
             GPU2D_EXT_COUNT(vramReads, 1);
             uint8_t index = core->memory.read<uint8_t>(gba, indexAddr);
 
