@@ -1,6 +1,6 @@
 CXX ?= g++
 
-TARGETS := cartridge_io_test arm_alu_test scheduler_queue_test
+TARGETS := cartridge_io_test arm_alu_test scheduler_queue_test gpu_2d_math_test
 
 CXXFLAGS := -O2 -Wall -Wextra -std=gnu++11 -fno-rtti \
 	-DNOODS_PS2 -DNOODS_PROFILE -ffunction-sections -fdata-sections -I../src
@@ -19,10 +19,14 @@ arm_alu_test: arm_alu_test.cpp ../src/ps2/arm_alu.cpp
 scheduler_queue_test: scheduler_queue_test.cpp
 	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -o $@
 
+gpu_2d_math_test: gpu_2d_math_test.cpp
+	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -o $@
+
 test: $(TARGETS)
 	./cartridge_io_test
 	./arm_alu_test
 	./scheduler_queue_test
+	./gpu_2d_math_test
 
 clean:
 	rm -f $(TARGETS) cartridge_io_test.nds cartridge_io_test.sav

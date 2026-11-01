@@ -42,12 +42,42 @@ enum Gpu2DProfilePhase : uint8_t
     GPU2D_PROFILE_PHASE_COUNT
 };
 
+#if NOODS_PROFILE_LEVEL >= 2
+enum Gpu2DExtendedMode : uint8_t
+{
+    GPU2D_EXTENDED_DIRECT = 0,
+    GPU2D_EXTENDED_INDEXED,
+    GPU2D_EXTENDED_TILED,
+    GPU2D_EXTENDED_MODE_COUNT
+};
+
+struct Gpu2DExtendedCounters
+{
+    uint64_t pixels = 0;
+    uint64_t wrapped = 0;
+    uint64_t rejected = 0;
+    uint64_t vramReads = 0;
+    uint64_t paletteReads = 0;
+    uint64_t transparent = 0;
+    uint64_t writes = 0;
+};
+#endif
+
 struct Gpu2DRunProfile
 {
     uint64_t phaseCount[GPU2D_PROFILE_PHASE_COUNT] = {};
     uint64_t phaseTicks[GPU2D_PROFILE_PHASE_COUNT] = {};
     uint64_t phaseSamples[GPU2D_PROFILE_PHASE_COUNT] = {};
     uint32_t phaseSampleState[GPU2D_PROFILE_PHASE_COUNT] = {};
+#if NOODS_PROFILE_LEVEL >= 2
+    uint64_t extendedModeCount[GPU2D_EXTENDED_MODE_COUNT] = {};
+    uint64_t extendedModeTicks[GPU2D_EXTENDED_MODE_COUNT] = {};
+    uint64_t extendedSetupTicks[GPU2D_EXTENDED_MODE_COUNT] = {};
+    uint64_t extendedBodyTicks[GPU2D_EXTENDED_MODE_COUNT] = {};
+    uint64_t extendedModeSamples[GPU2D_EXTENDED_MODE_COUNT] = {};
+    uint32_t extendedModeSampleState[GPU2D_EXTENDED_MODE_COUNT] = {};
+    Gpu2DExtendedCounters extendedCounters[GPU2D_EXTENDED_MODE_COUNT] = {};
+#endif
 };
 #endif
 
@@ -140,6 +170,12 @@ class Gpu2D
 
         bool beginProfilePhase(Gpu2DProfilePhase phase, clock_t &start);
         void endProfilePhase(Gpu2DProfilePhase phase, clock_t start, bool sampled);
+#if NOODS_PROFILE_LEVEL >= 2
+        bool beginExtendedProfile(Gpu2DExtendedMode mode, clock_t &start);
+        void endExtendedProfile(Gpu2DExtendedMode mode, clock_t start,
+            clock_t setupEnd, bool sampled,
+            const Gpu2DExtendedCounters &counters);
+#endif
 
         class ProfileScope
         {

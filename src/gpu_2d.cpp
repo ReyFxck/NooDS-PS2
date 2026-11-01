@@ -20,6 +20,7 @@
 #include <cstring>
 
 #include "gpu_2d.h"
+#include "gpu_2d_math.h"
 #include "core.h"
 
 Gpu2D::Gpu2D(Core *core, bool engine): core(core), engine(engine)
@@ -66,6 +67,49 @@ void Gpu2D::endProfilePhase(Gpu2DProfilePhase phase, clock_t start, bool sampled
     runProfile.phaseTicks[phase] += static_cast<uint64_t>(clock() - start);
     runProfile.phaseSamples[phase]++;
 }
+
+#if NOODS_PROFILE_LEVEL >= 2
+bool Gpu2D::beginExtendedProfile(Gpu2DExtendedMode mode, clock_t &start)
+{
+    if (!profileEnabled)
+        return false;
+
+    runProfile.phaseCount[GPU2D_PROFILE_EXTENDED]++;
+    runProfile.extendedModeCount[mode]++;
+    bool sampled = profileSample64(runProfile.extendedModeSampleState[mode],
+        mode + (engine ? 0x500u : 0x400u));
+    if (sampled)
+        start = clock();
+    return sampled;
+}
+
+void Gpu2D::endExtendedProfile(Gpu2DExtendedMode mode, clock_t start,
+    clock_t setupEnd, bool sampled, const Gpu2DExtendedCounters &counters)
+{
+    if (!sampled)
+        return;
+
+    clock_t end = clock();
+    uint64_t totalTicks = static_cast<uint64_t>(end - start);
+    runProfile.phaseTicks[GPU2D_PROFILE_EXTENDED] += totalTicks;
+    runProfile.phaseSamples[GPU2D_PROFILE_EXTENDED]++;
+    runProfile.extendedModeTicks[mode] += totalTicks;
+    runProfile.extendedSetupTicks[mode] +=
+        static_cast<uint64_t>(setupEnd - start);
+    runProfile.extendedBodyTicks[mode] +=
+        static_cast<uint64_t>(end - setupEnd);
+    runProfile.extendedModeSamples[mode]++;
+
+    Gpu2DExtendedCounters &total = runProfile.extendedCounters[mode];
+    total.pixels += counters.pixels;
+    total.wrapped += counters.wrapped;
+    total.rejected += counters.rejected;
+    total.vramReads += counters.vramReads;
+    total.paletteReads += counters.paletteReads;
+    total.transparent += counters.transparent;
+    total.writes += counters.writes;
+}
+#endif
 #endif
 
 uint32_t Gpu2D::rgb5ToRgb6(uint32_t color)
@@ -715,20 +759,41 @@ void Gpu2D::drawAffine(int bg, int line)
 
 void Gpu2D::drawExtended(int bg, int line)
 {
-#ifdef NOODS_PROFILE
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL < 2
     ProfileScope profile(this, GPU2D_PROFILE_EXTENDED);
 #endif
 
-    if (core->isGbaMode() || (bgCnt[bg] & BIT(7))) // Bitmap
+    const bool gba = core->isGbaMode();
+    const uint16_t control = bgCnt[bg];
+    const bool bitmap = gba || (control & BIT(7));
+    const bool directColor = bitmap &&
+        ((gba && (dispCnt & 0x0007) != 4) || (!gba && (control & BIT(2))));
+    const int affine = bg - 2;
+
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+    Gpu2DExtendedMode extendedMode = bitmap
+        ? (directColor ? GPU2D_EXTENDED_DIRECT : GPU2D_EXTENDED_INDEXED)
+        : GPU2D_EXTENDED_TILED;
+    clock_t extendedStart = 0;
+    clock_t extendedSetupEnd = 0;
+    Gpu2DExtendedCounters extendedCounters;
+    bool extendedSampled = beginExtendedProfile(extendedMode, extendedStart);
+#define GPU2D_EXT_COUNT(field, amount) \
+    do { if (extendedSampled) extendedCounters.field += (amount); } while (0)
+#else
+#define GPU2D_EXT_COUNT(field, amount) do {} while (0)
+#endif
+
+    if (bitmap)
     {
         uint32_t dataBase = bgVramAddr;
         int sizeX, sizeY;
 
         // Get information about the bitmap data
-        if (core->isGbaMode())
+        if (gba)
         {
             // Get the base data address
-            dataBase += ((bgCnt[bg] & 0x1F00) >> 8) * 0x0800;
+            dataBase += ((control & 0x1F00) >> 8) * 0x0800;
 
             // Modes 4 and 5 have two bitmaps; one can be drawn while the other is displayed
             // Draw the second bitmap if enabled
@@ -745,10 +810,10 @@ void Gpu2D::drawExtended(int bg, int line)
         else
         {
             // Get the base data address
-            dataBase += ((bgCnt[bg] & 0x1F00) >> 8) * 0x4000;
+            dataBase += ((control & 0x1F00) >> 8) * 0x4000;
 
             // Get the bitmap size
-            switch ((bgCnt[bg] & 0xC000) >> 14)
+            switch ((control & 0xC000) >> 14)
             {
                 case 0: sizeX = 128; sizeY = 128; break;
                 case 1: sizeX = 256; sizeY = 256; break;
@@ -757,30 +822,53 @@ void Gpu2D::drawExtended(int bg, int line)
             }
         }
 
-        if ((core->isGbaMode() && (dispCnt & 0x0007) != 4) || (!core->isGbaMode() && (bgCnt[bg] & BIT(2)))) // Direct color bitmap
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+        if (extendedSampled)
+            extendedSetupEnd = clock();
+#endif
+
+        const bool wrap = (control & BIT(13)) != 0;
+        Gpu2DAffineLineStepper coordinates(internalX[affine], internalY[affine],
+            bgPA[affine], bgPC[affine]);
+
+        if (directColor)
         {
             // Draw a line
             for (int i = 0; i < 256; i++)
             {
                 // Calculate the rotscaled coordinates relative to the background
-                int rotscaleX = (internalX[bg - 2] + bgPA[bg - 2] * i) >> 8;
-                int rotscaleY = (internalY[bg - 2] + bgPC[bg - 2] * i) >> 8;
+                int rotscaleX = coordinates.x();
+                int rotscaleY = coordinates.y();
+                coordinates.advance();
+                GPU2D_EXT_COUNT(pixels, 1);
 
                 // Handle display area overflow
-                if (bgCnt[bg] & BIT(13)) // Wraparound
+                if (wrap)
                 {
                     rotscaleX %= sizeX; if (rotscaleX < 0) rotscaleX += sizeX;
                     rotscaleY %= sizeY; if (rotscaleY < 0) rotscaleY += sizeY;
+                    GPU2D_EXT_COUNT(wrapped, 1);
                 }
                 else if (rotscaleX < 0 || rotscaleX >= sizeX || rotscaleY < 0 || rotscaleY >= sizeY) // Transparent
                 {
+                    GPU2D_EXT_COUNT(rejected, 1);
                     continue;
                 }
 
                 // Draw a pixel, ignoring transparency in GBA mode
-                uint16_t pixel = (core->isGbaMode() << 15) | core->memory.read<uint16_t>(core->isGbaMode(), dataBase + (rotscaleY * sizeX + rotscaleX) * 2);
+                GPU2D_EXT_COUNT(vramReads, 1);
+                uint16_t pixel = (static_cast<uint16_t>(gba) << 15) |
+                    core->memory.read<uint16_t>(gba,
+                        dataBase + (rotscaleY * sizeX + rotscaleX) * 2);
                 if (pixel & BIT(15))
+                {
+                    GPU2D_EXT_COUNT(writes, 1);
                     drawBgPixel(bg, line, i, pixel);
+                }
+                else
+                {
+                    GPU2D_EXT_COUNT(transparent, 1);
+                }
             }
         }
         else // 256 color bitmap
@@ -789,66 +877,99 @@ void Gpu2D::drawExtended(int bg, int line)
             for (int i = 0; i < 256; i++)
             {
                 // Calculate the rotscaled coordinates relative to the background
-                int rotscaleX = (internalX[bg - 2] + bgPA[bg - 2] * i) >> 8;
-                int rotscaleY = (internalY[bg - 2] + bgPC[bg - 2] * i) >> 8;
+                int rotscaleX = coordinates.x();
+                int rotscaleY = coordinates.y();
+                coordinates.advance();
+                GPU2D_EXT_COUNT(pixels, 1);
 
                 // Handle display area overflow
-                if (bgCnt[bg] & BIT(13)) // Wraparound
+                if (wrap)
                 {
                     rotscaleX %= sizeX; if (rotscaleX < 0) rotscaleX += sizeX;
                     rotscaleY %= sizeY; if (rotscaleY < 0) rotscaleY += sizeY;
+                    GPU2D_EXT_COUNT(wrapped, 1);
                 }
                 else if (rotscaleX < 0 || rotscaleX >= sizeX || rotscaleY < 0 || rotscaleY >= sizeY) // Transparent
                 {
+                    GPU2D_EXT_COUNT(rejected, 1);
                     continue;
                 }
 
                 // Get the palette index for the current pixel
-                uint8_t index = core->memory.read<uint8_t>(core->isGbaMode(), dataBase + rotscaleY * sizeX + rotscaleX);
+                GPU2D_EXT_COUNT(vramReads, 1);
+                uint8_t index = core->memory.read<uint8_t>(gba,
+                    dataBase + rotscaleY * sizeX + rotscaleX);
 
                 // Draw a pixel
                 if (index)
+                {
+                    GPU2D_EXT_COUNT(paletteReads, 1);
+                    GPU2D_EXT_COUNT(writes, 1);
                     drawBgPixel(bg, line, i, U8TO16(palette, index * 2) | BIT(15));
+                }
+                else
+                {
+                    GPU2D_EXT_COUNT(transparent, 1);
+                }
             }
         }
     }
     else // Extended affine
     {
         // Get the base data addresses
-        uint32_t tileBase  = bgVramAddr + ((bgCnt[bg] & 0x1F00) >> 8) * 0x0800 + ((dispCnt & 0x38000000) >> 27) * 0x10000;
-        uint32_t indexBase = bgVramAddr + ((bgCnt[bg] & 0x003C) >> 2) * 0x4000 + ((dispCnt & 0x07000000) >> 24) * 0x10000;
+        uint32_t tileBase  = bgVramAddr + ((control & 0x1F00) >> 8) * 0x0800 + ((dispCnt & 0x38000000) >> 27) * 0x10000;
+        uint32_t indexBase = bgVramAddr + ((control & 0x003C) >> 2) * 0x4000 + ((dispCnt & 0x07000000) >> 24) * 0x10000;
 
         // Get the background's size
-        int size = 128 << ((bgCnt[bg] & 0xC000) >> 14);
+        int size = 128 << ((control & 0xC000) >> 14);
+        const bool wrap = bg < 2 || (control & BIT(13));
+        const bool extendedPalette = (dispCnt & BIT(30)) != 0;
+
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+        if (extendedSampled)
+            extendedSetupEnd = clock();
+#endif
+
+        Gpu2DAffineLineStepper coordinates(internalX[affine], internalY[affine],
+            bgPA[affine], bgPC[affine]);
 
         // Draw a line
         for (int i = 0; i < 256; i++)
         {
             // Calculate the rotscaled coordinates relative to the background
-            int rotscaleX = (internalX[bg - 2] + bgPA[bg - 2] * i) >> 8;
-            int rotscaleY = (internalY[bg - 2] + bgPC[bg - 2] * i) >> 8;
+            int rotscaleX = coordinates.x();
+            int rotscaleY = coordinates.y();
+            coordinates.advance();
+            GPU2D_EXT_COUNT(pixels, 1);
 
             // Handle display area overflow
-            if (bg < 2 || (bgCnt[bg] & BIT(13))) // Wraparound
+            if (wrap)
             {
                 rotscaleX %= size; if (rotscaleX < 0) rotscaleX += size;
                 rotscaleY %= size; if (rotscaleY < 0) rotscaleY += size;
+                GPU2D_EXT_COUNT(wrapped, 1);
             }
             else if (rotscaleX < 0 || rotscaleX >= size || rotscaleY < 0 || rotscaleY >= size) // Transparent
             {
+                GPU2D_EXT_COUNT(rejected, 1);
                 continue;
             }
 
             // Get the current tile
             uint32_t tileAddr = tileBase + ((rotscaleY / 8) * (size / 8) + (rotscaleX / 8)) * 2;
-            uint16_t tile = core->memory.read<uint16_t>(core->isGbaMode(), tileAddr);
+            GPU2D_EXT_COUNT(vramReads, 1);
+            uint16_t tile = core->memory.read<uint16_t>(gba, tileAddr);
 
             // Get the tile's palette
             uint8_t *pal;
-            if (dispCnt & BIT(30)) // Extended palette
+            if (extendedPalette)
             {
                 // In extended palette mode, the tile can select from multiple 256-color palettes
-                if (!extPalettes[bg]) continue;
+                if (!extPalettes[bg])
+                {
+                    GPU2D_EXT_COUNT(transparent, 1);
+                    continue;
+                }
                 pal = &extPalettes[bg][(tile & 0xF000) >> 3];
             }
             else // Standard palette
@@ -860,17 +981,32 @@ void Gpu2D::drawExtended(int bg, int line)
             uint32_t indexAddr = indexBase + (tile & 0x03FF) * 64;
             indexAddr += ((tile & BIT(11)) ? (7 - rotscaleY % 8) : (rotscaleY % 8)) * 8;
             indexAddr += ((tile & BIT(10)) ? (7 - rotscaleX % 8) : (rotscaleX % 8));
-            uint8_t index = core->memory.read<uint8_t>(core->isGbaMode(), indexAddr);
+            GPU2D_EXT_COUNT(vramReads, 1);
+            uint8_t index = core->memory.read<uint8_t>(gba, indexAddr);
 
             // Draw a pixel
             if (index)
+            {
+                GPU2D_EXT_COUNT(paletteReads, 1);
+                GPU2D_EXT_COUNT(writes, 1);
                 drawBgPixel(bg, line, i, U8TO16(pal, index * 2) | BIT(15));
+            }
+            else
+            {
+                GPU2D_EXT_COUNT(transparent, 1);
+            }
         }
     }
 
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+    endExtendedProfile(extendedMode, extendedStart, extendedSetupEnd,
+        extendedSampled, extendedCounters);
+#endif
+#undef GPU2D_EXT_COUNT
+
     // Increment the internal registers at the end of the scanline
-    internalX[bg - 2] += bgPB[bg - 2];
-    internalY[bg - 2] += bgPD[bg - 2];
+    internalX[affine] += bgPB[affine];
+    internalY[affine] += bgPD[affine];
 }
 
 void Gpu2D::drawLarge(int bg, int line)

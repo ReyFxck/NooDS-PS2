@@ -403,6 +403,40 @@ void logGpu2DProfile(const char *label, const Gpu2DRunProfile &profile)
         averageUs(GPU2D_PROFILE_OUTPUT), estimatedMs(GPU2D_PROFILE_OUTPUT),
         static_cast<unsigned long long>(profile.phaseCount[GPU2D_PROFILE_BRIGHTNESS]),
         averageUs(GPU2D_PROFILE_BRIGHTNESS), estimatedMs(GPU2D_PROFILE_BRIGHTNESS));
+
+#if NOODS_PROFILE_LEVEL >= 2
+    const char *modeNames[GPU2D_EXTENDED_MODE_COUNT] =
+        { "direct", "indexed", "tiled" };
+    for (int i = 0; i < GPU2D_EXTENDED_MODE_COUNT; i++)
+    {
+        Gpu2DExtendedMode mode = static_cast<Gpu2DExtendedMode>(i);
+        uint64_t samples = profile.extendedModeSamples[mode];
+        if (!profile.extendedModeCount[mode])
+            continue;
+
+        double divisor = samples ? static_cast<double>(samples) : 1.0;
+        double totalUs = static_cast<double>(profile.extendedModeTicks[mode]) *
+            1000000.0 / CLOCKS_PER_SEC / divisor;
+        double setupUs = static_cast<double>(profile.extendedSetupTicks[mode]) *
+            1000000.0 / CLOCKS_PER_SEC / divisor;
+        double bodyUs = static_cast<double>(profile.extendedBodyTicks[mode]) *
+            1000000.0 / CLOCKS_PER_SEC / divisor;
+        const Gpu2DExtendedCounters &counters = profile.extendedCounters[mode];
+
+        PS2_LOG("[PS2][PROF] %s extended-%s: calls=%llu samples=%llu avg-us=%.2f setup=%.2f body=%.2f sampledPixels=%llu wrap=%llu reject=%llu vram=%llu palette=%llu transparent=%llu writes=%llu\n",
+            label, modeNames[mode],
+            static_cast<unsigned long long>(profile.extendedModeCount[mode]),
+            static_cast<unsigned long long>(samples),
+            totalUs, setupUs, bodyUs,
+            static_cast<unsigned long long>(counters.pixels),
+            static_cast<unsigned long long>(counters.wrapped),
+            static_cast<unsigned long long>(counters.rejected),
+            static_cast<unsigned long long>(counters.vramReads),
+            static_cast<unsigned long long>(counters.paletteReads),
+            static_cast<unsigned long long>(counters.transparent),
+            static_cast<unsigned long long>(counters.writes));
+    }
+#endif
 }
 #endif
 }
