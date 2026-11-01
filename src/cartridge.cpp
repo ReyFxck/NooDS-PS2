@@ -26,6 +26,29 @@
 #include "core.h"
 #include "settings.h"
 
+#ifdef NOODS_PROFILE
+namespace
+{
+int latencyBucket(uint64_t ticks)
+{
+    const uint64_t milliseconds[] = { 1, 5, 10, 50, 100, 250 };
+    for (int i = 0; i < 6; i++)
+        if (ticks * 1000u < milliseconds[i] * CLOCKS_PER_SEC)
+            return i;
+    return 6;
+}
+
+int sizeBucket(size_t size)
+{
+    if (size <= 2 * 1024u) return 0;
+    if (size <= 16 * 1024u) return 1;
+    if (size <= 64 * 1024u) return 2;
+    if (size <= 256 * 1024u) return 3;
+    return 4;
+}
+}
+#endif
+
 Cartridge::~Cartridge()
 {
     // Update the save file before exiting
@@ -83,9 +106,11 @@ int Cartridge::seekRomFile(long offset, int origin)
     return result;
 }
 
-size_t Cartridge::readRomFile(void *buffer, size_t size)
+size_t Cartridge::readRomFile(void *buffer, size_t size, RomIoCaller caller,
+    bool seekNeeded, uint64_t seekTicks, bool cacheMiss)
 {
 #ifdef NOODS_PROFILE
+    long positionBefore = romFilePosition;
     clock_t start = clock();
 #endif
     size_t got = fread(buffer, sizeof(uint8_t), size, romFile);
@@ -99,6 +124,31 @@ size_t Cartridge::readRomFile(void *buffer, size_t size)
     romIoProfile.readBytes += got;
     if (got != size)
         romIoProfile.shortReads++;
+
+    romIoProfile.latencyHistogram[latencyBucket(ticks + seekTicks)]++;
+    romIoProfile.sizeHistogram[sizeBucket(size)]++;
+    if (caller < ROM_IO_CALLER_COUNT)
+    {
+        romIoProfile.callerReads[caller]++;
+        romIoProfile.callerTicks[caller] += ticks + seekTicks;
+    }
+
+    // Keep a bounded one-shot trace for reads that block at least 25 ms. The
+    // frontend prints it after the window so the timed path performs no I/O.
+    if ((ticks + seekTicks) * 40u >= CLOCKS_PER_SEC &&
+        romIoProfile.slowReadCount < 8)
+    {
+        RomSlowRead &slow = romIoProfile.slowReads[romIoProfile.slowReadCount++];
+        slow.caller = caller;
+        slow.offset = positionBefore;
+        slow.requested = size;
+        slow.got = got;
+        slow.seekTicks = seekTicks;
+        slow.readTicks = ticks;
+        slow.seekNeeded = seekNeeded;
+        slow.cacheMiss = cacheMiss;
+        slow.sequential = !seekNeeded && positionBefore >= 0;
+    }
 #endif
     return got;
 }
@@ -143,7 +193,8 @@ void Cartridge::configureRomCache(uint32_t bytes)
     romCacheBytes = bytes;
 }
 
-void Cartridge::loadRomSection(uint32_t offset, uint32_t size, bool useCache)
+void Cartridge::loadRomSection(uint32_t offset, uint32_t size, bool useCache,
+    RomIoCaller caller)
 {
     // Reuse the transfer buffer to avoid heap churn during cartridge traffic.
     if (static_cast<int>(size) > romCapacity)
@@ -158,12 +209,21 @@ void Cartridge::loadRomSection(uint32_t offset, uint32_t size, bool useCache)
 
     if (!useCache || !romCache || !romCachePageCount)
     {
-        if (romFilePosition != static_cast<long>(offset))
+        bool seekNeeded = romFilePosition != static_cast<long>(offset);
+#ifdef NOODS_PROFILE
+        uint64_t seekTicksBefore = romIoProfile.seekTicks;
+#endif
+        if (seekNeeded)
         {
             seekRomFile(offset, SEEK_SET);
             romFilePosition = offset;
         }
-        size_t got = readRomFile(rom, size);
+#ifdef NOODS_PROFILE
+        uint64_t seekTicks = romIoProfile.seekTicks - seekTicksBefore;
+#else
+        uint64_t seekTicks = 0;
+#endif
+        size_t got = readRomFile(rom, size, caller, seekNeeded, seekTicks, false);
         romFilePosition += static_cast<long>(got);
         return;
     }
@@ -233,14 +293,24 @@ void Cartridge::loadRomSection(uint32_t offset, uint32_t size, bool useCache)
 
             if (readable)
             {
-                if (romFilePosition != static_cast<long>(pageOffset))
+                bool seekNeeded = romFilePosition != static_cast<long>(pageOffset);
+#ifdef NOODS_PROFILE
+                uint64_t seekTicksBefore = romIoProfile.seekTicks;
+#endif
+                if (seekNeeded)
                 {
                     romCacheSeekCount++;
                     seekRomFile(pageOffset, SEEK_SET);
                     romFilePosition = pageOffset;
                 }
 
-                size_t got = readRomFile(page, readable);
+#ifdef NOODS_PROFILE
+                uint64_t seekTicks = romIoProfile.seekTicks - seekTicksBefore;
+#else
+                uint64_t seekTicks = 0;
+#endif
+                size_t got = readRomFile(page, readable, caller,
+                    seekNeeded, seekTicks, true);
                 romCacheReadBytes += got;
                 romFilePosition += static_cast<long>(got);
                 readable = static_cast<uint32_t>(got);
@@ -343,25 +413,26 @@ void CartridgeNds::loadRom(std::string path)
     // The PS2 only has 32MB of main RAM. Keep NDS ROMs file-backed, but cache
     // recently used 16KB pages to avoid repeated CD/DVD/USB/HDD reads.
     configureRomCache(2 * 1024 * 1024);
-    loadRomSection(0, (romSize < 0x5000) ? romSize : 0x5000);
+    loadRomSection(0, (romSize < 0x5000) ? romSize : 0x5000, true,
+        ROM_IO_HEADER);
 #else
     // If the ROM is 512MB or smaller, try to load it into memory; otherwise fall back to file-based loading
     if (romSize <= 0x20000000) // 512MB
     {
         try
         {
-            loadRomSection(0, romSize);
+            loadRomSection(0, romSize, true, ROM_IO_HEADER);
             fclose(romFile);
             romFile = nullptr;
         }
         catch (std::bad_alloc &ba)
         {
-            loadRomSection(0, 0x5000);
+            loadRomSection(0, 0x5000, true, ROM_IO_HEADER);
         }
     }
     else
     {
-        loadRomSection(0, 0x5000);
+        loadRomSection(0, 0x5000, true, ROM_IO_HEADER);
     }
 #endif
 
@@ -395,7 +466,7 @@ void CartridgeNds::directBoot()
 {
     // Load the ROM header from file if needed
     if (romFile)
-        loadRomSection(0, 0x170);
+        loadRomSection(0, 0x170, true, ROM_IO_HEADER);
 
     // Extract some information about the initial ARM9 code from the header
     uint32_t offset9    = U8TO32(rom, 0x20);
@@ -426,7 +497,7 @@ void CartridgeNds::directBoot()
     // Load the initial ARM9 code from file if needed
     if (romFile)
     {
-        loadRomSection(offset9, size9, false);
+        loadRomSection(offset9, size9, false, ROM_IO_DIRECT_ARM9);
         offset = 0;
     }
     else
@@ -461,7 +532,7 @@ void CartridgeNds::directBoot()
     // Load the initial ARM7 code from file if needed
     if (romFile)
     {
-        loadRomSection(offset7, size7, false);
+        loadRomSection(offset7, size7, false, ROM_IO_DIRECT_ARM7);
         offset = 0;
     }
     else

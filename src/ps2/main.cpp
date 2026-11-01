@@ -438,6 +438,66 @@ void logGpu2DProfile(const char *label, const Gpu2DRunProfile &profile)
     }
 #endif
 }
+
+const char *romIoCallerName(RomIoCaller caller)
+{
+    switch (caller)
+    {
+        case ROM_IO_HEADER:      return "ROM-header";
+        case ROM_IO_DIRECT_ARM9: return "direct-boot-ARM9";
+        case ROM_IO_DIRECT_ARM7: return "direct-boot-ARM7";
+        case ROM_IO_CACHE_MISS:  return "ROM-cache-miss";
+        case ROM_IO_FIRMWARE:    return "firmware";
+        case ROM_IO_BIOS:        return "BIOS";
+        case ROM_IO_RUNTIME:     return "runtime-cartridge";
+        default:                 return "other";
+    }
+}
+
+void logRomIoDetail(const char *source, const RomIoProfile &profile)
+{
+    PS2_LOG("[PS2][PROF] ROM latency hist: <1=%llu 1-5=%llu 5-10=%llu 10-50=%llu 50-100=%llu 100-250=%llu >250=%llu | size <=2K=%llu <=16K=%llu <=64K=%llu <=256K=%llu >256K=%llu\n",
+        static_cast<unsigned long long>(profile.latencyHistogram[0]),
+        static_cast<unsigned long long>(profile.latencyHistogram[1]),
+        static_cast<unsigned long long>(profile.latencyHistogram[2]),
+        static_cast<unsigned long long>(profile.latencyHistogram[3]),
+        static_cast<unsigned long long>(profile.latencyHistogram[4]),
+        static_cast<unsigned long long>(profile.latencyHistogram[5]),
+        static_cast<unsigned long long>(profile.latencyHistogram[6]),
+        static_cast<unsigned long long>(profile.sizeHistogram[0]),
+        static_cast<unsigned long long>(profile.sizeHistogram[1]),
+        static_cast<unsigned long long>(profile.sizeHistogram[2]),
+        static_cast<unsigned long long>(profile.sizeHistogram[3]),
+        static_cast<unsigned long long>(profile.sizeHistogram[4]));
+
+    for (int i = 0; i < ROM_IO_CALLER_COUNT; i++)
+    {
+        if (!profile.callerReads[i])
+            continue;
+        PS2_LOG("[PS2][PROF] ROM caller=%s reads=%llu totalMs=%.2f\n",
+            romIoCallerName(static_cast<RomIoCaller>(i)),
+            static_cast<unsigned long long>(profile.callerReads[i]),
+            static_cast<double>(profile.callerTicks[i]) * 1000.0 / CLOCKS_PER_SEC);
+    }
+
+    for (uint8_t i = 0; i < profile.slowReadCount; i++)
+    {
+        const RomSlowRead &slow = profile.slowReads[i];
+        PS2_LOG("[PS2][IO-SLOW] source=%s caller=%s offset=%lld requested=%llu got=%llu seekNeeded=%u seekMs=%.2f readMs=%.2f cache=%s sequential=%u posBefore=%lld posAfter=%lld\n",
+            source,
+            romIoCallerName(slow.caller),
+            static_cast<long long>(slow.offset),
+            static_cast<unsigned long long>(slow.requested),
+            static_cast<unsigned long long>(slow.got),
+            slow.seekNeeded ? 1u : 0u,
+            static_cast<double>(slow.seekTicks) * 1000.0 / CLOCKS_PER_SEC,
+            static_cast<double>(slow.readTicks) * 1000.0 / CLOCKS_PER_SEC,
+            slow.cacheMiss ? "miss" : "bypass",
+            slow.sequential ? 1u : 0u,
+            static_cast<long long>(slow.offset),
+            static_cast<long long>(slow.offset + static_cast<int64_t>(slow.got)));
+    }
+}
 #endif
 }
 
@@ -561,6 +621,7 @@ int main(int argc, char **argv)
             static_cast<double>(constructRomIo.maxReadTicks) * 1000.0 / CLOCKS_PER_SEC,
             static_cast<double>(constructRomIo.maxSeekTicks) * 1000.0 / CLOCKS_PER_SEC,
             static_cast<unsigned long long>(constructRomIo.shortReads));
+        logRomIoDetail(core->cartridgeNds.getRomPath().c_str(), constructRomIo);
         core->cartridgeNds.resetRomIoProfile();
 #endif
 
@@ -1086,6 +1147,7 @@ int main(int argc, char **argv)
                     static_cast<double>(romIo.maxReadTicks) * 1000.0 / CLOCKS_PER_SEC,
                     static_cast<double>(romIo.maxSeekTicks) * 1000.0 / CLOCKS_PER_SEC,
                     static_cast<unsigned long long>(romIo.shortReads));
+                logRomIoDetail(core->cartridgeNds.getRomPath().c_str(), romIo);
 
                 profLastRomHits = currentRomHits;
                 profLastRomMisses = currentRomMisses;

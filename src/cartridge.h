@@ -25,7 +25,33 @@
 
 class Core;
 
+enum RomIoCaller : uint8_t
+{
+    ROM_IO_HEADER = 0,
+    ROM_IO_DIRECT_ARM9,
+    ROM_IO_DIRECT_ARM7,
+    ROM_IO_CACHE_MISS,
+    ROM_IO_FIRMWARE,
+    ROM_IO_BIOS,
+    ROM_IO_RUNTIME,
+    ROM_IO_OTHER,
+    ROM_IO_CALLER_COUNT
+};
+
 #ifdef NOODS_PROFILE
+struct RomSlowRead
+{
+    RomIoCaller caller = ROM_IO_OTHER;
+    int64_t offset = -1;
+    uint64_t requested = 0;
+    uint64_t got = 0;
+    uint64_t seekTicks = 0;
+    uint64_t readTicks = 0;
+    bool seekNeeded = false;
+    bool cacheMiss = false;
+    bool sequential = false;
+};
+
 struct RomIoProfile
 {
     uint64_t seekCalls = 0;
@@ -37,6 +63,12 @@ struct RomIoProfile
     uint64_t requestedBytes = 0;
     uint64_t readBytes = 0;
     uint64_t shortReads = 0;
+    uint64_t latencyHistogram[7] = {};
+    uint64_t sizeHistogram[5] = {};
+    uint64_t callerReads[ROM_IO_CALLER_COUNT] = {};
+    uint64_t callerTicks[ROM_IO_CALLER_COUNT] = {};
+    RomSlowRead slowReads[8] = {};
+    uint8_t slowReadCount = 0;
 };
 #endif
 
@@ -63,6 +95,7 @@ class Cartridge
 
         int getRomSize()  { return romSize;  }
         int getSaveSize() { return saveSize; }
+        const std::string &getRomPath() const { return romName; }
 
         uint32_t getRomCacheHits() const   { return romCacheHits;   }
         uint32_t getRomCacheMisses() const { return romCacheMisses; }
@@ -115,9 +148,11 @@ class Cartridge
 #endif
 
         void configureRomCache(uint32_t bytes);
-        void loadRomSection(uint32_t offset, uint32_t size, bool useCache = true);
+        void loadRomSection(uint32_t offset, uint32_t size, bool useCache = true,
+            RomIoCaller caller = ROM_IO_CACHE_MISS);
         int seekRomFile(long offset, int origin);
-        size_t readRomFile(void *buffer, size_t size);
+        size_t readRomFile(void *buffer, size_t size, RomIoCaller caller,
+            bool seekNeeded, uint64_t seekTicks, bool cacheMiss);
 
     private:
         std::string romName, saveName;

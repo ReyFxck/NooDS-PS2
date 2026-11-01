@@ -70,6 +70,12 @@ int main()
         assert(profile.requestedBytes == pageSize * 3);
         assert(profile.readBytes == pageSize * 3);
         assert(profile.shortReads == 0);
+        assert(profile.callerReads[ROM_IO_CACHE_MISS] == 3);
+        assert(profile.sizeHistogram[1] == 3); // Three physical 16 KiB pages.
+        uint64_t latencySamples = 0;
+        for (int i = 0; i < 7; i++)
+            latencySamples += profile.latencyHistogram[i];
+        assert(latencySamples == 3);
     }
 
     std::remove(path);
