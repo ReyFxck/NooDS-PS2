@@ -94,6 +94,10 @@ void Interpreter::directBoot()
 
 int Interpreter::runOpcode()
 {
+#ifdef NOODS_PROFILE
+    Memory::ProfileCpuScope memoryProfileScope(core->memory, cpu);
+#endif
+
     // Push the next opcode through the pipeline
     uint32_t opcode = pipeline[0];
 
@@ -124,7 +128,13 @@ int Interpreter::runOpcode()
         {
             profile.armInstructions++;
             uint32_t group = (opcode >> 25) & 0x7;
-            if (group <= 0x1)
+            bool multiply = (opcode & 0x0FC000F0u) == 0x00000090u ||
+                (opcode & 0x0F8000F0u) == 0x00800090u;
+            bool extraTransfer = !multiply &&
+                (opcode & 0x0E000090u) == 0x00000090u;
+            if (extraTransfer)
+                profile.armClass[1]++;
+            else if (group <= 0x1)
                 profile.armClass[0]++;
             else if (group <= 0x3)
                 profile.armClass[1]++;
@@ -198,6 +208,22 @@ int Interpreter::runOpcode()
                     {
                         uint32_t base = entry.rnValue;
                         uint32_t offset = opcode & 0xFFFu;
+                        if (opcode & BIT(24)) // pre-indexed
+                            base = (opcode & BIT(23)) ? base + offset : base - offset;
+                        entry.memoryAddress = base;
+                    }
+                    else if ((opcode & 0x0E000090u) == 0x00000090u &&
+                        (opcode & 0x0FC000F0u) != 0x00000090u &&
+                        (opcode & 0x0F8000F0u) != 0x00800090u)
+                    {
+                        // Halfword/signed transfers encode either an 8-bit
+                        // immediate split across two nibbles or a register
+                        // offset. Computing the address reads only the saved
+                        // register snapshot and never touches MMIO.
+                        uint32_t base = entry.rnValue;
+                        uint32_t offset = (opcode & BIT(22))
+                            ? ((opcode >> 4) & 0xF0u) | (opcode & 0xFu)
+                            : entry.rmValue;
                         if (opcode & BIT(24)) // pre-indexed
                             base = (opcode & BIT(23)) ? base + offset : base - offset;
                         entry.memoryAddress = base;

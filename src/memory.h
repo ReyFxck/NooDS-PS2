@@ -28,6 +28,44 @@
 
 class Core;
 
+#ifdef NOODS_PROFILE
+struct MemoryHotMmio
+{
+    uint32_t address = 0;
+    uint32_t samples = 0;
+    uint32_t reads = 0;
+    uint32_t writes = 0;
+};
+
+struct MemoryCpuProfile
+{
+    uint64_t sampledReads = 0;
+    uint64_t sampledWrites = 0;
+    uint64_t directReads = 0;
+    uint64_t directWrites = 0;
+    uint64_t fallbackReads = 0;
+    uint64_t fallbackWrites = 0;
+    uint64_t mmioReads = 0;
+    uint64_t mmioWrites = 0;
+    uint64_t vramReads = 0;
+    uint64_t vramWrites = 0;
+    uint64_t paletteReads = 0;
+    uint64_t paletteWrites = 0;
+    uint64_t tcmReads = 0;
+    uint64_t tcmWrites = 0;
+    uint64_t unalignedReads = 0;
+    uint64_t unalignedWrites = 0;
+    uint64_t crossPageReads = 0;
+    uint64_t crossPageWrites = 0;
+    MemoryHotMmio hotMmio[8] = {};
+};
+
+struct MemoryProfile
+{
+    MemoryCpuProfile cpu[2];
+};
+#endif
+
 class SparsePageTable
 {
     public:
@@ -136,6 +174,34 @@ class Memory
 
         uint32_t getMapGeneration() const { return mapGeneration; }
 
+#ifdef NOODS_PROFILE
+        class ProfileCpuScope
+        {
+            public:
+                ProfileCpuScope(Memory &memory, bool cpu):
+                    memory(memory), previous(memory.profileCpuContext)
+                {
+                    memory.profileCpuContext = cpu ? 1 : 0;
+                }
+                ~ProfileCpuScope() { memory.profileCpuContext = previous; }
+
+                ProfileCpuScope(const ProfileCpuScope&) = delete;
+                ProfileCpuScope &operator=(const ProfileCpuScope&) = delete;
+
+            private:
+                Memory &memory;
+                int8_t previous;
+        };
+
+        void setProfileEnabled(bool enabled) { profileEnabled = enabled; }
+        void resetProfile()
+        {
+            profile = MemoryProfile();
+            profileSampleCounter[0] = profileSampleCounter[1] = 0;
+        }
+        const MemoryProfile &getProfile() const { return profile; }
+#endif
+
         size_t getPageTableBytes() const
         {
             return readMap9.allocatedBytes() + readMap7.allocatedBytes() +
@@ -154,6 +220,80 @@ class Memory
         SparsePageTable writeMap7;
 
         uint32_t mapGeneration = 1;
+
+#ifdef NOODS_PROFILE
+        bool profileEnabled = false;
+        int8_t profileCpuContext = -1;
+        uint32_t profileSampleCounter[2] = {};
+        MemoryProfile profile;
+
+        FORCE_INLINE void profileAccess(bool cpu, uint32_t rawAddress,
+            size_t size, bool write, bool direct)
+        {
+            (void)cpu;
+            if (!profileEnabled || profileCpuContext < 0)
+                return;
+
+            uint8_t cpuIndex = static_cast<uint8_t>(profileCpuContext);
+            if ((++profileSampleCounter[cpuIndex] & 63u) != 0)
+                return;
+
+            MemoryCpuProfile &entry = profile.cpu[cpuIndex];
+            uint32_t address = rawAddress & ~static_cast<uint32_t>(size - 1u);
+            bool unaligned = (rawAddress & (size - 1u)) != 0;
+            bool crossPage = (rawAddress & 0xFFFu) + size > 0x1000u;
+
+            if (write)
+            {
+                entry.sampledWrites++;
+                direct ? entry.directWrites++ : entry.fallbackWrites++;
+                if (unaligned) entry.unalignedWrites++;
+                if (crossPage) entry.crossPageWrites++;
+            }
+            else
+            {
+                entry.sampledReads++;
+                direct ? entry.directReads++ : entry.fallbackReads++;
+                if (unaligned) entry.unalignedReads++;
+                if (crossPage) entry.crossPageReads++;
+            }
+
+            switch (address >> 24)
+            {
+                case 0x00:
+                    // Low memory is ARM9 ITCM/DTCM space; on ARM7 the same
+                    // region contains BIOS/WRAM mappings and is not TCM.
+                    if (cpuIndex == 0)
+                        write ? entry.tcmWrites++ : entry.tcmReads++;
+                    break;
+                case 0x04:
+                {
+                    write ? entry.mmioWrites++ : entry.mmioReads++;
+                    MemoryHotMmio &hot = entry.hotMmio[(address >> 2) & 7u];
+                    uint32_t wordAddress = address & ~3u;
+                    if (hot.samples && hot.address != wordAddress)
+                    {
+                        hot.samples--;
+                        break;
+                    }
+                    if (!hot.samples)
+                    {
+                        hot.address = wordAddress;
+                        hot.reads = hot.writes = 0;
+                    }
+                    hot.samples++;
+                    write ? hot.writes++ : hot.reads++;
+                    break;
+                }
+                case 0x05:
+                    write ? entry.paletteWrites++ : entry.paletteReads++;
+                    break;
+                case 0x06:
+                    write ? entry.vramWrites++ : entry.vramReads++;
+                    break;
+            }
+        }
+#endif
 
         uint8_t bios9[0x8000]   = {}; // 32KB ARM9 BIOS
         uint8_t bios7[0x4000]   = {}; // 16KB ARM7 BIOS
@@ -233,11 +373,18 @@ template uint16_t Memory::read(bool cpu, uint32_t address);
 template uint32_t Memory::read(bool cpu, uint32_t address);
 template <typename T> FORCE_INLINE T Memory::read(bool cpu, uint32_t address)
 {
+#ifdef NOODS_PROFILE
+    uint32_t rawAddress = address;
+#endif
     // Align the address
     address &= ~(sizeof(T) - 1);
 
     const SparsePageTable &readMap = (cpu == 0) ? readMap9 : readMap7;
-    if (uint8_t *page = readMap.get(address))
+    uint8_t *page = readMap.get(address);
+#ifdef NOODS_PROFILE
+    profileAccess(cpu, rawAddress, sizeof(T), false, page != nullptr);
+#endif
+    if (page)
     {
         // Get a pointer to readable memory mapped to the given address
         uint8_t *data = &page[address & 0xFFF];
@@ -264,11 +411,18 @@ template void Memory::write(bool cpu, uint32_t address, uint16_t value);
 template void Memory::write(bool cpu, uint32_t address, uint32_t value);
 template <typename T> FORCE_INLINE void Memory::write(bool cpu, uint32_t address, T value)
 {
+#ifdef NOODS_PROFILE
+    uint32_t rawAddress = address;
+#endif
     // Align the address
     address &= ~(sizeof(T) - 1);
 
     const SparsePageTable &writeMap = (cpu == 0) ? writeMap9 : writeMap7;
-    if (uint8_t *page = writeMap.get(address))
+    uint8_t *page = writeMap.get(address);
+#ifdef NOODS_PROFILE
+    profileAccess(cpu, rawAddress, sizeof(T), true, page != nullptr);
+#endif
+    if (page)
     {
         // Get a pointer to writable memory mapped to the given address
         uint8_t *data = &page[address & 0xFFF];

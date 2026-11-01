@@ -39,7 +39,12 @@ jobs:
           make -f Makefile.ps2 BUILD_REVISION="${{ github.sha }}" BUILD_STATE=clean
           mv noods-ps2.elf noods-ps2-release.elf
 
-      - name: Build profile ELF
+      - name: Build profile level 1 ELF
+        run: |
+          make -f Makefile.ps2 profile BUILD_REVISION="${{ github.sha }}" BUILD_STATE=clean PROFILE_LEVEL=1
+          mv noods-ps2.elf noods-ps2-profile-level1.elf
+
+      - name: Build profile level 2 ELF
         run: |
           make -f Makefile.ps2 profile BUILD_REVISION="${{ github.sha }}" BUILD_STATE=clean PROFILE_LEVEL=2
           mv noods-ps2.elf noods-ps2-profile.elf
@@ -52,6 +57,7 @@ jobs:
       - name: ELF size report
         run: |
           mips64r5900el-ps2-elf-size noods-ps2-release.elf
+          mips64r5900el-ps2-elf-size noods-ps2-profile-level1.elf
           mips64r5900el-ps2-elf-size noods-ps2-profile.elf
           mips64r5900el-ps2-elf-size noods-ps2-debug.elf
 
@@ -102,6 +108,7 @@ jobs:
           name: noods-ps2-poc
           path: |
             noods-ps2-release.elf
+            noods-ps2-profile-level1.elf
             noods-ps2-profile.elf
             noods-ps2-debug.elf
             noods-ps2-poc.iso

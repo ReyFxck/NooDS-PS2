@@ -42,11 +42,16 @@ namespace R5900
     constexpr uint32_t sll(int rd,int rt,int sh)     { return rType(0, rt, rd, sh, 0x00); }
     constexpr uint32_t srl(int rd,int rt,int sh)     { return rType(0, rt, rd, sh, 0x02); }
     constexpr uint32_t sra(int rd,int rt,int sh)     { return rType(0, rt, rd, sh, 0x03); }
+    constexpr uint32_t sllv(int rd,int rt,int rs)    { return rType(rs, rt, rd, 0, 0x04); }
+    constexpr uint32_t srlv(int rd,int rt,int rs)    { return rType(rs, rt, rd, 0, 0x06); }
+    constexpr uint32_t srav(int rd,int rt,int rs)    { return rType(rs, rt, rd, 0, 0x07); }
+    constexpr uint32_t movz(int rd,int rs,int rt)    { return rType(rs, rt, rd, 0, 0x0A); }
 
     constexpr uint32_t addiu(int rt,int rs,int16_t i){ return iType(0x09, rs, rt, uint16_t(i)); }
     constexpr uint32_t andi(int rt,int rs,uint16_t i){ return iType(0x0C, rs, rt, i); }
     constexpr uint32_t ori(int rt,int rs,uint16_t i) { return iType(0x0D, rs, rt, i); }
     constexpr uint32_t xori(int rt,int rs,uint16_t i){ return iType(0x0E, rs, rt, i); }
+    constexpr uint32_t sltiu(int rt,int rs,uint16_t i){ return iType(0x0B, rs, rt, i); }
     constexpr uint32_t lui(int rt,uint16_t i)        { return iType(0x0F, 0, rt, i); }
     constexpr uint32_t lw(int rt,int16_t o,int rs)   { return iType(0x23, rs, rt, uint16_t(o)); }
     constexpr uint32_t sw(int rt,int16_t o,int rs)   { return iType(0x2B, rs, rt, uint16_t(o)); }
@@ -64,6 +69,8 @@ namespace R5900
     static_assert(sw(R_T0, 4, R_A0) == 0xAC880004u, "R5900 SW encoding");
     static_assert(nor_(R_T2, R_T1, R_ZERO) == 0x01205027u, "R5900 NOR encoding");
     static_assert(sra(R_T2, R_T1, 4) == 0x00095103u, "R5900 SRA encoding");
+    static_assert(sllv(R_T2, R_T1, R_T3) == 0x01695004u, "R5900 SLLV encoding");
+    static_assert(movz(R_T1, R_ZERO, R_T4) == 0x000C480Au, "R5900 MOVZ encoding");
 }
 
 #endif

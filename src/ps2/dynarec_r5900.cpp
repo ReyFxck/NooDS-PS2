@@ -4,6 +4,36 @@
 #include "dynarec_r5900.h"
 #include "r5900_emitter.h"
 
+#include <algorithm>
+#include <cstring>
+
+namespace
+{
+void recordFallback(R5900DynarecProfile &profile, uint32_t pc, uint32_t opcode)
+{
+    for (size_t i = 0; i < 16; i++)
+    {
+        R5900FallbackProfile &entry = profile.topFallback[i];
+        if (entry.count && entry.pc == pc && entry.opcode == opcode)
+        {
+            entry.count++;
+            return;
+        }
+        if (!entry.count)
+        {
+            entry.pc = pc;
+            entry.opcode = opcode;
+            entry.count = 1;
+            return;
+        }
+    }
+
+    // Bounded Misra-Gries reduction: no allocation and no trace spam.
+    for (size_t i = 0; i < 16; i++)
+        profile.topFallback[i].count--;
+}
+}
+
 DynarecR5900::DynarecR5900(Memory *memory): memory(memory)
 {
 }
@@ -45,6 +75,7 @@ bool DynarecR5900::synchronizeMemoryMap()
 
     reset();
     mappedGeneration = generation;
+    profile.mapInvalidations++;
     return true;
 }
 
@@ -58,6 +89,90 @@ const R5900CompiledBlock *DynarecR5900::findBlock(uint32_t pc, bool thumb) const
     }
 
     return nullptr;
+}
+
+bool DynarecR5900::analyzeArmBlock(uint32_t pc, R5900BlockAnalysis *analysis,
+    size_t maxInstructions)
+{
+    if (!memory || !analysis || !maxInstructions)
+        return false;
+
+    synchronizeMemoryMap();
+    *analysis = R5900BlockAnalysis();
+    analysis->startPc = pc;
+    maxInstructions = std::min(maxInstructions, R5900_ANALYSIS_MAX_INSTRUCTIONS);
+    profile.compileAttempts++;
+
+    if (findBlock(pc, false))
+        profile.lookupHits++;
+    else
+        profile.lookupMisses++;
+
+    for (size_t i = 0; i < maxInstructions; i++)
+    {
+        uint32_t address = pc + static_cast<uint32_t>(i * 4);
+        uint8_t *page = memory->getDirectReadPage(0, address);
+        if (!page)
+        {
+            if (analysis->firstUnsupported == 0xFFu)
+                analysis->firstUnsupported = static_cast<uint8_t>(i);
+            break;
+        }
+
+        R5900AnalyzedInstruction &instruction =
+            analysis->instructions[analysis->instructionCount];
+        instruction.pc = address;
+        std::memcpy(&instruction.opcode, page + (address & 0xFFFu),
+            sizeof(instruction.opcode));
+        Ps2ArmAlu::inspect(instruction.opcode, address, &instruction.info);
+        instruction.reason = Ps2ArmAlu::rejectionReason(instruction.opcode);
+
+        analysis->instructionCount++;
+        analysis->readMask |= instruction.info.readMask;
+        analysis->writeMask |= instruction.info.writeMask;
+        if (instruction.reason == Ps2ArmAlu::REJECT_NONE)
+            analysis->supportedInstructions++;
+        else if (analysis->firstUnsupported == 0xFFu)
+            analysis->firstUnsupported = static_cast<uint8_t>(i);
+
+        if (instruction.info.kind == Ps2ArmAlu::KIND_BRANCH)
+        {
+            analysis->branchTarget = instruction.info.branchTarget;
+            analysis->backEdge = instruction.info.backEdge;
+        }
+
+        if (instruction.info.terminatesBlock)
+            break;
+    }
+
+    analysis->endPc = analysis->instructionCount
+        ? analysis->instructions[analysis->instructionCount - 1].pc + 4u
+        : pc;
+    profile.guestInstructions += analysis->instructionCount;
+    profile.supportedInstructions += analysis->supportedInstructions;
+    profile.largestBlock = std::max(profile.largestBlock,
+        static_cast<uint32_t>(analysis->instructionCount));
+
+    if (analysis->instructionCount && analysis->firstUnsupported == 0xFFu)
+    {
+        profile.compileSuccess++;
+    }
+    else
+    {
+        profile.compileRejected++;
+        profile.fallbackCount++;
+        Ps2ArmAlu::RejectReason reason = Ps2ArmAlu::REJECT_MEMORY;
+        if (analysis->firstUnsupported < analysis->instructionCount)
+        {
+            const R5900AnalyzedInstruction &unsupported =
+                analysis->instructions[analysis->firstUnsupported];
+            reason = unsupported.reason;
+            recordFallback(profile, unsupported.pc, unsupported.opcode);
+        }
+        profile.rejectReason[reason]++;
+    }
+
+    return analysis->instructionCount != 0;
 }
 
 bool DynarecR5900::emitProbe()
@@ -137,35 +252,72 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code)
         code[words++] = R5900::lw(R5900::R_T1,
             static_cast<int16_t>(decoded.rm * 4), R5900::R_A0);
 
-        switch (decoded.shiftType)
+        if (decoded.registerShift)
         {
-            case 0:
-                if (decoded.shiftAmount)
-                    code[words++] = R5900::sll(R5900::R_T1, R5900::R_T1,
+            code[words++] = R5900::lw(R5900::R_T3,
+                static_cast<int16_t>(decoded.rs * 4), R5900::R_A0);
+            code[words++] = R5900::andi(R5900::R_T3, R5900::R_T3, 0xFFu);
+
+            switch (decoded.shiftType)
+            {
+                case 0: // ARM LSL Rs: amounts >= 32 produce zero.
+                    code[words++] = R5900::sllv(R5900::R_T1, R5900::R_T1, R5900::R_T3);
+                    code[words++] = R5900::sltiu(R5900::R_T4, R5900::R_T3, 32);
+                    code[words++] = R5900::movz(R5900::R_T1, R5900::R_ZERO, R5900::R_T4);
+                    break;
+                case 1: // ARM LSR Rs: amounts >= 32 produce zero.
+                    code[words++] = R5900::srlv(R5900::R_T1, R5900::R_T1, R5900::R_T3);
+                    code[words++] = R5900::sltiu(R5900::R_T4, R5900::R_T3, 32);
+                    code[words++] = R5900::movz(R5900::R_T1, R5900::R_ZERO, R5900::R_T4);
+                    break;
+                case 2: // ARM ASR Rs: amounts >= 32 replicate bit 31.
+                    code[words++] = R5900::sra(R5900::R_T2, R5900::R_T1, 31);
+                    code[words++] = R5900::srav(R5900::R_T1, R5900::R_T1, R5900::R_T3);
+                    code[words++] = R5900::sltiu(R5900::R_T4, R5900::R_T3, 32);
+                    code[words++] = R5900::movz(R5900::R_T1, R5900::R_T2, R5900::R_T4);
+                    break;
+                case 3: // ARM ROR Rs uses the low five bits after zero check.
+                    code[words++] = R5900::subu(R5900::R_T4, R5900::R_ZERO, R5900::R_T3);
+                    code[words++] = R5900::srlv(R5900::R_T2, R5900::R_T1, R5900::R_T3);
+                    code[words++] = R5900::sllv(R5900::R_T1, R5900::R_T1, R5900::R_T4);
+                    code[words++] = R5900::or_(R5900::R_T1, R5900::R_T1, R5900::R_T2);
+                    break;
+                default:
+                    return 0;
+            }
+        }
+        else
+        {
+            switch (decoded.shiftType)
+            {
+                case 0:
+                    if (decoded.shiftAmount)
+                        code[words++] = R5900::sll(R5900::R_T1, R5900::R_T1,
+                            decoded.shiftAmount);
+                    break;
+                case 1:
+                    if (decoded.shiftAmount)
+                        code[words++] = R5900::srl(R5900::R_T1, R5900::R_T1,
+                            decoded.shiftAmount);
+                    else
+                        code[words++] = R5900::or_(R5900::R_T1,
+                            R5900::R_ZERO, R5900::R_ZERO);
+                    break;
+                case 2:
+                    code[words++] = R5900::sra(R5900::R_T1, R5900::R_T1,
+                        decoded.shiftAmount ? decoded.shiftAmount : 31);
+                    break;
+                case 3:
+                    code[words++] = R5900::srl(R5900::R_T2, R5900::R_T1,
                         decoded.shiftAmount);
-                break;
-            case 1:
-                if (decoded.shiftAmount)
-                    code[words++] = R5900::srl(R5900::R_T1, R5900::R_T1,
-                        decoded.shiftAmount);
-                else
+                    code[words++] = R5900::sll(R5900::R_T3, R5900::R_T1,
+                        32u - decoded.shiftAmount);
                     code[words++] = R5900::or_(R5900::R_T1,
-                        R5900::R_ZERO, R5900::R_ZERO);
-                break;
-            case 2:
-                code[words++] = R5900::sra(R5900::R_T1, R5900::R_T1,
-                    decoded.shiftAmount ? decoded.shiftAmount : 31);
-                break;
-            case 3:
-                code[words++] = R5900::srl(R5900::R_T2, R5900::R_T1,
-                    decoded.shiftAmount);
-                code[words++] = R5900::sll(R5900::R_T3, R5900::R_T1,
-                    32u - decoded.shiftAmount);
-                code[words++] = R5900::or_(R5900::R_T1,
-                    R5900::R_T2, R5900::R_T3);
-                break;
-            default:
-                return 0;
+                        R5900::R_T2, R5900::R_T3);
+                    break;
+                default:
+                    return 0;
+            }
         }
     }
 
@@ -201,7 +353,7 @@ bool DynarecR5900::emitArmAluBlock(uint32_t opcode, uint32_t **entry, uint8_t *r
     if (!Ps2ArmAlu::decode(opcode, &decoded))
         return false;
 
-    uint32_t *code = cache.reserveWords(12);
+    uint32_t *code = cache.reserveWords(16);
     if (!code)
         return false;
 
@@ -225,9 +377,9 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     if (!opcodes || !count || !entry || !hostWords)
         return false;
 
-    // Eight host instructions per guest opcode is the current worst case
-    // (Rn/Rm loads + ROR + BIC's NOR/AND + Rd store), plus return.
-    const size_t maxWords = count * 8 + 2;
+    // Ten host instructions per guest opcode covers register-controlled ASR
+    // clamping plus the guest ALU operation/store, with a final return pair.
+    const size_t maxWords = count * 10 + 2;
     uint32_t *code = cache.reserveWords(maxWords);
     if (!code)
         return false;
@@ -267,6 +419,8 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             block.readMask |= static_cast<uint16_t>(1u << decoded.rn);
         if (!decoded.immediate)
             block.readMask |= static_cast<uint16_t>(1u << decoded.rm);
+        if (decoded.registerShift)
+            block.readMask |= static_cast<uint16_t>(1u << decoded.rs);
         block.writeMask |= static_cast<uint16_t>(1u << decoded.rd);
     }
     blocks.push_back(block);
@@ -287,6 +441,8 @@ bool DynarecR5900::runArmAluSelfTest()
 
     const Test tests[] =
     {
+        { 0xE0098E18u,  8, 0x0000AB00u }, // AND r8,r9,r8,LSL r14
+        { 0xE1A08E58u,  8, 0x000000ABu }, // MOV r8,r8,ASR r14
         { 0xE1A0424Bu,  4, 0xFF234567u }, // MOV r4,r11,ASR #4
         { 0xE1A0704Bu,  7, 0xFFFFFFFFu }, // MOV r7,r11,ASR #32
         { 0xE1A02001u,  2, 0x01020304u }, // MOV r2,r1
@@ -313,7 +469,10 @@ bool DynarecR5900::runArmAluSelfTest()
     ArmAluState state = {};
     state.r[0] = 0x12345678u;
     state.r[1] = 0x01020304u;
+    state.r[8] = 0x000000FFu;
+    state.r[9] = 0x0000ABCDu;
     state.r[11] = 0xF2345678u;
+    state.r[14] = 8u;
 
     for (size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); i++)
     {

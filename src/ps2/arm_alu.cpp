@@ -1,6 +1,8 @@
 #include "../defines.h"
 #include "arm_alu.h"
 
+#include <cstdio>
+
 namespace
 {
 uint32_t arithmeticShiftRight(uint32_t value, uint32_t amount)
@@ -49,6 +51,46 @@ bool Ps2ArmAlu::applyImmediateShift(uint32_t value, uint8_t type,
     return false;
 }
 
+bool Ps2ArmAlu::applyRegisterShift(uint32_t value, uint8_t type,
+    uint32_t registerAmount, uint32_t *result)
+{
+    if (!result)
+        return false;
+
+    uint32_t amount = registerAmount & 0xFFu;
+    if (!amount)
+    {
+        *result = value;
+        return true;
+    }
+
+    switch (type)
+    {
+        case 0: // LSL Rs
+            *result = (amount < 32) ? value << amount : 0;
+            return true;
+
+        case 1: // LSR Rs
+            *result = (amount < 32) ? value >> amount : 0;
+            return true;
+
+        case 2: // ASR Rs
+            *result = arithmeticShiftRight(value, amount);
+            return true;
+
+        case 3: // ROR Rs
+        {
+            uint32_t rotate = amount & 31u;
+            *result = rotate
+                ? (value >> rotate) | (value << (32u - rotate))
+                : value;
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool Ps2ArmAlu::decode(uint32_t opcode, Decoded *decoded)
 {
     if (!decoded ||
@@ -66,18 +108,27 @@ bool Ps2ArmAlu::decode(uint32_t opcode, Decoded *decoded)
 
     if (!decoded->immediate)
     {
-        // Register-controlled shifts and the miscellaneous/multiply encodings
-        // share bit 4. Only immediate barrel shifts are admitted for now.
-        if (opcode & BIT(4))
-            return false;
         decoded->shiftType = static_cast<uint8_t>((opcode >> 5) & 0x3);
-        decoded->shiftAmount = static_cast<uint8_t>((opcode >> 7) & 0x1F);
-        if (decoded->shiftType == 3 && decoded->shiftAmount == 0)
-            return false; // RRX needs CPSR.C.
+        if (opcode & BIT(4))
+        {
+            // Bit 7 distinguishes data-processing register shifts from the
+            // multiply/extra-transfer encodings that share bits 4-7.
+            if (opcode & BIT(7))
+                return false;
+            decoded->registerShift = true;
+            decoded->rs = static_cast<uint8_t>((opcode >> 8) & 0xF);
+        }
+        else
+        {
+            decoded->shiftAmount = static_cast<uint8_t>((opcode >> 7) & 0x1F);
+            if (decoded->shiftType == 3 && decoded->shiftAmount == 0)
+                return false; // RRX needs CPSR.C.
+        }
     }
 
     if (decoded->rd == 15 ||
         (!decoded->immediate && decoded->rm == 15) ||
+        (decoded->registerShift && decoded->rs == 15) ||
         (decoded->operation != 13 && decoded->operation != 15 &&
             decoded->rn == 15))
         return false;
@@ -120,10 +171,16 @@ bool Ps2ArmAlu::execute(uint32_t opcode, uint32_t registers[16])
         return false;
 
     uint32_t operand2 = decoded.immediateValue;
-    if (!decoded.immediate &&
-        !applyImmediateShift(registers[decoded.rm], decoded.shiftType,
-            decoded.shiftAmount, &operand2))
-        return false;
+    if (!decoded.immediate)
+    {
+        bool shifted = decoded.registerShift
+            ? applyRegisterShift(registers[decoded.rm], decoded.shiftType,
+                registers[decoded.rs], &operand2)
+            : applyImmediateShift(registers[decoded.rm], decoded.shiftType,
+                decoded.shiftAmount, &operand2);
+        if (!shifted)
+            return false;
+    }
 
     uint32_t result = 0;
     switch (decoded.operation)
@@ -142,4 +199,315 @@ bool Ps2ArmAlu::execute(uint32_t opcode, uint32_t registers[16])
 
     registers[decoded.rd] = result;
     return true;
+}
+
+void Ps2ArmAlu::inspect(uint32_t opcode, uint32_t pc, InstructionInfo *info)
+{
+    if (!info)
+        return;
+
+    *info = InstructionInfo();
+    info->condition = static_cast<uint8_t>(opcode >> 28);
+    info->readsFlags = info->condition != 0xEu;
+
+    if ((opcode & 0x0FFFFFF0u) == 0x012FFF10u)
+    {
+        info->kind = KIND_BRANCH_EXCHANGE;
+        info->rm = static_cast<uint8_t>(opcode & 0xFu);
+        info->readMask = static_cast<uint16_t>(1u << info->rm);
+        info->terminatesBlock = true;
+        return;
+    }
+
+    uint32_t group = (opcode >> 25) & 0x7u;
+    if (group == 0x5u)
+    {
+        info->kind = KIND_BRANCH;
+        int32_t offset = static_cast<int32_t>(opcode & 0x00FFFFFFu);
+        if (offset & 0x00800000)
+            offset |= static_cast<int32_t>(0xFF000000u);
+        offset *= 4;
+        info->branchTarget = pc + 8u + static_cast<uint32_t>(offset);
+        info->backEdge = info->branchTarget <= pc;
+        info->terminatesBlock = true;
+        if (opcode & BIT(24))
+            info->writeMask = static_cast<uint16_t>(1u << 14);
+        return;
+    }
+
+    if (group == 0x4u)
+    {
+        info->kind = KIND_MULTI_MEMORY;
+        info->rn = static_cast<uint8_t>((opcode >> 16) & 0xFu);
+        info->readMask = static_cast<uint16_t>(1u << info->rn);
+        uint16_t registers = static_cast<uint16_t>(opcode);
+        if (opcode & BIT(20))
+            info->writeMask = registers;
+        else
+            info->readMask |= registers;
+        if ((opcode & BIT(20)) && (registers & BIT(15)))
+            info->terminatesBlock = true;
+        return;
+    }
+
+    bool longMultiply = (opcode & 0x0F8000F0u) == 0x00800090u;
+    if ((opcode & 0x0FC000F0u) == 0x00000090u || longMultiply)
+    {
+        info->kind = KIND_MULTIPLY;
+        info->rd = static_cast<uint8_t>((opcode >> (longMultiply ? 12 : 16)) & 0xFu);
+        info->rn = static_cast<uint8_t>((opcode >> (longMultiply ? 16 : 12)) & 0xFu);
+        info->rs = static_cast<uint8_t>((opcode >> 8) & 0xFu);
+        info->rm = static_cast<uint8_t>(opcode & 0xFu);
+        info->readMask = static_cast<uint16_t>((1u << info->rm) | (1u << info->rs));
+        if (opcode & BIT(21))
+        {
+            info->readMask |= static_cast<uint16_t>(1u << info->rn);
+            if (longMultiply)
+                info->readMask |= static_cast<uint16_t>(1u << info->rd);
+        }
+        info->writeMask = static_cast<uint16_t>(1u << info->rd);
+        if (longMultiply)
+            info->writeMask |= static_cast<uint16_t>(1u << info->rn);
+        info->writesFlags = (opcode & BIT(20)) != 0;
+        return;
+    }
+
+    if ((opcode & 0x0C000000u) == 0x04000000u ||
+        (opcode & 0x0E000090u) == 0x00000090u)
+    {
+        info->kind = KIND_MEMORY;
+        info->rn = static_cast<uint8_t>((opcode >> 16) & 0xFu);
+        info->rd = static_cast<uint8_t>((opcode >> 12) & 0xFu);
+        info->readMask = static_cast<uint16_t>(1u << info->rn);
+        if (opcode & BIT(20))
+            info->writeMask = static_cast<uint16_t>(1u << info->rd);
+        else
+            info->readMask |= static_cast<uint16_t>(1u << info->rd);
+        bool extraTransfer = (opcode & 0x0E000090u) == 0x00000090u;
+        bool registerOffset = extraTransfer
+            ? !(opcode & BIT(22)) : (opcode & BIT(25));
+        if (registerOffset)
+        {
+            info->rm = static_cast<uint8_t>(opcode & 0xFu);
+            info->readMask |= static_cast<uint16_t>(1u << info->rm);
+        }
+        if ((opcode & BIT(21)) || !(opcode & BIT(24)))
+            info->writeMask |= static_cast<uint16_t>(1u << info->rn);
+        if ((opcode & BIT(20)) && info->rd == 15)
+            info->terminatesBlock = true;
+        return;
+    }
+
+    if ((opcode & 0x0C000000u) == 0)
+    {
+        info->kind = KIND_DATA;
+        info->immediate = (opcode & BIT(25)) != 0;
+        info->operation = static_cast<uint8_t>((opcode >> 21) & 0xFu);
+        info->rn = static_cast<uint8_t>((opcode >> 16) & 0xFu);
+        info->rd = static_cast<uint8_t>((opcode >> 12) & 0xFu);
+        info->rm = static_cast<uint8_t>(opcode & 0xFu);
+        info->writesFlags = (opcode & BIT(20)) != 0;
+
+        bool usesRn = info->operation != 13 && info->operation != 15;
+        bool writesRd = info->operation < 8 || info->operation > 11;
+        if (usesRn)
+            info->readMask |= static_cast<uint16_t>(1u << info->rn);
+        if (writesRd)
+        {
+            info->writeMask |= static_cast<uint16_t>(1u << info->rd);
+            if (info->rd == 15)
+                info->terminatesBlock = true;
+        }
+
+        if (info->immediate)
+        {
+            uint32_t value = opcode & 0xFFu;
+            uint32_t rotate = ((opcode >> 8) & 0xFu) * 2u;
+            if (rotate)
+                value = (value >> rotate) | (value << (32u - rotate));
+            info->immediateValue = value;
+        }
+        else
+        {
+            info->readMask |= static_cast<uint16_t>(1u << info->rm);
+            info->shiftType = static_cast<uint8_t>((opcode >> 5) & 0x3u);
+            info->registerShift = (opcode & BIT(4)) != 0;
+            if (info->registerShift)
+            {
+                info->rs = static_cast<uint8_t>((opcode >> 8) & 0xFu);
+                info->readMask |= static_cast<uint16_t>(1u << info->rs);
+            }
+            else
+            {
+                info->shiftAmount = static_cast<uint8_t>((opcode >> 7) & 0x1Fu);
+                if (info->shiftType == 3 && !info->shiftAmount)
+                    info->readsFlags = true; // RRX consumes CPSR.C.
+            }
+        }
+        return;
+    }
+
+    info->kind = (group >= 0x6u) ? KIND_SYSTEM : KIND_UNKNOWN;
+}
+
+Ps2ArmAlu::RejectReason Ps2ArmAlu::rejectionReason(uint32_t opcode)
+{
+    Decoded decoded;
+    if (decode(opcode, &decoded))
+        return REJECT_NONE;
+
+    InstructionInfo info;
+    inspect(opcode, 0, &info);
+    if (info.condition != 0xEu)
+        return REJECT_CONDITION;
+
+    switch (info.kind)
+    {
+        case KIND_MEMORY:
+        case KIND_MULTI_MEMORY:
+            return REJECT_MEMORY;
+        case KIND_BRANCH:
+        case KIND_BRANCH_EXCHANGE:
+            return REJECT_BRANCH;
+        case KIND_MULTIPLY:
+            return REJECT_UNSUPPORTED_OPCODE;
+        case KIND_SYSTEM:
+            return REJECT_SYSTEM;
+        case KIND_DATA:
+            if (info.writesFlags || info.readsFlags)
+                return REJECT_FLAGS;
+            if ((info.readMask | info.writeMask) & BIT(15))
+                return REJECT_PC;
+            if (!info.immediate && info.registerShift && (opcode & BIT(7)))
+                return REJECT_SHIFT;
+            return REJECT_UNSUPPORTED_OPCODE;
+        default:
+            return REJECT_OTHER;
+    }
+}
+
+const char *Ps2ArmAlu::rejectionReasonName(RejectReason reason)
+{
+    static const char *names[REJECT_REASON_COUNT] =
+    {
+        "supported", "unsupported-opcode", "condition", "flags", "shift",
+        "memory", "branch", "pc", "system", "other"
+    };
+    return (reason < REJECT_REASON_COUNT) ? names[reason] : "other";
+}
+
+void Ps2ArmAlu::format(uint32_t opcode, uint32_t pc, char *buffer, uint32_t size)
+{
+    if (!buffer || !size)
+        return;
+
+    InstructionInfo info;
+    inspect(opcode, pc, &info);
+    static const char *conditions[16] =
+        { "EQ", "NE", "CS", "CC", "MI", "PL", "VS", "VC",
+          "HI", "LS", "GE", "LT", "GT", "LE", "AL", "NV" };
+    static const char *operations[16] =
+        { "AND", "EOR", "SUB", "RSB", "ADD", "ADC", "SBC", "RSC",
+          "TST", "TEQ", "CMP", "CMN", "ORR", "MOV", "BIC", "MVN" };
+    static const char *shifts[4] = { "LSL", "LSR", "ASR", "ROR" };
+    const char *condition = conditions[info.condition & 0xFu];
+
+    if (info.kind == KIND_BRANCH)
+    {
+        std::snprintf(buffer, size, "%s.%s 0x%08lX",
+            (opcode & BIT(24)) ? "BL" : "B", condition,
+            static_cast<unsigned long>(info.branchTarget));
+        return;
+    }
+    if (info.kind == KIND_BRANCH_EXCHANGE)
+    {
+        std::snprintf(buffer, size, "BX.%s r%u", condition, info.rm);
+        return;
+    }
+    if (info.kind == KIND_MEMORY || info.kind == KIND_MULTI_MEMORY)
+    {
+        bool extraTransfer = (opcode & 0x0E000090u) == 0x00000090u;
+        const char *mnemonic = (opcode & BIT(20)) ? "LDR" : "STR";
+        if (extraTransfer)
+        {
+            uint8_t type = static_cast<uint8_t>((opcode >> 5) & 0x3u);
+            if (type == 1) mnemonic = (opcode & BIT(20)) ? "LDRH" : "STRH";
+            else if (type == 2) mnemonic = "LDRSB";
+            else if (type == 3) mnemonic = "LDRSH";
+        }
+
+        if (info.rm != 0xFFu)
+            std::snprintf(buffer, size, "%s.%s r%u,[r%u,%sr%u]",
+                mnemonic, condition, info.rd, info.rn,
+                (opcode & BIT(23)) ? "+" : "-", info.rm);
+        else
+            std::snprintf(buffer, size, "%s.%s r%u,[r%u]",
+                mnemonic, condition, info.rd, info.rn);
+        return;
+    }
+    if (info.kind == KIND_MULTIPLY)
+    {
+        bool longMultiply = (opcode & 0x0F8000F0u) == 0x00800090u;
+        if (longMultiply)
+        {
+            const char *mnemonic;
+            if (opcode & BIT(22))
+                mnemonic = (opcode & BIT(21)) ? "SMLAL" : "SMULL";
+            else
+                mnemonic = (opcode & BIT(21)) ? "UMLAL" : "UMULL";
+            std::snprintf(buffer, size, "%s.%s r%u,r%u,r%u,r%u",
+                mnemonic, condition, info.rd, info.rn, info.rm, info.rs);
+        }
+        else
+        {
+            std::snprintf(buffer, size, "%s.%s r%u,r%u,r%u",
+                (opcode & BIT(21)) ? "MLA" : "MUL", condition,
+                info.rd, info.rm, info.rs);
+        }
+        return;
+    }
+    if (info.kind != KIND_DATA)
+    {
+        std::snprintf(buffer, size, "UNKNOWN.%s 0x%08lX", condition,
+            static_cast<unsigned long>(opcode));
+        return;
+    }
+
+    char operand[48] = {};
+    if (info.immediate)
+    {
+        std::snprintf(operand, sizeof(operand), "#0x%lX",
+            static_cast<unsigned long>(info.immediateValue));
+    }
+    else if (info.registerShift)
+    {
+        std::snprintf(operand, sizeof(operand), "r%u,%s r%u",
+            info.rm, shifts[info.shiftType], info.rs);
+    }
+    else if (info.shiftAmount || info.shiftType)
+    {
+        uint32_t amount = info.shiftAmount;
+        if (!amount && (info.shiftType == 1 || info.shiftType == 2))
+            amount = 32;
+        if (!amount && info.shiftType == 3)
+            std::snprintf(operand, sizeof(operand), "r%u,RRX", info.rm);
+        else
+            std::snprintf(operand, sizeof(operand), "r%u,%s #%lu",
+                info.rm, shifts[info.shiftType], static_cast<unsigned long>(amount));
+    }
+    else
+    {
+        std::snprintf(operand, sizeof(operand), "r%u", info.rm);
+    }
+
+    const char *mnemonic = operations[info.operation & 0xFu];
+    if (info.operation >= 8 && info.operation <= 11)
+        std::snprintf(buffer, size, "%s.%s r%u,%s", mnemonic, condition,
+            info.rn, operand);
+    else if (info.operation == 13 || info.operation == 15)
+        std::snprintf(buffer, size, "%s%s.%s r%u,%s", mnemonic,
+            info.writesFlags ? "S" : "", condition, info.rd, operand);
+    else
+        std::snprintf(buffer, size, "%s%s.%s r%u,r%u,%s", mnemonic,
+            info.writesFlags ? "S" : "", condition, info.rd, info.rn, operand);
 }

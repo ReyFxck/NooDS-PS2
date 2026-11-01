@@ -128,6 +128,7 @@ class Core
             interpreter[0].setProfileEnabled(enabled);
             interpreter[1].setProfileEnabled(enabled);
 #ifdef NOODS_PROFILE
+            memory.setProfileEnabled(enabled);
             gpu.setProfileEnabled(enabled);
             gpu2D[0].setProfileEnabled(enabled);
             gpu2D[1].setProfileEnabled(enabled);
@@ -140,6 +141,7 @@ class Core
             interpreter[0].resetProfile();
             interpreter[1].resetProfile();
 #ifdef NOODS_PROFILE
+            memory.resetProfile();
             gpu.resetProfile();
             gpu2D[0].resetProfile();
             gpu2D[1].resetProfile();

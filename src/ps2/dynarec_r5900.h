@@ -5,7 +5,55 @@
 #include <cstdint>
 #include <vector>
 
+#include "arm_alu.h"
 #include "r5900_code_cache.h"
+
+constexpr size_t R5900_ANALYSIS_MAX_INSTRUCTIONS = 32;
+
+struct R5900AnalyzedInstruction
+{
+    uint32_t pc = 0;
+    uint32_t opcode = 0;
+    Ps2ArmAlu::InstructionInfo info;
+    Ps2ArmAlu::RejectReason reason = Ps2ArmAlu::REJECT_OTHER;
+};
+
+struct R5900BlockAnalysis
+{
+    uint32_t startPc = 0;
+    uint32_t endPc = 0;
+    uint32_t branchTarget = 0xFFFFFFFFu;
+    uint16_t readMask = 0;
+    uint16_t writeMask = 0;
+    uint8_t instructionCount = 0;
+    uint8_t supportedInstructions = 0;
+    uint8_t firstUnsupported = 0xFFu;
+    bool backEdge = false;
+    R5900AnalyzedInstruction instructions[R5900_ANALYSIS_MAX_INSTRUCTIONS] = {};
+};
+
+struct R5900FallbackProfile
+{
+    uint32_t pc = 0;
+    uint32_t opcode = 0;
+    uint32_t count = 0;
+};
+
+struct R5900DynarecProfile
+{
+    uint64_t compileAttempts = 0;
+    uint64_t compileSuccess = 0;
+    uint64_t compileRejected = 0;
+    uint64_t lookupHits = 0;
+    uint64_t lookupMisses = 0;
+    uint64_t guestInstructions = 0;
+    uint64_t supportedInstructions = 0;
+    uint64_t fallbackCount = 0;
+    uint64_t mapInvalidations = 0;
+    uint64_t rejectReason[Ps2ArmAlu::REJECT_REASON_COUNT] = {};
+    uint32_t largestBlock = 0;
+    R5900FallbackProfile topFallback[16] = {};
+};
 
 class Memory;
 class Interpreter;
@@ -74,6 +122,13 @@ class DynarecR5900
             uint32_t *guestPc = nullptr, uint32_t *instructionCount = nullptr,
             uint32_t *stateHash = nullptr);
 
+        // PROFILE/shadow analysis only. Reads opcodes exclusively through the
+        // ARM9 direct map and never executes or mutates guest state.
+        bool analyzeArmBlock(uint32_t pc, R5900BlockAnalysis *analysis,
+            size_t maxInstructions = R5900_ANALYSIS_MAX_INSTRUCTIONS);
+        void resetProfile() { profile = R5900DynarecProfile(); }
+        const R5900DynarecProfile &getProfile() const { return profile; }
+
         size_t codeCacheUsed() const { return cache.usedBytes(); }
         size_t codeCacheCapacity() const { return cache.capacity(); }
         size_t blockCount() const { return blocks.size(); }
@@ -84,6 +139,7 @@ class DynarecR5900
         std::vector<R5900CompiledBlock> blocks;
         uint32_t mappedGeneration = 0;
         uint32_t *probeCode = nullptr;
+        R5900DynarecProfile profile;
 
         bool emitArmAluBlock(uint32_t opcode, uint32_t **entry, uint8_t *rd);
         bool emitArmAluSequence(const uint32_t *opcodes, size_t count,

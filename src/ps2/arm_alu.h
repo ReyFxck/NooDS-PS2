@@ -8,6 +8,56 @@
 // lets host CI exercise all edge cases before the runtime differential gate.
 namespace Ps2ArmAlu
 {
+    enum InstructionKind : uint8_t
+    {
+        KIND_DATA = 0,
+        KIND_MULTIPLY,
+        KIND_MEMORY,
+        KIND_MULTI_MEMORY,
+        KIND_BRANCH,
+        KIND_BRANCH_EXCHANGE,
+        KIND_SYSTEM,
+        KIND_UNKNOWN
+    };
+
+    enum RejectReason : uint8_t
+    {
+        REJECT_NONE = 0,
+        REJECT_UNSUPPORTED_OPCODE,
+        REJECT_CONDITION,
+        REJECT_FLAGS,
+        REJECT_SHIFT,
+        REJECT_MEMORY,
+        REJECT_BRANCH,
+        REJECT_PC,
+        REJECT_SYSTEM,
+        REJECT_OTHER,
+        REJECT_REASON_COUNT
+    };
+
+    struct InstructionInfo
+    {
+        InstructionKind kind = KIND_UNKNOWN;
+        uint8_t condition = 0;
+        uint8_t operation = 0;
+        uint8_t rn = 0xFF;
+        uint8_t rd = 0xFF;
+        uint8_t rm = 0xFF;
+        uint8_t rs = 0xFF;
+        uint8_t shiftType = 0;
+        uint8_t shiftAmount = 0;
+        uint32_t immediateValue = 0;
+        uint32_t branchTarget = 0xFFFFFFFFu;
+        uint16_t readMask = 0;
+        uint16_t writeMask = 0;
+        bool immediate = false;
+        bool registerShift = false;
+        bool readsFlags = false;
+        bool writesFlags = false;
+        bool backEdge = false;
+        bool terminatesBlock = false;
+    };
+
     struct Decoded
     {
         bool immediate = false;
@@ -15,15 +65,23 @@ namespace Ps2ArmAlu
         uint8_t rn = 0;
         uint8_t rd = 0;
         uint8_t rm = 0;
+        uint8_t rs = 0;
         uint8_t shiftType = 0;
         uint8_t shiftAmount = 0;
+        bool registerShift = false;
         uint32_t immediateValue = 0;
     };
 
     bool applyImmediateShift(uint32_t value, uint8_t type,
         uint8_t encodedAmount, uint32_t *result);
+    bool applyRegisterShift(uint32_t value, uint8_t type,
+        uint32_t registerAmount, uint32_t *result);
     bool decode(uint32_t opcode, Decoded *decoded);
     bool execute(uint32_t opcode, uint32_t registers[16]);
+    void inspect(uint32_t opcode, uint32_t pc, InstructionInfo *info);
+    RejectReason rejectionReason(uint32_t opcode);
+    const char *rejectionReasonName(RejectReason reason);
+    void format(uint32_t opcode, uint32_t pc, char *buffer, uint32_t size);
 }
 
 #endif

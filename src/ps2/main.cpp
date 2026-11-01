@@ -282,6 +282,119 @@ bool probeNdsRom(const char *path)
 }
 
 #ifdef NOODS_PROFILE
+void collectTopHotPc(const InterpreterProfile &profile, InterpreterHotPc *top,
+    size_t count)
+{
+    if (!top || !count)
+        return;
+    for (size_t i = 0; i < count; i++)
+        top[i] = InterpreterHotPc();
+
+    for (size_t i = 0; i < 256; i++)
+    {
+        const InterpreterHotPc &candidate = profile.hotPc[i];
+        if (!candidate.samples)
+            continue;
+
+        for (size_t slot = 0; slot < count; slot++)
+        {
+            if (candidate.samples > top[slot].samples)
+            {
+                for (size_t move = count - 1; move > slot; move--)
+                    top[move] = top[move - 1];
+                top[slot] = candidate;
+                break;
+            }
+        }
+    }
+}
+
+const char *armInstructionKindName(Ps2ArmAlu::InstructionKind kind)
+{
+    switch (kind)
+    {
+        case Ps2ArmAlu::KIND_DATA:            return "data";
+        case Ps2ArmAlu::KIND_MULTIPLY:        return "multiply";
+        case Ps2ArmAlu::KIND_MEMORY:          return "memory";
+        case Ps2ArmAlu::KIND_MULTI_MEMORY:    return "multi";
+        case Ps2ArmAlu::KIND_BRANCH:          return "branch";
+        case Ps2ArmAlu::KIND_BRANCH_EXCHANGE: return "branch-exchange";
+        case Ps2ArmAlu::KIND_SYSTEM:          return "system";
+        default:                              return "other";
+    }
+}
+
+const char *ndsMemoryClass(uint32_t address)
+{
+    switch (address >> 24)
+    {
+        case 0x00: return "ITCM/low";
+        case 0x02: return "main-RAM";
+        case 0x03: return "WRAM";
+        case 0x04: return "MMIO";
+        case 0x05: return "palette";
+        case 0x06: return "VRAM";
+        case 0x07: return "OAM";
+        case 0x08: case 0x09: return "ROM";
+        case 0xFF: return "BIOS/high";
+        default:   return "unknown";
+    }
+}
+
+void logMemoryProfile(const char *label, const MemoryCpuProfile &profile)
+{
+    PS2_LOG("[PS2][PROF] memory %s sampled/64: read=%llu direct=%llu fallback=%llu write=%llu direct=%llu fallback=%llu | MMIO=%llu/%llu VRAM=%llu/%llu palette=%llu/%llu TCM=%llu/%llu unaligned=%llu/%llu crossPage=%llu/%llu\n",
+        label,
+        static_cast<unsigned long long>(profile.sampledReads),
+        static_cast<unsigned long long>(profile.directReads),
+        static_cast<unsigned long long>(profile.fallbackReads),
+        static_cast<unsigned long long>(profile.sampledWrites),
+        static_cast<unsigned long long>(profile.directWrites),
+        static_cast<unsigned long long>(profile.fallbackWrites),
+        static_cast<unsigned long long>(profile.mmioReads),
+        static_cast<unsigned long long>(profile.mmioWrites),
+        static_cast<unsigned long long>(profile.vramReads),
+        static_cast<unsigned long long>(profile.vramWrites),
+        static_cast<unsigned long long>(profile.paletteReads),
+        static_cast<unsigned long long>(profile.paletteWrites),
+        static_cast<unsigned long long>(profile.tcmReads),
+        static_cast<unsigned long long>(profile.tcmWrites),
+        static_cast<unsigned long long>(profile.unalignedReads),
+        static_cast<unsigned long long>(profile.unalignedWrites),
+        static_cast<unsigned long long>(profile.crossPageReads),
+        static_cast<unsigned long long>(profile.crossPageWrites));
+
+    uint8_t mmioOrder[8] = {};
+    for (uint8_t i = 0; i < 8; i++)
+        mmioOrder[i] = i;
+    for (uint8_t i = 0; i < 8; i++)
+    {
+        for (uint8_t j = i + 1; j < 8; j++)
+        {
+            if (profile.hotMmio[mmioOrder[j]].samples >
+                profile.hotMmio[mmioOrder[i]].samples)
+            {
+                uint8_t swap = mmioOrder[i];
+                mmioOrder[i] = mmioOrder[j];
+                mmioOrder[j] = swap;
+            }
+        }
+    }
+    for (uint8_t rank = 0; rank < 8; rank++)
+    {
+        const MemoryHotMmio &hot = profile.hotMmio[mmioOrder[rank]];
+        if (!hot.samples)
+            break;
+        PS2_LOG("[PS2][PROF] memory %s MMIO#%u address=%08lX samples=%lu read=%lu write=%lu\n",
+            label,
+            rank,
+            static_cast<unsigned long>(hot.address),
+            static_cast<unsigned long>(hot.samples),
+            static_cast<unsigned long>(hot.reads),
+            static_cast<unsigned long>(hot.writes));
+    }
+}
+
 void logInterpreterProfile(const char *label, const InterpreterProfile &profile)
 {
     PS2_LOG("[PS2][PROF] %s instr=%llu ARM=%llu THUMB=%llu | ARM dp=%llu mem=%llu multi=%llu branch=%llu sys=%llu | THUMB alu=%llu mem=%llu stack=%llu multi=%llu branch=%llu\n",
@@ -301,23 +414,7 @@ void logInterpreterProfile(const char *label, const InterpreterProfile &profile)
         static_cast<unsigned long long>(profile.thumbClass[4]));
 
     InterpreterHotPc top[6] = {};
-    for (size_t i = 0; i < 256; i++)
-    {
-        const InterpreterHotPc &candidate = profile.hotPc[i];
-        if (!candidate.samples)
-            continue;
-
-        for (int slot = 0; slot < 6; slot++)
-        {
-            if (candidate.samples > top[slot].samples)
-            {
-                for (int move = 5; move > slot; move--)
-                    top[move] = top[move - 1];
-                top[slot] = candidate;
-                break;
-            }
-        }
-    }
+    collectTopHotPc(profile, top, 6);
 
     PS2_LOG("[PS2][PROF] %s hotPC(sample/64): %08lX:%08lX:%lu %08lX:%08lX:%lu %08lX:%08lX:%lu %08lX:%08lX:%lu %08lX:%08lX:%lu %08lX:%08lX:%lu\n",
         label,
@@ -337,12 +434,9 @@ void logInterpreterProfile(const char *label, const InterpreterProfile &profile)
         }
         else
         {
-            uint32_t group = (top[i].opcode >> 25) & 0x7u;
-            if (group == 0x5u) kind = "branch";
-            else if (group == 0x4u) kind = "multi";
-            else if ((top[i].opcode & 0x0C000000u) == 0x04000000u) kind = "memory";
-            else if (group <= 0x1u) kind = "data";
-            else if (group >= 0x6u) kind = "system";
+            Ps2ArmAlu::InstructionInfo info;
+            Ps2ArmAlu::inspect(top[i].opcode, top[i].pc, &info);
+            kind = armInstructionKindName(info.kind);
         }
 
         PS2_LOG("[PS2][PROF] %s hot#%d pc=%08lX op=%08lX next=%08lX mode=%s kind=%s samples=%lu cpsr=%08lX r%u=%08lX r%u=%08lX r%u=%08lX mem=%08lX branch=%08lX nextEvent=%lu\n",
@@ -363,6 +457,198 @@ void logInterpreterProfile(const char *label, const InterpreterProfile &profile)
             static_cast<unsigned long>(top[i].nextEventCycles));
     }
 }
+
+#if NOODS_PROFILE_LEVEL >= 2
+void logDynarecHotBlocks(DynarecR5900 &dynarec,
+    const InterpreterProfile &interpreterProfile)
+{
+    InterpreterHotPc top[6] = {};
+    collectTopHotPc(interpreterProfile, top, 6);
+
+    // Hot-PC counts are sorted by frequency, not address. Start the detailed
+    // snapshot at the earliest sampled instruction in the same local region,
+    // so a tight loop is shown from its actual arithmetic setup rather than
+    // from whichever middle instruction won the sampler.
+    uint32_t detailPc = top[0].pc;
+    for (int hot = 1; hot < 6 && top[hot].samples; hot++)
+    {
+        uint32_t distance = (top[hot].pc > top[0].pc)
+            ? top[hot].pc - top[0].pc : top[0].pc - top[hot].pc;
+        if (!top[hot].thumb && distance <= 0x100u && top[hot].pc < detailPc)
+            detailPc = top[hot].pc;
+    }
+
+    for (int hot = 0; hot < 6 && top[hot].samples; hot++)
+    {
+        R5900BlockAnalysis analysis;
+        if (!dynarec.analyzeArmBlock(top[hot].pc, &analysis, 24))
+        {
+            PS2_LOG("[PS2][JIT] hotblock pc=%08lX support=0/0 firstUnsupported=unmapped reason=memory\n",
+                static_cast<unsigned long>(top[hot].pc));
+            continue;
+        }
+
+        const R5900AnalyzedInstruction *unsupported = nullptr;
+        if (analysis.firstUnsupported < analysis.instructionCount)
+            unsupported = &analysis.instructions[analysis.firstUnsupported];
+        const char *reason = unsupported
+            ? Ps2ArmAlu::rejectionReasonName(unsupported->reason)
+            : "supported";
+
+        PS2_LOG("[PS2][JIT] hotblock pc=%08lX support=%u/%u firstUnsupported=%08lX:%08lX reason=%s\n",
+            static_cast<unsigned long>(analysis.startPc),
+            analysis.supportedInstructions,
+            analysis.instructionCount,
+            static_cast<unsigned long>(unsupported ? unsupported->pc : 0),
+            static_cast<unsigned long>(unsupported ? unsupported->opcode : 0),
+            reason);
+
+        // One bounded detailed snapshot per window; the remaining hot PCs get
+        // only the compact support line above.
+        if (top[hot].pc != detailPc)
+            continue;
+
+        bool hasMemory = false;
+        for (uint8_t i = 0; i < analysis.instructionCount; i++)
+        {
+            Ps2ArmAlu::InstructionKind kind = analysis.instructions[i].info.kind;
+            hasMemory |= kind == Ps2ArmAlu::KIND_MEMORY ||
+                kind == Ps2ArmAlu::KIND_MULTI_MEMORY;
+        }
+
+        uint32_t sampledMemoryAddress = 0xFFFFFFFFu;
+        for (int sample = 0; sample < 6 && top[sample].samples; sample++)
+        {
+            if (top[sample].pc >= analysis.startPc &&
+                top[sample].pc < analysis.endPc &&
+                top[sample].memoryAddress != 0xFFFFFFFFu)
+            {
+                sampledMemoryAddress = top[sample].memoryAddress;
+                break;
+            }
+        }
+        const char *memoryClass = sampledMemoryAddress != 0xFFFFFFFFu
+            ? ndsMemoryClass(sampledMemoryAddress)
+            : (hasMemory ? "address-unsampled" : "none");
+
+        PS2_LOG("[PS2][HOTBLOCK] cpu=ARM9 pc=%08lX end=%08lX sampledExec=%lu estExec=%lu guestInstr=%u guestCycles=%u branch=%08lX backEdge=%u mem=%08lX memClass=%s dynarecSupported=%u/%u read=%04X write=%04X nextEvent=%lu\n",
+            static_cast<unsigned long>(analysis.startPc),
+            static_cast<unsigned long>(analysis.endPc),
+            static_cast<unsigned long>(top[hot].samples),
+            static_cast<unsigned long>(top[hot].samples * 64u),
+            analysis.instructionCount,
+            analysis.instructionCount,
+            static_cast<unsigned long>(analysis.branchTarget),
+            analysis.backEdge ? 1u : 0u,
+            static_cast<unsigned long>(sampledMemoryAddress),
+            memoryClass,
+            analysis.supportedInstructions,
+            analysis.instructionCount,
+            analysis.readMask,
+            analysis.writeMask,
+            static_cast<unsigned long>(top[hot].nextEventCycles));
+
+        for (uint8_t i = 0; i < analysis.instructionCount; i++)
+        {
+            const R5900AnalyzedInstruction &instruction = analysis.instructions[i];
+            char decoded[112] = {};
+            Ps2ArmAlu::format(instruction.opcode, instruction.pc,
+                decoded, sizeof(decoded));
+            PS2_LOG("[PS2][HOTBLOCK] +%02u pc=%08lX op=%08lX %-42s cond=%X S=%u flagsR=%u flagsW=%u Rn=%u Rd=%u Rm=%u Rs=%u shift=%u/%u imm=%08lX read=%04X write=%04X branch=%08lX back=%u jit=%s\n",
+                i,
+                static_cast<unsigned long>(instruction.pc),
+                static_cast<unsigned long>(instruction.opcode),
+                decoded,
+                instruction.info.condition,
+                instruction.info.writesFlags ? 1u : 0u,
+                instruction.info.readsFlags ? 1u : 0u,
+                instruction.info.writesFlags ? 1u : 0u,
+                instruction.info.rn,
+                instruction.info.rd,
+                instruction.info.rm,
+                instruction.info.rs,
+                instruction.info.shiftType,
+                instruction.info.registerShift
+                    ? instruction.info.rs : instruction.info.shiftAmount,
+                static_cast<unsigned long>(instruction.info.immediateValue),
+                instruction.info.readMask,
+                instruction.info.writeMask,
+                static_cast<unsigned long>(instruction.info.branchTarget),
+                instruction.info.backEdge ? 1u : 0u,
+                Ps2ArmAlu::rejectionReasonName(instruction.reason));
+        }
+    }
+
+    const R5900DynarecProfile &profile = dynarec.getProfile();
+    double coverage = profile.guestInstructions
+        ? 100.0 * static_cast<double>(profile.supportedInstructions) /
+            static_cast<double>(profile.guestInstructions)
+        : 0.0;
+    double averageBlock = profile.compileAttempts
+        ? static_cast<double>(profile.guestInstructions) /
+            static_cast<double>(profile.compileAttempts)
+        : 0.0;
+    PS2_LOG("[PS2][JIT] shadow attempts=%llu success=%llu rejected=%llu lookupHit=%llu miss=%llu guest=%llu supported=%llu coverage=%.2f%% avgBlock=%.2f largest=%lu hostWords=0 cache=%u invalidations=%llu fallback=%llu\n",
+        static_cast<unsigned long long>(profile.compileAttempts),
+        static_cast<unsigned long long>(profile.compileSuccess),
+        static_cast<unsigned long long>(profile.compileRejected),
+        static_cast<unsigned long long>(profile.lookupHits),
+        static_cast<unsigned long long>(profile.lookupMisses),
+        static_cast<unsigned long long>(profile.guestInstructions),
+        static_cast<unsigned long long>(profile.supportedInstructions),
+        coverage,
+        averageBlock,
+        static_cast<unsigned long>(profile.largestBlock),
+        static_cast<unsigned int>(dynarec.codeCacheUsed()),
+        static_cast<unsigned long long>(profile.mapInvalidations),
+        static_cast<unsigned long long>(profile.fallbackCount));
+    PS2_LOG("[PS2][JIT] exits: opcode=%llu condition=%llu flags=%llu shift=%llu memory=%llu branch=%llu pc=%llu system=%llu other=%llu\n",
+        static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_UNSUPPORTED_OPCODE]),
+        static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_CONDITION]),
+        static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_FLAGS]),
+        static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_SHIFT]),
+        static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_MEMORY]),
+        static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_BRANCH]),
+        static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_PC]),
+        static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_SYSTEM]),
+        static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_OTHER]));
+
+    uint8_t fallbackOrder[16] = {};
+    for (uint8_t i = 0; i < 16; i++)
+        fallbackOrder[i] = i;
+    for (uint8_t i = 0; i < 16; i++)
+    {
+        for (uint8_t j = i + 1; j < 16; j++)
+        {
+            if (profile.topFallback[fallbackOrder[j]].count >
+                profile.topFallback[fallbackOrder[i]].count)
+            {
+                uint8_t swap = fallbackOrder[i];
+                fallbackOrder[i] = fallbackOrder[j];
+                fallbackOrder[j] = swap;
+            }
+        }
+    }
+    for (uint8_t rank = 0; rank < 16; rank++)
+    {
+        const R5900FallbackProfile &fallback =
+            profile.topFallback[fallbackOrder[rank]];
+        if (!fallback.count)
+            break;
+        char decoded[112] = {};
+        Ps2ArmAlu::format(fallback.opcode, fallback.pc, decoded,
+            sizeof(decoded));
+        PS2_LOG("[PS2][JIT] fallback#%u pc=%08lX op=%08lX count=%lu decode=%s reason=%s\n",
+            rank,
+            static_cast<unsigned long>(fallback.pc),
+            static_cast<unsigned long>(fallback.opcode),
+            static_cast<unsigned long>(fallback.count),
+            decoded,
+            Ps2ArmAlu::rejectionReasonName(
+                Ps2ArmAlu::rejectionReason(fallback.opcode)));
+    }
+}
+#endif
 
 void logGpu2DProfile(const char *label, const Gpu2DRunProfile &profile)
 {
@@ -536,7 +822,7 @@ int main(int argc, char **argv)
 #else
     PS2_LOG(" Instrumentation: disabled\n");
 #endif
-    PS2_LOG(" Dynarec: ARM-ALU-v2 shadow-only\n");
+    PS2_LOG(" Dynarec: ARM-ALU-v3 shadow-only\n");
     PS2_LOG("============================================================\n");
 
     std::string romPath = (argc > 1 && argv[1] && argv[1][0])
@@ -653,7 +939,7 @@ int main(int argc, char **argv)
 
                 if (dynarec.runArmAluSelfTest())
                 {
-                    PS2_LOG("[PS2][OK] ARM->R5900 ALU self-test: 9 operations, rotated immediates and LSL/LSR/ASR/ROR passed.\n");
+                    PS2_LOG("[PS2][OK] ARM->R5900 ALU self-test: 23 operations, rotated immediates and immediate/register LSL/LSR/ASR/ROR passed.\n");
 
                     uint32_t arm9StateHash = 0;
                     if (dynarec.runArm9StateSelfTest(core->interpreter[0], &arm9StateHash))
@@ -960,6 +1246,7 @@ int main(int argc, char **argv)
 #ifdef NOODS_PROFILE
         core->setProfileEnabled(true);
         core->resetProfile();
+        dynarec.resetProfile();
 
         clock_t profCoreTicks = 0;
         clock_t profGetFrameTicks = 0;
@@ -1181,10 +1468,60 @@ int main(int argc, char **argv)
                 profLastRomSeeks = currentRomSeeks;
                 profLastSequentialMisses = currentSequentialMisses;
 
-                logInterpreterProfile("ARM9", core->interpreter[0].getProfile());
-                logInterpreterProfile("ARM7", core->interpreter[1].getProfile());
+                const InterpreterProfile &arm9Profile =
+                    core->interpreter[0].getProfile();
+                logInterpreterProfile("ARM9", arm9Profile);
+#if NOODS_PROFILE_LEVEL >= 2
+                logDynarecHotBlocks(dynarec, arm9Profile);
+#endif
+                const InterpreterProfile &arm7Profile =
+                    core->interpreter[1].getProfile();
+                logInterpreterProfile("ARM7", arm7Profile);
+                const MemoryProfile &memoryProfile = core->memory.getProfile();
+                logMemoryProfile("ARM9", memoryProfile.cpu[0]);
+                logMemoryProfile("ARM7", memoryProfile.cpu[1]);
+
+                InterpreterHotPc summaryHot[1] = {};
+                collectTopHotPc(arm9Profile, summaryHot, 1);
+                const R5900DynarecProfile &jitProfile = dynarec.getProfile();
+                double jitCoverage = jitProfile.guestInstructions
+                    ? 100.0 * static_cast<double>(jitProfile.supportedInstructions) /
+                        static_cast<double>(jitProfile.guestInstructions)
+                    : 0.0;
+                double gpu2dAMs = sampledGpuUs(GPU_PROFILE_2D_A) *
+                    static_cast<double>(gpuProfile.phaseCount[GPU_PROFILE_2D_A]) /
+                    1000.0 / profFrameDiv;
+                double gpu2dBMs = sampledGpuUs(GPU_PROFILE_2D_B) *
+                    static_cast<double>(gpuProfile.phaseCount[GPU_PROFILE_2D_B]) /
+                    1000.0 / profFrameDiv;
+                double gpu3dMs = sampledGpuUs(GPU_PROFILE_3D_RENDER) *
+                    static_cast<double>(gpuProfile.phaseCount[GPU_PROFILE_3D_RENDER]) /
+                    1000.0 / profFrameDiv;
+                double spuMs = sampledTaskUs(TASK_PROFILE_SPU) *
+                    static_cast<double>(runProfile.taskClassCount[TASK_PROFILE_SPU]) /
+                    1000.0 / profFrameDiv;
+
+                PS2_LOG("[PS2][SUMMARY] fps=%.2f coreMs=%.2f coreExIoMs=%.2f romIoMs=%.2f arm9Instr=%llu arm7Instr=%llu gpu2dAMs=%.2f gpu2dBMs=%.2f gpu3dMs=%.2f spuMs=%.2f schedulerMs=%.3f getFrameMs=%.2f gsUploadMs=%.2f presentMs=%.2f hotPc=%08lX hotOpcode=%08lX dynarecCoveragePct=%.2f\n",
+                    profWindowFps,
+                    profCoreMs / profFrameDiv,
+                    coreExIoMs / profFrameDiv,
+                    romIoMs / profFrameDiv,
+                    static_cast<unsigned long long>(arm9Profile.instructions),
+                    static_cast<unsigned long long>(arm7Profile.instructions),
+                    gpu2dAMs,
+                    gpu2dBMs,
+                    gpu3dMs,
+                    spuMs,
+                    schedulerEstimatedMs / profFrameDiv,
+                    profGetMs / profFrameDiv,
+                    profUploadMs / profFrameDiv,
+                    profPresentMs / profFrameDiv,
+                    static_cast<unsigned long>(summaryHot[0].pc),
+                    static_cast<unsigned long>(summaryHot[0].opcode),
+                    jitCoverage);
 
                 core->resetProfile();
+                dynarec.resetProfile();
                 core->cartridgeNds.resetRomIoProfile();
                 profCoreTicks = 0;
                 profGetFrameTicks = 0;
