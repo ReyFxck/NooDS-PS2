@@ -59,6 +59,7 @@ Cartridge::~Cartridge()
     if (rom)  delete[] rom;
     if (save) delete[] save;
     if (romCache) delete[] romCache;
+    if (romReadAhead) delete[] romReadAhead;
     if (romCacheEntries) delete[] romCacheEntries;
 }
 
@@ -156,9 +157,11 @@ size_t Cartridge::readRomFile(void *buffer, size_t size, RomIoCaller caller,
 void Cartridge::configureRomCache(uint32_t bytes)
 {
     if (romCache) delete[] romCache;
+    if (romReadAhead) delete[] romReadAhead;
     if (romCacheEntries) delete[] romCacheEntries;
 
     romCache = nullptr;
+    romReadAhead = nullptr;
     romCacheEntries = nullptr;
     romCachePageCount = 0;
     romCacheBytes = 0;
@@ -170,7 +173,9 @@ void Cartridge::configureRomCache(uint32_t bytes)
     romCacheSequentialMisses = 0;
     romCacheSequentialRun = 0;
     romCacheSequentialRunMax = 0;
-    romCacheLastMissTag = 0xFFFFFFFFu;
+    romCacheLastAccessTag = 0xFFFFFFFFu;
+    romCacheReadAheadReads = 0;
+    romCacheReadAheadPages = 0;
 
     bytes = (bytes / romCachePageSize) * romCachePageSize;
     if (!bytes)
@@ -191,6 +196,31 @@ void Cartridge::configureRomCache(uint32_t bytes)
     romCacheEntries = entries;
     romCachePageCount = pages;
     romCacheBytes = bytes;
+
+    // A two-page staging buffer lets confirmed sequential misses become one
+    // physical read while the independently managed LRU slots stay unchanged.
+    // Failure is harmless: the cache falls back to single-page reads.
+    if (pages >= 2)
+        romReadAhead = new (std::nothrow) uint8_t[romCachePageSize * 2];
+}
+
+uint32_t Cartridge::chooseRomCacheVictim(int excluded) const
+{
+    uint32_t victim = 0;
+    uint32_t oldest = 0xFFFFFFFFu;
+    for (uint32_t i = 0; i < romCachePageCount; i++)
+    {
+        if (static_cast<int>(i) == excluded)
+            continue;
+        if (!romCacheEntries[i].valid)
+            return i;
+        if (romCacheEntries[i].stamp < oldest)
+        {
+            oldest = romCacheEntries[i].stamp;
+            victim = i;
+        }
+    }
+    return victim;
 }
 
 void Cartridge::loadRomSection(uint32_t offset, uint32_t size, bool useCache,
@@ -251,8 +281,9 @@ void Cartridge::loadRomSection(uint32_t offset, uint32_t size, bool useCache,
         {
             romCacheMisses++;
 
-            if (romCacheLastMissTag != 0xFFFFFFFFu &&
-                tag == romCacheLastMissTag + 1)
+            bool sequential = romCacheLastAccessTag != 0xFFFFFFFFu &&
+                tag == romCacheLastAccessTag + 1;
+            if (sequential)
             {
                 romCacheSequentialMisses++;
                 romCacheSequentialRun++;
@@ -261,36 +292,37 @@ void Cartridge::loadRomSection(uint32_t offset, uint32_t size, bool useCache,
             {
                 romCacheSequentialRun = 1;
             }
-            romCacheLastMissTag = tag;
             if (romCacheSequentialRun > romCacheSequentialRunMax)
                 romCacheSequentialRunMax = romCacheSequentialRun;
 
             // Pick an unused slot first, otherwise the least-recently-used one.
-            uint32_t victim = 0;
-            uint32_t oldest = 0xFFFFFFFFu;
-            for (uint32_t i = 0; i < romCachePageCount; i++)
-            {
-                if (!romCacheEntries[i].valid)
-                {
-                    victim = i;
-                    oldest = 0;
-                    break;
-                }
-
-                if (romCacheEntries[i].stamp < oldest)
-                {
-                    oldest = romCacheEntries[i].stamp;
-                    victim = i;
-                }
-            }
-
+            uint32_t victim = chooseRomCacheVictim();
             slot = static_cast<int>(victim);
-            uint8_t *page = &romCache[victim * romCachePageSize];
             uint32_t pageOffset = tag * romCachePageSize;
             uint32_t readable = (pageOffset < static_cast<uint32_t>(romSize))
                 ? std::min(romCachePageSize, static_cast<uint32_t>(romSize) - pageOffset)
                 : 0;
 
+            // After observing two adjacent demand misses, coalesce the current
+            // and next page into one read. Never prefetch an already cached page.
+            bool readAhead = romReadAhead && sequential &&
+                romCacheSequentialRun >= 2 &&
+                pageOffset < static_cast<uint32_t>(romSize) &&
+                static_cast<uint32_t>(romSize) - pageOffset > romCachePageSize;
+            if (readAhead)
+            {
+                for (uint32_t i = 0; i < romCachePageCount; i++)
+                {
+                    if (romCacheEntries[i].valid &&
+                        romCacheEntries[i].tag == tag + 1)
+                    {
+                        readAhead = false;
+                        break;
+                    }
+                }
+            }
+
+            uint8_t *page = &romCache[victim * romCachePageSize];
             if (readable)
             {
                 bool seekNeeded = romFilePosition != static_cast<long>(pageOffset);
@@ -309,11 +341,41 @@ void Cartridge::loadRomSection(uint32_t offset, uint32_t size, bool useCache,
 #else
                 uint64_t seekTicks = 0;
 #endif
-                size_t got = readRomFile(page, readable, caller,
+                uint32_t requested = readAhead
+                    ? std::min(romCachePageSize * 2,
+                        static_cast<uint32_t>(romSize) - pageOffset)
+                    : readable;
+                uint8_t *destination = readAhead ? romReadAhead : page;
+                size_t got = readRomFile(destination, requested, caller,
                     seekNeeded, seekTicks, true);
                 romCacheReadBytes += got;
                 romFilePosition += static_cast<long>(got);
-                readable = static_cast<uint32_t>(got);
+
+                if (readAhead)
+                {
+                    uint32_t firstGot = std::min(static_cast<uint32_t>(got),
+                        romCachePageSize);
+                    memcpy(page, romReadAhead, firstGot);
+                    readable = firstGot;
+
+                    uint32_t nextVictim = chooseRomCacheVictim(slot);
+                    uint8_t *nextPage = &romCache[nextVictim * romCachePageSize];
+                    uint32_t nextGot = static_cast<uint32_t>(got) - firstGot;
+                    if (nextGot)
+                        memcpy(nextPage, romReadAhead + romCachePageSize, nextGot);
+                    if (nextGot < romCachePageSize)
+                        memset(nextPage + nextGot, 0xFF,
+                            romCachePageSize - nextGot);
+                    romCacheEntries[nextVictim].tag = tag + 1;
+                    romCacheEntries[nextVictim].stamp = ++romCacheClock;
+                    romCacheEntries[nextVictim].valid = true;
+                    romCacheReadAheadReads++;
+                    romCacheReadAheadPages++;
+                }
+                else
+                {
+                    readable = static_cast<uint32_t>(got);
+                }
             }
             if (readable < romCachePageSize)
                 memset(page + readable, 0xFF, romCachePageSize - readable);
@@ -323,6 +385,7 @@ void Cartridge::loadRomSection(uint32_t offset, uint32_t size, bool useCache,
         }
 
         romCacheEntries[slot].stamp = ++romCacheClock;
+        romCacheLastAccessTag = tag;
         memcpy(rom + copied,
             &romCache[slot * romCachePageSize + inPage], chunk);
         copied += chunk;
