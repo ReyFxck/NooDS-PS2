@@ -939,7 +939,7 @@ int main(int argc, char **argv)
 
                 if (dynarec.runArmAluSelfTest())
                 {
-                    PS2_LOG("[PS2][OK] ARM->R5900 ALU self-test: 23 operations, rotated immediates and immediate/register LSL/LSR/ASR/ROR passed.\n");
+                    PS2_LOG("[PS2][OK] ARM->R5900 ALU self-test: 23 base operations + 7 condition/NZCV cases passed; rotated immediates and immediate/register LSL/LSR/ASR/ROR passed.\n");
 
                     uint32_t arm9StateHash = 0;
                     if (dynarec.runArm9StateSelfTest(core->interpreter[0], &arm9StateHash))
