@@ -183,9 +183,22 @@ void Core::runGbaFrame()
                 runProfile.taskClassSamples[profileClass]++;
             }
             if (profileEnabled)
-                runProfile.legacyFrontShiftMoves += tasks.size() - 1;
+                runProfile.estimatedLegacyFrontMoves += tasks.size() - 1;
+#endif
+#ifdef NOODS_PROFILE
+            bool samplePop = profileEnabled && profileSample64(
+                runProfile.schedulerPopSampleState, 0x601u);
+            clock_t popStart = samplePop ? clock() : 0;
 #endif
             tasks.popFront();
+#ifdef NOODS_PROFILE
+            if (samplePop)
+            {
+                runProfile.schedulerPopTicks +=
+                    static_cast<uint64_t>(clock() - popStart);
+                runProfile.schedulerPopSamples++;
+            }
+#endif
         }
     }
 
@@ -269,9 +282,22 @@ void Core::runNdsFrame()
                 runProfile.taskClassSamples[profileClass]++;
             }
             if (profileEnabled)
-                runProfile.legacyFrontShiftMoves += tasks.size() - 1;
+                runProfile.estimatedLegacyFrontMoves += tasks.size() - 1;
+#endif
+#ifdef NOODS_PROFILE
+            bool samplePop = profileEnabled && profileSample64(
+                runProfile.schedulerPopSampleState, 0x601u);
+            clock_t popStart = samplePop ? clock() : 0;
 #endif
             tasks.popFront();
+#ifdef NOODS_PROFILE
+            if (samplePop)
+            {
+                runProfile.schedulerPopTicks +=
+                    static_cast<uint64_t>(clock() - popStart);
+                runProfile.schedulerPopSamples++;
+            }
+#endif
         }
     }
 
@@ -293,17 +319,41 @@ void Core::schedule(Task task)
 {
     // Add a task to the scheduler, sorted by least to most cycles until execution
     task.cycles += globalCycles;
-    size_t compactedMoves = tasks.insert(task);
+#ifdef NOODS_PROFILE
+    bool sampleInsert = profileEnabled && profileSample64(
+        runProfile.schedulerInsertSampleState, 0x600u);
+    clock_t insertStart = sampleInsert ? clock() : 0;
+#endif
+    SchedulerInsertResult insertResult = tasks.insert(task,
+#ifdef NOODS_PROFILE
+        profileEnabled
+#else
+        false
+#endif
+    );
 
 #ifdef NOODS_PROFILE
     if (profileEnabled)
     {
         runProfile.scheduleCalls++;
-        if (compactedMoves)
+        if (sampleInsert)
+        {
+            uint64_t elapsed = static_cast<uint64_t>(clock() - insertStart);
+            // Compactions are measured exhaustively below. Remove their time
+            // from the sampled insert estimate to avoid double counting.
+            runProfile.schedulerInsertTicks +=
+                (elapsed > insertResult.compactionTicks)
+                    ? elapsed - insertResult.compactionTicks : 0;
+            runProfile.schedulerInsertSamples++;
+        }
+        if (insertResult.compactedMoves)
         {
             runProfile.queueCompactions++;
-            runProfile.queueCompactionMoves += compactedMoves;
+            runProfile.queueCompactionMoves += insertResult.compactedMoves;
+            runProfile.queueCompactionTicks += insertResult.compactionTicks;
         }
+        if (insertResult.tiedWithExisting)
+            runProfile.schedulerTieInserts++;
         if (tasks.size() > runProfile.maxTaskDepth)
             runProfile.maxTaskDepth = static_cast<uint32_t>(tasks.size());
     }

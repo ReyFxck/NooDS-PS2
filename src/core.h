@@ -80,9 +80,17 @@ struct CoreRunProfile
     uint64_t arm7Opcodes = 0;
     uint64_t taskExecutions = 0;
     uint64_t scheduleCalls = 0;
-    uint64_t legacyFrontShiftMoves = 0;
+    uint64_t estimatedLegacyFrontMoves = 0;
     uint64_t queueCompactions = 0;
     uint64_t queueCompactionMoves = 0;
+    uint64_t queueCompactionTicks = 0;
+    uint64_t schedulerTieInserts = 0;
+    uint64_t schedulerInsertTicks = 0;
+    uint64_t schedulerInsertSamples = 0;
+    uint64_t schedulerPopTicks = 0;
+    uint64_t schedulerPopSamples = 0;
+    uint32_t schedulerInsertSampleState = 0;
+    uint32_t schedulerPopSampleState = 0;
     uint32_t maxTaskDepth = 0;
 
     uint64_t taskClassCount[TASK_PROFILE_COUNT] = {};

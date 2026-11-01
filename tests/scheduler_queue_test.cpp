@@ -31,7 +31,8 @@ int main()
 
     // A callback that schedules another event for the current cycle must go
     // after events that were already tied at that cycle.
-    ordered.insert(Event(10, 4));
+    SchedulerInsertResult tied = ordered.insert(Event(10, 4), true);
+    assert(tied.tiedWithExisting);
     ordered.popFront();
     assert(ordered.front().id == 3);
     ordered.popFront();
@@ -55,7 +56,7 @@ int main()
         // Match Core callback ordering: reschedule while the current event is
         // still at the front, then consume it.
         legacyMoves += periodic.size();
-        cursorMoves += periodic.insert(Event(current.cycles + 13, current.id));
+        cursorMoves += periodic.insert(Event(current.cycles + 13, current.id)).compactedMoves;
         periodic.popFront();
         assert(periodic.size() == 13);
     }

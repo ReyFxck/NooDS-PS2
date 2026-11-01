@@ -1038,15 +1038,41 @@ int main(int argc, char **argv)
                     profKnownMs / profFrameDiv);
 
                 const CoreRunProfile &runProfile = core->getRunProfile();
-                PS2_LOG("[PS2][PROF] scheduler: ARM9=%llu ARM7=%llu tasks=%llu schedules=%llu maxDepth=%lu legacyFrontMoves=%llu cursorCompactions=%llu cursorMoves=%llu\n",
+                PS2_LOG("[PS2][PROF] scheduler: ARM9=%llu ARM7=%llu tasks=%llu schedules=%llu maxDepth=%lu legacyEstimatedMoves=%llu cursorCompactions=%llu cursorMoves=%llu\n",
                     static_cast<unsigned long long>(runProfile.arm9Opcodes),
                     static_cast<unsigned long long>(runProfile.arm7Opcodes),
                     static_cast<unsigned long long>(runProfile.taskExecutions),
                     static_cast<unsigned long long>(runProfile.scheduleCalls),
                     static_cast<unsigned long>(runProfile.maxTaskDepth),
-                    static_cast<unsigned long long>(runProfile.legacyFrontShiftMoves),
+                    static_cast<unsigned long long>(runProfile.estimatedLegacyFrontMoves),
                     static_cast<unsigned long long>(runProfile.queueCompactions),
                     static_cast<unsigned long long>(runProfile.queueCompactionMoves));
+
+                double schedulerInsertUs = runProfile.schedulerInsertSamples
+                    ? static_cast<double>(runProfile.schedulerInsertTicks) *
+                        1000000.0 / CLOCKS_PER_SEC /
+                        static_cast<double>(runProfile.schedulerInsertSamples)
+                    : 0.0;
+                double schedulerPopUs = runProfile.schedulerPopSamples
+                    ? static_cast<double>(runProfile.schedulerPopTicks) *
+                        1000000.0 / CLOCKS_PER_SEC /
+                        static_cast<double>(runProfile.schedulerPopSamples)
+                    : 0.0;
+                double schedulerCompactionMs =
+                    static_cast<double>(runProfile.queueCompactionTicks) *
+                    1000.0 / CLOCKS_PER_SEC;
+                double schedulerEstimatedMs =
+                    (schedulerInsertUs * runProfile.scheduleCalls +
+                        schedulerPopUs * runProfile.taskExecutions) / 1000.0 +
+                    schedulerCompactionMs;
+                PS2_LOG("[PS2][PROF] scheduler-cost: est=%.3fms/f insert=%.3fus(%llu samples) pop=%.3fus(%llu samples) compact=%.3fms ties=%llu\n",
+                    schedulerEstimatedMs / profFrameDiv,
+                    schedulerInsertUs,
+                    static_cast<unsigned long long>(runProfile.schedulerInsertSamples),
+                    schedulerPopUs,
+                    static_cast<unsigned long long>(runProfile.schedulerPopSamples),
+                    schedulerCompactionMs,
+                    static_cast<unsigned long long>(runProfile.schedulerTieInserts));
 
                 PS2_LOG("[PS2][PROF] task-count: core=%llu gpuDraw=%llu gpuTiming=%llu gpu3d=%llu spu=%llu dma=%llu timer=%llu irq=%llu other=%llu\n",
                     static_cast<unsigned long long>(runProfile.taskClassCount[TASK_PROFILE_CORE]),

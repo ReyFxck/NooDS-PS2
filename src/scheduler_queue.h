@@ -3,8 +3,17 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
+#include <ctime>
 #include <utility>
 #include <vector>
+
+struct SchedulerInsertResult
+{
+    size_t compactedMoves = 0;
+    uint64_t compactionTicks = 0;
+    bool tiedWithExisting = false;
+};
 
 // Stable sorted queue with an amortized O(1) front pop. std::vector::erase at
 // begin shifts every pending event on every scheduler tick; retaining a cursor
@@ -24,15 +33,22 @@ class SchedulerQueue
         // Returns the number of live entries moved by an occasional prefix
         // compaction. This lets PROFILE builds quantify the work that replaced
         // per-event erase(begin()) shifts without timing every event.
-        size_t insert(T value)
+        SchedulerInsertResult insert(T value, bool measure = false)
         {
-            size_t compactedMoves = compactConsumedPrefix();
+            SchedulerInsertResult result;
+            result.compactedMoves = compactConsumedPrefix(measure,
+                &result.compactionTicks);
             typename std::vector<T>::iterator first =
                 entries.begin() + static_cast<std::ptrdiff_t>(head);
             typename std::vector<T>::iterator position =
                 std::upper_bound(first, entries.end(), value);
+            if (measure && position != first)
+            {
+                const T &previous = *(position - 1);
+                result.tiedWithExisting = !(previous < value) && !(value < previous);
+            }
             entries.insert(position, std::move(value));
-            return compactedMoves;
+            return result;
         }
 
         void popFront()
@@ -62,7 +78,7 @@ class SchedulerQueue
         std::vector<T> entries;
         size_t head = 0;
 
-        size_t compactConsumedPrefix()
+        size_t compactConsumedPrefix(bool measure, uint64_t *ticks)
         {
             // With the observed PS2 maximum depth of 13, batching 64 pops
             // replaces roughly 64 front shifts with one short compaction.
@@ -70,8 +86,11 @@ class SchedulerQueue
                 return 0;
 
             size_t live = size();
+            clock_t start = measure ? clock() : 0;
             entries.erase(entries.begin(),
                 entries.begin() + static_cast<std::ptrdiff_t>(head));
+            if (measure && ticks)
+                *ticks = static_cast<uint64_t>(clock() - start);
             head = 0;
             return live;
         }
