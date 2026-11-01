@@ -6,6 +6,16 @@
 
 namespace
 {
+uint32_t randomState = 0xC001D00Du;
+
+uint32_t nextRandom()
+{
+    randomState ^= randomState << 13;
+    randomState ^= randomState >> 17;
+    randomState ^= randomState << 5;
+    return randomState;
+}
+
 void expectResult(uint32_t opcode, uint8_t rd, uint32_t expected,
     const uint32_t source[16])
 {
@@ -45,9 +55,109 @@ int main()
     assert(Ps2ArmAlu::applyRegisterShift(0x80000001u, 2, 40, &shifted) && shifted == 0xFFFFFFFFu);
     assert(Ps2ArmAlu::applyRegisterShift(0x12345678u, 3, 32, &shifted) && shifted == 0x12345678u);
 
+    uint32_t cpsr = 0xB0000000u; // N=1, Z=0, C=1, V=1
+    const bool expectedConditions[16] =
+        { false, true, true, false, true, false, true, false,
+          true, false, true, false, true, false, true, false };
+    for (uint8_t condition = 0; condition < 16; condition++)
+        assert(Ps2ArmAlu::conditionPassed(condition, cpsr) ==
+            expectedConditions[condition]);
+
+    // Conditional instructions that fail are exact no-ops.
+    registers[1] = 0xA5A55A5Au;
+    registers[2] = 0x11223344u;
+    cpsr = 0;
+    assert(Ps2ArmAlu::execute(0x01A02001u, registers, &cpsr)); // MOV.EQ r2,r1
+    assert(registers[2] == 0x11223344u);
+    cpsr = 0x40000000u;
+    assert(Ps2ArmAlu::execute(0x01A02001u, registers, &cpsr));
+    assert(registers[2] == 0xA5A55A5Au && cpsr == 0x40000000u);
+
+    // Logical S operations in the admitted subset update N/Z and preserve C/V.
+    registers[2] = 8;
+    cpsr = 0x30000013u;
+    assert(Ps2ArmAlu::execute(0xE2322008u, registers, &cpsr)); // EORS r2,r2,#8
+    assert(registers[2] == 0 && cpsr == 0x70000013u);
+
+    // Arithmetic S operations calculate all four flags, including borrow and overflow.
+    registers[5] = 0;
+    cpsr = 0xF0000013u;
+    assert(Ps2ArmAlu::execute(0xE2555001u, registers, &cpsr)); // SUBS r5,r5,#1
+    assert(registers[5] == 0xFFFFFFFFu && cpsr == 0x80000013u);
+    registers[5] = 0x80000000u;
+    cpsr = 0x13u;
+    assert(Ps2ArmAlu::execute(0xE2555001u, registers, &cpsr));
+    assert(registers[5] == 0x7FFFFFFFu && cpsr == 0x30000013u);
+    registers[1] = 0xFFFFFFFFu;
+    cpsr = 0xF0000013u;
+    assert(Ps2ArmAlu::execute(0xE2910001u, registers, &cpsr)); // ADDS r0,r1,#1
+    assert(registers[0] == 0 && cpsr == 0x60000013u);
+
+    // Differential flag coverage for the arithmetic forms emitted by the JIT.
+    for (int test = 0; test < 100000; test++)
+    {
+        uint32_t left = nextRandom();
+        uint32_t right = nextRandom();
+        uint32_t lowCpsr = nextRandom() & 0x0FFFFFFFu;
+        const uint32_t opcodes[] =
+            { 0xE0902001u, 0xE0502001u, 0xE0702001u, 0xE0302001u };
+
+        for (unsigned int operation = 0;
+            operation < sizeof(opcodes) / sizeof(opcodes[0]); operation++)
+        {
+            uint32_t state[16] = {};
+            state[0] = left;
+            state[1] = right;
+            uint32_t flags = lowCpsr | 0x30000000u; // Logical C/V reference.
+            assert(Ps2ArmAlu::execute(opcodes[operation], state, &flags));
+
+            uint32_t expected;
+            bool carry;
+            bool overflow;
+            if (operation == 0) // ADD
+            {
+                expected = left + right;
+                carry = static_cast<uint64_t>(left) + right > 0xFFFFFFFFu;
+                overflow = ((~(left ^ right) & (left ^ expected)) &
+                    0x80000000u) != 0;
+            }
+            else if (operation == 1) // SUB
+            {
+                expected = left - right;
+                carry = left >= right;
+                overflow = (((left ^ right) & (left ^ expected)) &
+                    0x80000000u) != 0;
+            }
+            else if (operation == 2) // RSB
+            {
+                expected = right - left;
+                carry = right >= left;
+                overflow = (((right ^ left) & (right ^ expected)) &
+                    0x80000000u) != 0;
+            }
+            else // EOR preserves C/V for an unshifted register Operand2.
+            {
+                expected = left ^ right;
+                carry = true;
+                overflow = true;
+            }
+
+            uint32_t expectedFlags = lowCpsr;
+            if (expected & 0x80000000u) expectedFlags |= 0x80000000u;
+            if (!expected) expectedFlags |= 0x40000000u;
+            if (carry) expectedFlags |= 0x20000000u;
+            if (overflow) expectedFlags |= 0x10000000u;
+            assert(state[2] == expected);
+            assert(flags == expectedFlags);
+        }
+    }
+
     Ps2ArmAlu::Decoded decoded;
-    assert(!Ps2ArmAlu::decode(0x11A02001u, &decoded)); // condition != AL
-    assert(!Ps2ArmAlu::decode(0xE1B02001u, &decoded)); // writes flags
+    assert(Ps2ArmAlu::decode(0x11A02001u, &decoded));  // condition supported
+    assert(decoded.condition == 1);
+    assert(Ps2ArmAlu::decode(0xE1B02001u, &decoded));  // MOVS, carry preserved
+    assert(decoded.setFlags);
+    assert(!Ps2ArmAlu::decode(0xE1B02181u, &decoded)); // shifted MOVS changes carry
     assert(!Ps2ArmAlu::decode(0xE1A02061u, &decoded)); // RRX needs carry
     assert(Ps2ArmAlu::decode(0xE1A02111u, &decoded));  // register-controlled LSL
     assert(decoded.registerShift && decoded.rs == 1);
@@ -66,7 +176,8 @@ int main()
     assert(info.kind == Ps2ArmAlu::KIND_MULTIPLY);
     assert(info.readMask == ((1u << 2) | (1u << 3)));
     assert(info.writeMask == ((1u << 0) | (1u << 1)));
-    assert(Ps2ArmAlu::rejectionReason(0xBAFFFFFAu) == Ps2ArmAlu::REJECT_CONDITION);
+    assert(Ps2ArmAlu::rejectionReason(0x01A02001u) == Ps2ArmAlu::REJECT_NONE);
+    assert(Ps2ArmAlu::rejectionReason(0xBAFFFFFAu) == Ps2ArmAlu::REJECT_BRANCH);
 
     char text[96] = {};
     Ps2ArmAlu::format(0xE0098E18u, 0x020672F8u, text, sizeof(text));

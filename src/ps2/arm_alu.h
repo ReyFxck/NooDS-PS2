@@ -60,7 +60,9 @@ namespace Ps2ArmAlu
 
     struct Decoded
     {
+        uint8_t condition = 0xE;
         bool immediate = false;
+        bool setFlags = false;
         uint8_t operation = 0;
         uint8_t rn = 0;
         uint8_t rd = 0;
@@ -69,6 +71,7 @@ namespace Ps2ArmAlu
         uint8_t shiftType = 0;
         uint8_t shiftAmount = 0;
         bool registerShift = false;
+        uint8_t immediateRotate = 0;
         uint32_t immediateValue = 0;
     };
 
@@ -76,8 +79,10 @@ namespace Ps2ArmAlu
         uint8_t encodedAmount, uint32_t *result);
     bool applyRegisterShift(uint32_t value, uint8_t type,
         uint32_t registerAmount, uint32_t *result);
+    bool conditionPassed(uint8_t condition, uint32_t cpsr);
     bool decode(uint32_t opcode, Decoded *decoded);
-    bool execute(uint32_t opcode, uint32_t registers[16]);
+    bool execute(uint32_t opcode, uint32_t registers[16],
+        uint32_t *cpsr = nullptr);
     void inspect(uint32_t opcode, uint32_t pc, InstructionInfo *info);
     RejectReason rejectionReason(uint32_t opcode);
     const char *rejectionReasonName(RejectReason reason);

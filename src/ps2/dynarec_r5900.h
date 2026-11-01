@@ -67,6 +67,8 @@ struct R5900CompiledBlock
     uint32_t cycles = 0;
     uint16_t readMask = 0;
     uint16_t writeMask = 0;
+    bool readsFlags = false;
+    bool writesFlags = false;
     bool thumb = false;
 
     uint32_t *hostCode = nullptr;
@@ -116,8 +118,8 @@ class DynarecR5900
             uint32_t *stateHash = nullptr);
 
         // Differential gate against NooDS' own interpreter. Only straight-line
-        // no-flags ALU blocks are eligible, so CPU state can be restored exactly
-        // after the comparison with no guest-visible side effects.
+        // ALU blocks are eligible; register results, conditions and NZCV are
+        // compared before exact state restoration with no guest-visible effects.
         int runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
             uint32_t *guestPc = nullptr, uint32_t *instructionCount = nullptr,
             uint32_t *stateHash = nullptr);

@@ -91,16 +91,44 @@ bool Ps2ArmAlu::applyRegisterShift(uint32_t value, uint8_t type,
     return false;
 }
 
+bool Ps2ArmAlu::conditionPassed(uint8_t condition, uint32_t cpsr)
+{
+    bool n = (cpsr & BIT(31)) != 0;
+    bool z = (cpsr & BIT(30)) != 0;
+    bool c = (cpsr & BIT(29)) != 0;
+    bool v = (cpsr & BIT(28)) != 0;
+
+    switch (condition & 0xFu)
+    {
+        case 0x0: return z;
+        case 0x1: return !z;
+        case 0x2: return c;
+        case 0x3: return !c;
+        case 0x4: return n;
+        case 0x5: return !n;
+        case 0x6: return v;
+        case 0x7: return !v;
+        case 0x8: return c && !z;
+        case 0x9: return !c || z;
+        case 0xA: return n == v;
+        case 0xB: return n != v;
+        case 0xC: return !z && n == v;
+        case 0xD: return z || n != v;
+        case 0xE: return true;
+        default:  return false;
+    }
+}
+
 bool Ps2ArmAlu::decode(uint32_t opcode, Decoded *decoded)
 {
     if (!decoded ||
-        (opcode >> 28) != 0xEu ||
-        (opcode & 0x0C000000u) != 0 ||
-        (opcode & 0x00100000u) != 0)
+        (opcode & 0x0C000000u) != 0)
         return false;
 
     *decoded = Decoded();
+    decoded->condition = static_cast<uint8_t>(opcode >> 28);
     decoded->immediate = (opcode & 0x02000000u) != 0;
+    decoded->setFlags = (opcode & 0x00100000u) != 0;
     decoded->operation = static_cast<uint8_t>((opcode >> 21) & 0xF);
     decoded->rn = static_cast<uint8_t>((opcode >> 16) & 0xF);
     decoded->rd = static_cast<uint8_t>((opcode >> 12) & 0xF);
@@ -153,15 +181,32 @@ bool Ps2ArmAlu::decode(uint32_t opcode, Decoded *decoded)
     {
         uint32_t value = opcode & 0xFFu;
         uint32_t rotate = ((opcode >> 8) & 0xFu) * 2u;
+        decoded->immediateRotate = static_cast<uint8_t>(rotate);
         if (rotate)
             value = (value >> rotate) | (value << (32u - rotate));
         decoded->immediateValue = value;
     }
 
+    // The emitted flags path currently admits logical operations only when
+    // Operand2 preserves CPSR.C. Arithmetic operations calculate C/V from the
+    // result and may use any otherwise supported shifter form.
+    if (decoded->setFlags &&
+        (decoded->operation == 0 || decoded->operation == 1 ||
+         decoded->operation == 12 || decoded->operation == 13 ||
+         decoded->operation == 14 || decoded->operation == 15))
+    {
+        bool preservesCarry = decoded->immediate
+            ? decoded->immediateRotate == 0
+            : (!decoded->registerShift && decoded->shiftType == 0 &&
+                decoded->shiftAmount == 0);
+        if (!preservesCarry)
+            return false;
+    }
+
     return true;
 }
 
-bool Ps2ArmAlu::execute(uint32_t opcode, uint32_t registers[16])
+bool Ps2ArmAlu::execute(uint32_t opcode, uint32_t registers[16], uint32_t *cpsr)
 {
     if (!registers)
         return false;
@@ -169,6 +214,10 @@ bool Ps2ArmAlu::execute(uint32_t opcode, uint32_t registers[16])
     Decoded decoded;
     if (!decode(opcode, &decoded))
         return false;
+    if ((decoded.condition != 0xEu || decoded.setFlags) && !cpsr)
+        return false;
+    if (cpsr && !conditionPassed(decoded.condition, *cpsr))
+        return true;
 
     uint32_t operand2 = decoded.immediateValue;
     if (!decoded.immediate)
@@ -182,22 +231,55 @@ bool Ps2ArmAlu::execute(uint32_t opcode, uint32_t registers[16])
             return false;
     }
 
+    uint32_t operand1 = registers[decoded.rn];
     uint32_t result = 0;
     switch (decoded.operation)
     {
-        case 0:  result = registers[decoded.rn] & operand2; break;
-        case 1:  result = registers[decoded.rn] ^ operand2; break;
-        case 2:  result = registers[decoded.rn] - operand2; break;
-        case 3:  result = operand2 - registers[decoded.rn]; break;
-        case 4:  result = registers[decoded.rn] + operand2; break;
-        case 12: result = registers[decoded.rn] | operand2; break;
+        case 0:  result = operand1 & operand2; break;
+        case 1:  result = operand1 ^ operand2; break;
+        case 2:  result = operand1 - operand2; break;
+        case 3:  result = operand2 - operand1; break;
+        case 4:  result = operand1 + operand2; break;
+        case 12: result = operand1 | operand2; break;
         case 13: result = operand2; break;
-        case 14: result = registers[decoded.rn] & ~operand2; break;
+        case 14: result = operand1 & ~operand2; break;
         case 15: result = ~operand2; break;
         default: return false;
     }
 
     registers[decoded.rd] = result;
+
+    if (decoded.setFlags)
+    {
+        uint32_t flags = result & BIT(31);
+        if (!result) flags |= BIT(30);
+
+        uint32_t left = operand1;
+        if (decoded.operation == 2) // SUB
+        {
+            if (left >= operand2) flags |= BIT(29);
+            if (((left ^ operand2) & (left ^ result)) & BIT(31))
+                flags |= BIT(28);
+        }
+        else if (decoded.operation == 3) // RSB
+        {
+            if (operand2 >= left) flags |= BIT(29);
+            if (((operand2 ^ left) & (operand2 ^ result)) & BIT(31))
+                flags |= BIT(28);
+        }
+        else if (decoded.operation == 4) // ADD
+        {
+            if (static_cast<uint64_t>(left) + operand2 > 0xFFFFFFFFu)
+                flags |= BIT(29);
+            if ((~(left ^ operand2) & (left ^ result)) & BIT(31))
+                flags |= BIT(28);
+        }
+        else // Logical operations preserve C/V in the admitted subset.
+        {
+            flags |= *cpsr & (BIT(29) | BIT(28));
+        }
+        *cpsr = (*cpsr & 0x0FFFFFFFu) | flags;
+    }
     return true;
 }
 
@@ -358,9 +440,6 @@ Ps2ArmAlu::RejectReason Ps2ArmAlu::rejectionReason(uint32_t opcode)
 
     InstructionInfo info;
     inspect(opcode, 0, &info);
-    if (info.condition != 0xEu)
-        return REJECT_CONDITION;
-
     switch (info.kind)
     {
         case KIND_MEMORY:

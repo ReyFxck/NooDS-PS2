@@ -219,11 +219,181 @@ namespace
 struct ArmAluState
 {
     uint32_t r[16];
+    uint32_t cpsr;
 };
 
 bool applyArmAlu(uint32_t opcode, ArmAluState *state)
 {
-    return state && Ps2ArmAlu::execute(opcode, state->r);
+    return state && Ps2ArmAlu::execute(opcode, state->r, &state->cpsr);
+}
+
+size_t emitArmCondition(uint8_t condition, uint32_t *code)
+{
+    if (!code || condition == 0xEu)
+        return 0;
+
+    size_t words = 0;
+    code[words++] = R5900::lw(R5900::R_T5, 64, R5900::R_A0);
+    switch (condition & 0xFu)
+    {
+        case 0x0: // EQ: Z
+            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 30);
+            code[words++] = R5900::andi(R5900::R_T7, R5900::R_T7, 1);
+            break;
+        case 0x1: // NE: !Z
+            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 30);
+            code[words++] = R5900::andi(R5900::R_T7, R5900::R_T7, 1);
+            code[words++] = R5900::xori(R5900::R_T7, R5900::R_T7, 1);
+            break;
+        case 0x2: // CS: C
+            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 29);
+            code[words++] = R5900::andi(R5900::R_T7, R5900::R_T7, 1);
+            break;
+        case 0x3: // CC: !C
+            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 29);
+            code[words++] = R5900::andi(R5900::R_T7, R5900::R_T7, 1);
+            code[words++] = R5900::xori(R5900::R_T7, R5900::R_T7, 1);
+            break;
+        case 0x4: // MI: N
+            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 31);
+            break;
+        case 0x5: // PL: !N
+            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 31);
+            code[words++] = R5900::xori(R5900::R_T7, R5900::R_T7, 1);
+            break;
+        case 0x6: // VS: V
+            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 28);
+            code[words++] = R5900::andi(R5900::R_T7, R5900::R_T7, 1);
+            break;
+        case 0x7: // VC: !V
+            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 28);
+            code[words++] = R5900::andi(R5900::R_T7, R5900::R_T7, 1);
+            code[words++] = R5900::xori(R5900::R_T7, R5900::R_T7, 1);
+            break;
+        case 0x8: // HI: C && !Z
+            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 29);
+            code[words++] = R5900::andi(R5900::R_T7, R5900::R_T7, 1);
+            code[words++] = R5900::srl(R5900::R_T6, R5900::R_T5, 30);
+            code[words++] = R5900::andi(R5900::R_T6, R5900::R_T6, 1);
+            code[words++] = R5900::xori(R5900::R_T6, R5900::R_T6, 1);
+            code[words++] = R5900::and_(R5900::R_T7, R5900::R_T7, R5900::R_T6);
+            break;
+        case 0x9: // LS: !C || Z
+            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 29);
+            code[words++] = R5900::andi(R5900::R_T7, R5900::R_T7, 1);
+            code[words++] = R5900::xori(R5900::R_T7, R5900::R_T7, 1);
+            code[words++] = R5900::srl(R5900::R_T6, R5900::R_T5, 30);
+            code[words++] = R5900::andi(R5900::R_T6, R5900::R_T6, 1);
+            code[words++] = R5900::or_(R5900::R_T7, R5900::R_T7, R5900::R_T6);
+            break;
+        case 0xA: // GE: N == V
+        case 0xB: // LT: N != V
+            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 31);
+            code[words++] = R5900::srl(R5900::R_T6, R5900::R_T5, 28);
+            code[words++] = R5900::andi(R5900::R_T6, R5900::R_T6, 1);
+            code[words++] = R5900::xor_(R5900::R_T7, R5900::R_T7, R5900::R_T6);
+            if (condition == 0xAu)
+                code[words++] = R5900::xori(R5900::R_T7, R5900::R_T7, 1);
+            break;
+        case 0xC: // GT: !Z && N == V
+            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 30);
+            code[words++] = R5900::andi(R5900::R_T7, R5900::R_T7, 1);
+            code[words++] = R5900::xori(R5900::R_T7, R5900::R_T7, 1);
+            code[words++] = R5900::srl(R5900::R_T6, R5900::R_T5, 31);
+            code[words++] = R5900::srl(R5900::R_T4, R5900::R_T5, 28);
+            code[words++] = R5900::andi(R5900::R_T4, R5900::R_T4, 1);
+            code[words++] = R5900::xor_(R5900::R_T6, R5900::R_T6, R5900::R_T4);
+            code[words++] = R5900::xori(R5900::R_T6, R5900::R_T6, 1);
+            code[words++] = R5900::and_(R5900::R_T7, R5900::R_T7, R5900::R_T6);
+            break;
+        case 0xD: // LE: Z || N != V
+            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 30);
+            code[words++] = R5900::andi(R5900::R_T7, R5900::R_T7, 1);
+            code[words++] = R5900::srl(R5900::R_T6, R5900::R_T5, 31);
+            code[words++] = R5900::srl(R5900::R_T4, R5900::R_T5, 28);
+            code[words++] = R5900::andi(R5900::R_T4, R5900::R_T4, 1);
+            code[words++] = R5900::xor_(R5900::R_T6, R5900::R_T6, R5900::R_T4);
+            code[words++] = R5900::or_(R5900::R_T7, R5900::R_T7, R5900::R_T6);
+            break;
+        default: // NV never executes as a normal ARM data instruction.
+            code[words++] = R5900::or_(R5900::R_T7,
+                R5900::R_ZERO, R5900::R_ZERO);
+            break;
+    }
+    return words;
+}
+
+size_t emitArmFlags(const Ps2ArmAlu::Decoded &decoded, uint32_t *code)
+{
+    if (!code || !decoded.setFlags)
+        return 0;
+
+    size_t words = 0;
+    bool arithmetic = decoded.operation == 2 || decoded.operation == 3 ||
+        decoded.operation == 4;
+    code[words++] = R5900::lw(R5900::R_T5, 64, R5900::R_A0);
+    code[words++] = R5900::lui(R5900::R_T6,
+        arithmetic ? 0x0FFFu : 0x3FFFu);
+    code[words++] = R5900::ori(R5900::R_T6, R5900::R_T6, 0xFFFFu);
+    code[words++] = R5900::and_(R5900::R_T5, R5900::R_T5, R5900::R_T6);
+
+    // N and Z are common to every admitted S operation.
+    code[words++] = R5900::srl(R5900::R_T6, R5900::R_T2, 31);
+    code[words++] = R5900::sll(R5900::R_T6, R5900::R_T6, 31);
+    code[words++] = R5900::or_(R5900::R_T5, R5900::R_T5, R5900::R_T6);
+    code[words++] = R5900::sltiu(R5900::R_T6, R5900::R_T2, 1);
+    code[words++] = R5900::sll(R5900::R_T6, R5900::R_T6, 30);
+    code[words++] = R5900::or_(R5900::R_T5, R5900::R_T5, R5900::R_T6);
+
+    if (arithmetic)
+    {
+        if (decoded.operation == 2) // SUB: T0 - T1
+        {
+            code[words++] = R5900::nor_(R5900::R_T3, R5900::R_T0, R5900::R_ZERO);
+            code[words++] = R5900::and_(R5900::R_T3, R5900::R_T3, R5900::R_T1);
+            code[words++] = R5900::xor_(R5900::R_T6, R5900::R_T0, R5900::R_T1);
+            code[words++] = R5900::nor_(R5900::R_T6, R5900::R_T6, R5900::R_ZERO);
+            code[words++] = R5900::and_(R5900::R_T6, R5900::R_T6, R5900::R_T2);
+            code[words++] = R5900::or_(R5900::R_T3, R5900::R_T3, R5900::R_T6);
+            code[words++] = R5900::srl(R5900::R_T3, R5900::R_T3, 31);
+            code[words++] = R5900::xori(R5900::R_T3, R5900::R_T3, 1);
+            code[words++] = R5900::xor_(R5900::R_T4, R5900::R_T0, R5900::R_T1);
+            code[words++] = R5900::xor_(R5900::R_T6, R5900::R_T0, R5900::R_T2);
+        }
+        else if (decoded.operation == 3) // RSB: T1 - T0
+        {
+            code[words++] = R5900::nor_(R5900::R_T3, R5900::R_T1, R5900::R_ZERO);
+            code[words++] = R5900::and_(R5900::R_T3, R5900::R_T3, R5900::R_T0);
+            code[words++] = R5900::xor_(R5900::R_T6, R5900::R_T1, R5900::R_T0);
+            code[words++] = R5900::nor_(R5900::R_T6, R5900::R_T6, R5900::R_ZERO);
+            code[words++] = R5900::and_(R5900::R_T6, R5900::R_T6, R5900::R_T2);
+            code[words++] = R5900::or_(R5900::R_T3, R5900::R_T3, R5900::R_T6);
+            code[words++] = R5900::srl(R5900::R_T3, R5900::R_T3, 31);
+            code[words++] = R5900::xori(R5900::R_T3, R5900::R_T3, 1);
+            code[words++] = R5900::xor_(R5900::R_T4, R5900::R_T1, R5900::R_T0);
+            code[words++] = R5900::xor_(R5900::R_T6, R5900::R_T1, R5900::R_T2);
+        }
+        else // ADD: T0 + T1
+        {
+            code[words++] = R5900::and_(R5900::R_T3, R5900::R_T0, R5900::R_T1);
+            code[words++] = R5900::or_(R5900::R_T6, R5900::R_T0, R5900::R_T1);
+            code[words++] = R5900::nor_(R5900::R_T4, R5900::R_T2, R5900::R_ZERO);
+            code[words++] = R5900::and_(R5900::R_T6, R5900::R_T6, R5900::R_T4);
+            code[words++] = R5900::or_(R5900::R_T3, R5900::R_T3, R5900::R_T6);
+            code[words++] = R5900::srl(R5900::R_T3, R5900::R_T3, 31);
+            code[words++] = R5900::xor_(R5900::R_T4, R5900::R_T0, R5900::R_T1);
+            code[words++] = R5900::nor_(R5900::R_T4, R5900::R_T4, R5900::R_ZERO);
+            code[words++] = R5900::xor_(R5900::R_T6, R5900::R_T0, R5900::R_T2);
+        }
+        code[words++] = R5900::and_(R5900::R_T4, R5900::R_T4, R5900::R_T6);
+        code[words++] = R5900::srl(R5900::R_T4, R5900::R_T4, 31);
+        code[words++] = R5900::sll(R5900::R_T3, R5900::R_T3, 29);
+        code[words++] = R5900::sll(R5900::R_T4, R5900::R_T4, 28);
+        code[words++] = R5900::or_(R5900::R_T5, R5900::R_T5, R5900::R_T3);
+        code[words++] = R5900::or_(R5900::R_T5, R5900::R_T5, R5900::R_T4);
+    }
+    code[words++] = R5900::sw(R5900::R_T5, 64, R5900::R_A0);
+    return words;
 }
 
 size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code)
@@ -236,6 +406,14 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code)
         return 0;
 
     size_t words = 0;
+    size_t conditionBranch = static_cast<size_t>(-1);
+    if (decoded.condition != 0xEu)
+    {
+        words += emitArmCondition(decoded.condition, code + words);
+        conditionBranch = words;
+        code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+    }
     if (decoded.operation != 13 && decoded.operation != 15)
         code[words++] = R5900::lw(R5900::R_T0,
             static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
@@ -340,6 +518,15 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code)
 
     code[words++] = R5900::sw(R5900::R_T2,
         static_cast<int16_t>(decoded.rd * 4), R5900::R_A0);
+    words += emitArmFlags(decoded, code + words);
+    if (conditionBranch != static_cast<size_t>(-1))
+    {
+        size_t distance = words - (conditionBranch + 1);
+        if (distance > 0x7FFFu)
+            return 0;
+        code[conditionBranch] = R5900::beq(R5900::R_T7,
+            R5900::R_ZERO, static_cast<int16_t>(distance));
+    }
     return words;
 }
 }
@@ -353,7 +540,7 @@ bool DynarecR5900::emitArmAluBlock(uint32_t opcode, uint32_t **entry, uint8_t *r
     if (!Ps2ArmAlu::decode(opcode, &decoded))
         return false;
 
-    uint32_t *code = cache.reserveWords(16);
+    uint32_t *code = cache.reserveWords(64);
     if (!code)
         return false;
 
@@ -377,9 +564,9 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     if (!opcodes || !count || !entry || !hostWords)
         return false;
 
-    // Ten host instructions per guest opcode covers register-controlled ASR
-    // clamping plus the guest ALU operation/store, with a final return pair.
-    const size_t maxWords = count * 10 + 2;
+    // Conditions plus exact NZCV generation are deliberately explicit for the
+    // correctness gate. Register caching can compact this after scheduler use.
+    const size_t maxWords = count * 64 + 2;
     uint32_t *code = cache.reserveWords(maxWords);
     if (!code)
         return false;
@@ -422,6 +609,8 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         if (decoded.registerShift)
             block.readMask |= static_cast<uint16_t>(1u << decoded.rs);
         block.writeMask |= static_cast<uint16_t>(1u << decoded.rd);
+        block.readsFlags |= decoded.condition != 0xEu;
+        block.writesFlags |= decoded.setFlags;
     }
     blocks.push_back(block);
 
@@ -489,6 +678,47 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
+    struct FlagTest
+    {
+        uint32_t opcode;
+        uint32_t cpsr;
+        uint8_t sourceRegister;
+        uint32_t sourceValue;
+    };
+    const FlagTest flagTests[] =
+    {
+        { 0x01A02001u, 0x00000013u, 1, 0xA5A55A5Au }, // MOV.EQ not taken
+        { 0x01A02001u, 0x40000013u, 1, 0xA5A55A5Au }, // MOV.EQ taken
+        { 0xC1A02001u, 0x00000013u, 1, 0xA5A55A5Au }, // MOV.GT taken
+        { 0xE2322008u, 0x30000013u, 2, 0x00000008u }, // EORS -> Z, preserve C/V
+        { 0xE2555001u, 0xF0000013u, 5, 0x00000000u }, // SUBS -> N
+        { 0xE2555001u, 0x00000013u, 5, 0x80000000u }, // SUBS overflow
+        { 0xE2910001u, 0xF0000013u, 1, 0xFFFFFFFFu }  // ADDS carry + zero
+    };
+
+    for (size_t i = 0; i < sizeof(flagTests) / sizeof(flagTests[0]); i++)
+    {
+        ArmAluState source = {};
+        source.r[1] = 0x01020304u;
+        source.r[2] = 0x11223344u;
+        source.r[flagTests[i].sourceRegister] = flagTests[i].sourceValue;
+        source.cpsr = flagTests[i].cpsr;
+        ArmAluState expected = source;
+        if (!applyArmAlu(flagTests[i].opcode, &expected))
+            return false;
+
+        uint32_t *entry = nullptr;
+        uint8_t rd = 0;
+        if (!emitArmAluBlock(flagTests[i].opcode, &entry, &rd))
+            return false;
+        ArmAluState actual = source;
+        typedef void (*ArmAluFunction)(ArmAluState *);
+        ArmAluFunction function = reinterpret_cast<ArmAluFunction>(entry);
+        function(&actual);
+        if (std::memcmp(&actual, &expected, sizeof(actual)) != 0)
+            return false;
+    }
+
     return true;
 }
 
@@ -506,6 +736,7 @@ bool DynarecR5900::runArm9StateSelfTest(const Interpreter &cpu, uint32_t *stateH
         hash ^= source.r[i];
         hash *= 16777619u;
     }
+    source.cpsr = CpuBackendAccess::readCpsr(cpu);
     hash ^= CpuBackendAccess::readCpsr(cpu);
     hash *= 16777619u;
 
@@ -573,6 +804,7 @@ int DynarecR5900::runArm9PipelineSelfTest(const Interpreter &cpu,
     ArmAluState source = {};
     for (int i = 0; i < 16; i++)
         source.r[i] = CpuBackendAccess::readReg(cpu, i);
+    source.cpsr = CpuBackendAccess::readCpsr(cpu);
 
     uint32_t pc = CpuBackendAccess::nextInstructionAddress(cpu);
     uint32_t opcode = CpuBackendAccess::pipelineOpcode(cpu, 0);
@@ -599,7 +831,8 @@ int DynarecR5900::runArm9PipelineSelfTest(const Interpreter &cpu,
     if (opcodeOut)
         *opcodeOut = opcode;
 
-    return state.r[decoded.rd] == expected.r[decoded.rd] ? 1 : -1;
+    return state.r[decoded.rd] == expected.r[decoded.rd] &&
+        state.cpsr == expected.cpsr ? 1 : -1;
 }
 
 
@@ -644,6 +877,7 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
     ArmAluState expected = {};
     for (int i = 0; i < 16; i++)
         source.r[i] = expected.r[i] = CpuBackendAccess::readReg(cpu, i);
+    source.cpsr = expected.cpsr = CpuBackendAccess::readCpsr(cpu);
 
     for (size_t i = 0; i < count; i++)
         if (!applyArmAlu(opcodes[i], &expected))
@@ -668,6 +902,10 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
         hash ^= actual.r[i];
         hash *= 16777619u;
     }
+    if (actual.cpsr != expected.cpsr)
+        return -1;
+    hash ^= actual.cpsr;
+    hash *= 16777619u;
 
     hash ^= static_cast<uint32_t>(count);
     hash *= 16777619u;
@@ -707,6 +945,7 @@ int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
     ArmAluState dynarecState = {};
     for (int i = 0; i < 16; i++)
         dynarecState.r[i] = savedRegs[i];
+    dynarecState.cpsr = savedCpsr;
 
     typedef void (*ArmAluBlockFunction)(ArmAluState *);
     ArmAluBlockFunction function =
@@ -716,8 +955,8 @@ int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
     bool interpreterOk = true;
     for (uint32_t i = 0; i < block->guestInstructions; i++)
     {
-        // Every opcode admitted by this block is unconditional, no-flags ALU
-        // with no PC destination or memory side effects.
+        // Every admitted opcode is a straight-line ALU operation with no PC
+        // or memory side effects. Conditions and NZCV are modeled explicitly.
         int cycles = cpu.runOpcode();
         if (cycles <= 0)
         {
@@ -728,7 +967,7 @@ int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
 
     uint32_t hash = 2166136261u;
     bool match = interpreterOk &&
-        CpuBackendAccess::readCpsr(cpu) == savedCpsr;
+        CpuBackendAccess::readCpsr(cpu) == dynarecState.cpsr;
 
     // r15/pipeline naturally advance in the interpreter while the current
     // dynarec block ABI only models architectural GPR results. Compare r0-r14.
@@ -742,7 +981,7 @@ int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
         hash *= 16777619u;
     }
 
-    hash ^= savedCpsr;
+    hash ^= CpuBackendAccess::readCpsr(cpu);
     hash *= 16777619u;
     hash ^= block->guestInstructions;
     hash *= 16777619u;
