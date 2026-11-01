@@ -342,6 +342,7 @@ To compile for Android, the easiest way would be to use [Android Studio](https:/
 - [x] Probe R5900 é emitido, sincronizado e executado no bootstrap sem tocar no estado emulado.
 - [x] Definir ABI ARM-state ↔ backends: `CpuBackendAccess` expõe banco ativo, CPSR, próximo PC, pipeline e branch/refill sem duplicar troca de modos.
 - [x] Subconjunto ARM determinístico: MOV/MVN/ADD/SUB/RSB/AND/EOR/ORR/BIC, imediatos rotacionados e barrel shifts imediatos ou controlados por registrador LSL/LSR/ASR/ROR, incluindo semântica ARM para amounts 0/>=32; RRX permanece em fallback por depender de CPSR.C.
+- [x] Condições ARM EQ–AL e flags N/Z/C/V são preservadas pelo shadow emitter: operações aritméticas calculam carry/overflow e lógicas suportadas preservam o carry do shifter. No hot loop `0x020672DC–0x02067314`, a cobertura analisada sobe de 9/15 para 12/15; restam `LDRH`, `STRH.EQ` e `B.GT`.
 - [x] Gate de estado real: snapshot dos 16 registradores ativos + CPSR do ARM9 é validado contra o código R5900 gerado sem alterar o estado emulado.
 - [x] Blocos reais straight-line do ARM9 são compilados em uma única função R5900, indexados por PC/mapGeneration e validados em shadow state.
 - [x] Gate diferencial executa o mesmo bloco no interpreter original e no R5900 gerado, compara r0-r14/CPSR e restaura o estado antes do jogo continuar.
