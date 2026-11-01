@@ -149,7 +149,7 @@
 - [ ] M7 — áudio funciona pelo SPU2.
 - [ ] M8 — homebrew simples executa de forma estável.
 - [ ] M9 — primeiro jogo comercial chega ingame sem hack específico.
-- [ ] M10 — profiling identifica gargalos principais.
+- [x] M10 — profiling identificou como gargalos principais o loop compute ARM9, GPU2D `extended-tiled` e I/O de ROM no NetherSX2.
 - [ ] M11 — JIT R5900 executa blocos ARM/Thumb e passa testes contra interpreter.
 - [ ] M12 — primeiro título comercial atinge velocidade jogável.
 - [ ] M13 — backend GS reduz de forma mensurável o custo de GPU.
@@ -327,9 +327,11 @@ To compile for Android, the easiest way would be to use [Android Studio](https:/
 - [x] `drawExtended` separa bitmap direto, bitmap indexado e affine tiled, reportando setup/body exclusivos e contadores amostrados de pixels, wrap, rejeição, VRAM, palette, transparência e writes; o acumulador affine incremental elimina duas multiplicações por pixel com teste diferencial determinístico.
 - [x] O profiler mede tempo bloqueado em leitura/seek da ROM e mostra `coreExIO`, chamadas, bytes, leituras curtas e piores latências por janela.
 - [x] Reads físicos são classificados por origem (header, direct boot ARM9/ARM7 e cache miss), agrupados por latência/tamanho e reads acima de 25 ms geram até oito registros `IO-SLOW` por janela com offset, seek, posição e sequencialidade.
+- [x] O cache faz read-ahead mínimo de uma página somente após confirmar acessos sequenciais; duas páginas de 16 KiB são lidas juntas sem aumentar o LRU de 2 MiB. O PROFILE mostra leituras/páginas antecipadas e o teste determinístico reduz uma sequência de 18 páginas de 18 para 10 chamadas físicas, preservando todos os bytes.
 - [x] Cada hot PC amostrado registra opcode atual/seguinte, modo ARM/Thumb, CPSR, valores de Rn/Rd/Rm, endereço efetivo seguro para transfers imediatos, alvo de B/BL e distância até o próximo evento; o profiler nunca relê MMIO.
 - [x] PROFILE nível 2 reconstrói até 24 instruções a partir dos hot PCs somente pelo direct-map, imprime decode ARM humano, máscaras read/write, back-edge e cobertura shadow do dynarec com primeiro opcode/reason de fallback; não ativa o JIT no scheduler.
 - [x] O profiler reconhece transfers ARM halfword/signed que compartilham o grupo de data-processing: no run 119, `E11190B8` decodifica como `LDRH r9,[r1,-r8]` e o snapshot de registradores aponta para `0x05000604` (palette), portanto o loop `0x020672DC` continua classificado como compute/pixel e nunca como idle.
+- [x] O inner loop `extended-tiled` usa máscara para wrap nos tamanhos 128/256/512/1024 e shifts para endereços de mapa/tile, removendo divisões e módulos por pixel. Testes diferenciais cobrem coordenadas signed extremas/aleatórias e todos os pixels dos quatro tamanhos.
 - [x] PROFILE amostra 1/64 dos acessos feitos pelo interpreter de cada CPU (direct-map/fallback, MMIO, VRAM, palette, TCM, desalinhamento e cross-page), mantém top MMIO bounded e emite uma linha `[PS2][SUMMARY]` comparável por janela.
 - [x] O CI publica PROFILE nível 1 (summary/counters) e nível 2 (hot-block/GPU2D detalhado) separadamente para medir no NetherSX2 o overhead da instrumentação profunda sem confundi-lo com desempenho do RELEASE.
 - [x] A fila do scheduler usa cursor estável e compactação em lotes, eliminando `vector.erase(begin())` por evento; PROFILE rotula explicitamente movimentos antigos como estimados e mede insert/pop por amostragem, compactações reais e empates FIFO para calcular `scheduler-cost` por frame. No teste de 100.000 eventos com profundidade 13, os movimentos caem para menos de 2%; microbenchmark host de 5 milhões: 79,706 ms → 36,566 ms (2,18× no mecanismo da fila).
