@@ -221,6 +221,8 @@ struct ArmAluState
     uint32_t r[16];
     uint32_t cpsr;
     uint32_t nextPc;
+    Memory *memory;
+    uint32_t memoryFault;
 };
 static_assert(offsetof(ArmAluState, cpsr) == 64,
     "R5900 ARM-state CPSR ABI offset");
@@ -230,6 +232,33 @@ static_assert(offsetof(ArmAluState, nextPc) == 68,
 bool applyArmAlu(uint32_t opcode, ArmAluState *state)
 {
     return state && Ps2ArmAlu::execute(opcode, state->r, &state->cpsr);
+}
+
+bool readDirectArm9Halfword(void *context, uint32_t address, uint16_t *value)
+{
+    Memory *memory = static_cast<Memory*>(context);
+    uint32_t offset = address & 0xFFFu;
+    if (!memory || !value || offset == 0xFFFu)
+        return false;
+
+    uint8_t *page = memory->getDirectReadPage(0, address);
+    if (!page)
+        return false;
+    *value = static_cast<uint16_t>(page[offset] |
+        (static_cast<uint16_t>(page[offset + 1]) << 8));
+    return true;
+}
+
+bool applyArmHalfwordTransfer(ArmAluState *state, uint32_t opcode)
+{
+    if (!state || !state->memory)
+        return false;
+    if (Ps2ArmAlu::executeHalfwordTransfer(opcode, state->r, &state->cpsr,
+        state->memory, readDirectArm9Halfword))
+        return true;
+
+    state->memoryFault = 1;
+    return false;
 }
 
 size_t emitArmCondition(uint8_t condition, uint32_t *code)
@@ -577,11 +606,46 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code)
     return words;
 }
 
+size_t emitArmHalfwordTransferInstruction(uint32_t opcode, uint32_t *code)
+{
+    Ps2ArmAlu::DecodedHalfwordTransfer decoded;
+    if (!code || !Ps2ArmAlu::decodeHalfwordTransfer(opcode, &decoded) ||
+        !decoded.load)
+        return 0;
+
+    // Call a tightly bounded C++ helper while the dynarec is shadow-only. It
+    // accepts direct ARM9 pages exclusively, so MMIO and cross-page reads can
+    // never be observed twice by the differential gate. t9 carries the callee
+    // address as required by the MIPS ABI; a0 and ra survive the nested call.
+    uintptr_t helper = reinterpret_cast<uintptr_t>(&applyArmHalfwordTransfer);
+    size_t words = 0;
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, -32);
+    code[words++] = R5900::sw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::sw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lui(R5900::R_A1,
+        static_cast<uint16_t>(opcode >> 16));
+    code[words++] = R5900::ori(R5900::R_A1, R5900::R_A1,
+        static_cast<uint16_t>(opcode));
+    code[words++] = R5900::lui(R5900::R_T9,
+        static_cast<uint16_t>(helper >> 16));
+    code[words++] = R5900::ori(R5900::R_T9, R5900::R_T9,
+        static_cast<uint16_t>(helper));
+    code[words++] = R5900::jalr(R5900::R_RA, R5900::R_T9);
+    code[words++] = R5900::nop();
+    code[words++] = R5900::lw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
+    return words;
+}
+
 size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code)
 {
     Ps2ArmAlu::Decoded decoded;
     if (Ps2ArmAlu::decode(opcode, &decoded))
         return emitArmAluInstruction(opcode, code);
+    Ps2ArmAlu::DecodedHalfwordTransfer transfer;
+    if (Ps2ArmAlu::decodeHalfwordTransfer(opcode, &transfer))
+        return emitArmHalfwordTransferInstruction(opcode, code);
     return emitArmBranchInstruction(opcode, pc, code);
 }
 }
@@ -668,6 +732,20 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
                 block.writeMask |= static_cast<uint16_t>(1u << decoded.rd);
             block.readsFlags |= decoded.condition != 0xEu;
             block.writesFlags |= decoded.setFlags;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedHalfwordTransfer transfer;
+        if (Ps2ArmAlu::decodeHalfwordTransfer(opcodes[i], &transfer) &&
+            transfer.load)
+        {
+            block.readMask |= static_cast<uint16_t>(1u << transfer.rn);
+            if (!transfer.immediate)
+                block.readMask |= static_cast<uint16_t>(1u << transfer.rm);
+            block.writeMask |= static_cast<uint16_t>(1u << transfer.rd);
+            if (transfer.writeBack)
+                block.writeMask |= static_cast<uint16_t>(1u << transfer.rn);
+            block.readsFlags |= transfer.condition != 0xEu;
             continue;
         }
 
@@ -831,6 +909,38 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
+    // Exercise the non-leaf helper ABI and a real direct ARM9 page before any
+    // live block may contain LDRH. This is read-only and therefore invisible
+    // to the emulated guest.
+    const uint32_t loadAddress = 0x02000000u;
+    uint8_t *loadPage = memory->getDirectReadPage(0, loadAddress);
+    if (!loadPage)
+        return false;
+    uint16_t expectedHalfword = static_cast<uint16_t>(loadPage[0] |
+        (static_cast<uint16_t>(loadPage[1]) << 8));
+
+    uint32_t *loadCode = cache.reserveWords(32);
+    if (!loadCode)
+        return false;
+    size_t loadWords = emitArmHalfwordTransferInstruction(0xE1D010B0u,
+        loadCode); // LDRH r1,[r0]
+    if (!loadWords)
+        return false;
+    loadCode[loadWords++] = R5900::jr(R5900::R_RA);
+    loadCode[loadWords++] = R5900::nop();
+    cache.commitWords(loadWords);
+    cache.syncExecutable(loadCode, loadCode + loadWords);
+
+    ArmAluState loadState = {};
+    loadState.r[0] = loadAddress;
+    loadState.r[1] = 0xFFFFFFFFu;
+    loadState.memory = memory;
+    typedef void (*ArmLoadFunction)(ArmAluState *);
+    ArmLoadFunction loadFunction = reinterpret_cast<ArmLoadFunction>(loadCode);
+    loadFunction(&loadState);
+    if (loadState.memoryFault || loadState.r[1] != expectedHalfword)
+        return false;
+
     return true;
 }
 
@@ -964,7 +1074,8 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
 
     // pipeline[0] is authoritative for the next instruction. pipeline[1] is
     // authoritative for the following instruction; later words can be fetched
-    // directly because this gate only accepts straight-line ALU instructions.
+    // directly because this gate accepts only straight-line ALU instructions,
+    // side-effect-free halfword loads and an optional terminal branch.
     for (size_t i = 0; i < MAX_BLOCK_INSTRUCTIONS; i++)
     {
         uint32_t opcode;
@@ -977,6 +1088,14 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
 
         Ps2ArmAlu::Decoded decoded;
         if (Ps2ArmAlu::decode(opcode, &decoded))
+        {
+            opcodes[count++] = opcode;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedHalfwordTransfer transfer;
+        if (Ps2ArmAlu::decodeHalfwordTransfer(opcode, &transfer) &&
+            transfer.load)
         {
             opcodes[count++] = opcode;
             continue;
@@ -998,6 +1117,7 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
         source.r[i] = expected.r[i] = CpuBackendAccess::readReg(cpu, i);
     source.cpsr = expected.cpsr = CpuBackendAccess::readCpsr(cpu);
     source.nextPc = expected.nextPc = guestPc + static_cast<uint32_t>(count * 4);
+    source.memory = expected.memory = memory;
 
     for (size_t i = 0; i < count; i++)
     {
@@ -1007,11 +1127,21 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
             if (!applyArmAlu(opcodes[i], &expected))
                 return -1;
         }
-        else if (!Ps2ArmAlu::executeBranch(opcodes[i],
-            guestPc + static_cast<uint32_t>(i * 4), expected.cpsr,
-            &expected.nextPc))
+        else
         {
-            return -1;
+            Ps2ArmAlu::DecodedHalfwordTransfer transfer;
+            if (Ps2ArmAlu::decodeHalfwordTransfer(opcodes[i], &transfer) &&
+                transfer.load)
+            {
+                if (!applyArmHalfwordTransfer(&expected, opcodes[i]))
+                    return 0;
+            }
+            else if (!Ps2ArmAlu::executeBranch(opcodes[i],
+                guestPc + static_cast<uint32_t>(i * 4), expected.cpsr,
+                &expected.nextPc))
+            {
+                return -1;
+            }
         }
     }
 
@@ -1024,6 +1154,8 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
     typedef void (*ArmAluBlockFunction)(ArmAluState *);
     ArmAluBlockFunction function = reinterpret_cast<ArmAluBlockFunction>(entry);
     function(&actual);
+    if (actual.memoryFault)
+        return 0;
 
     uint32_t hash = 2166136261u;
     for (int i = 0; i < 16; i++)
@@ -1083,17 +1215,20 @@ int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
         dynarecState.r[i] = savedRegs[i];
     dynarecState.cpsr = savedCpsr;
     dynarecState.nextPc = block->guestEndPc;
+    dynarecState.memory = memory;
 
     typedef void (*ArmAluBlockFunction)(ArmAluState *);
     ArmAluBlockFunction function =
         reinterpret_cast<ArmAluBlockFunction>(block->hostCode);
     function(&dynarecState);
+    if (dynarecState.memoryFault)
+        return 0;
 
     bool interpreterOk = true;
     for (uint32_t i = 0; i < block->guestInstructions; i++)
     {
-        // Every admitted opcode is a straight-line ALU operation with no PC
-        // or memory side effects. Conditions and NZCV are modeled explicitly.
+        // Every admitted opcode is a straight-line ALU/load operation with no
+        // memory write side effects. Conditions and NZCV are modeled exactly.
         int cycles = cpu.runOpcode();
         if (cycles <= 0)
         {

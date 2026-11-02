@@ -16,6 +16,31 @@ uint32_t nextRandom()
     return randomState;
 }
 
+struct HalfwordMemory
+{
+    uint8_t bytes[512];
+};
+
+bool readHalfword(void *context, uint32_t address, uint16_t *value)
+{
+    HalfwordMemory *memory = static_cast<HalfwordMemory*>(context);
+    if (!memory || !value || address + 1 >= sizeof(memory->bytes))
+        return false;
+    *value = static_cast<uint16_t>(memory->bytes[address] |
+        (static_cast<uint16_t>(memory->bytes[address + 1]) << 8));
+    return true;
+}
+
+bool writeHalfword(void *context, uint32_t address, uint16_t value)
+{
+    HalfwordMemory *memory = static_cast<HalfwordMemory*>(context);
+    if (!memory || address + 1 >= sizeof(memory->bytes))
+        return false;
+    memory->bytes[address] = static_cast<uint8_t>(value);
+    memory->bytes[address + 1] = static_cast<uint8_t>(value >> 8);
+    return true;
+}
+
 void expectResult(uint32_t opcode, uint8_t rd, uint32_t expected,
     const uint32_t source[16])
 {
@@ -202,7 +227,8 @@ int main()
     assert(info.readMask == ((1u << 9) | (1u << 8) | (1u << 14)));
     assert(info.writeMask == (1u << 8));
     assert(Ps2ArmAlu::rejectionReason(0xE0098E18u) == Ps2ArmAlu::REJECT_NONE);
-    assert(Ps2ArmAlu::rejectionReason(0xE11190B8u) == Ps2ArmAlu::REJECT_MEMORY);
+    assert(Ps2ArmAlu::rejectionReason(0xE11190B8u) == Ps2ArmAlu::REJECT_NONE);
+    assert(Ps2ArmAlu::rejectionReason(0xB18130BCu) == Ps2ArmAlu::REJECT_MEMORY);
     Ps2ArmAlu::inspect(0xE15C0002u, 0x02066E80u, &info);
     assert(info.kind == Ps2ArmAlu::KIND_DATA && info.writesFlags);
     assert(info.readMask == ((1u << 12) | (1u << 2)) && info.writeMask == 0);
@@ -230,6 +256,79 @@ int main()
     assert(!Ps2ArmAlu::decodeBranch(0xFAFFFFFAu, &branch)); // BLX immediate
     assert(Ps2ArmAlu::rejectionReason(0xBAFFFFFAu) == Ps2ArmAlu::REJECT_NONE);
     assert(Ps2ArmAlu::rejectionReason(0xEBFFFFFAu) == Ps2ArmAlu::REJECT_BRANCH);
+
+    Ps2ArmAlu::DecodedHalfwordTransfer transfer;
+    assert(Ps2ArmAlu::decodeHalfwordTransfer(0xE11190B8u, &transfer));
+    assert(transfer.load && !transfer.immediate && transfer.preIndex &&
+        !transfer.addOffset && !transfer.writeBack && transfer.rn == 1 &&
+        transfer.rd == 9 && transfer.rm == 8);
+    assert(Ps2ArmAlu::decodeHalfwordTransfer(0xB19030BCu, &transfer));
+    assert(transfer.load && transfer.condition == 0xBu && transfer.rm == 12);
+    assert(Ps2ArmAlu::decodeHalfwordTransfer(0xE1F120B4u, &transfer));
+    assert(transfer.load && transfer.immediate && transfer.writeBack &&
+        transfer.immediateOffset == 4);
+    assert(!Ps2ArmAlu::decodeHalfwordTransfer(0xE1F110B4u, &transfer));
+    assert(!Ps2ArmAlu::decodeHalfwordTransfer(0xE1D1F0B4u, &transfer));
+
+    HalfwordMemory halfwordMemory = {};
+    halfwordMemory.bytes[0x44] = 0xCD;
+    halfwordMemory.bytes[0x45] = 0xAB;
+    uint32_t transferRegs[16] = {};
+    transferRegs[1] = 0x48;
+    transferRegs[8] = 4;
+    cpsr = 0;
+    assert(Ps2ArmAlu::executeHalfwordTransfer(0xE11190B8u, transferRegs,
+        &cpsr, &halfwordMemory, readHalfword, writeHalfword));
+    assert(transferRegs[9] == 0xABCDu && transferRegs[1] == 0x48u);
+
+    // Failed conditions are memory-free no-ops; taken post-index forms use
+    // the old address and apply writeback only after a successful transfer.
+    transferRegs[3] = 0x5678u;
+    transferRegs[1] = 0x80u;
+    transferRegs[2] = 6u;
+    cpsr = 0;
+    assert(Ps2ArmAlu::executeHalfwordTransfer(0x008130B2u, transferRegs,
+        &cpsr, &halfwordMemory, readHalfword, writeHalfword)); // STRH.EQ skipped
+    assert(transferRegs[1] == 0x80u && halfwordMemory.bytes[0x80] == 0);
+    cpsr = 0x40000000u;
+    assert(Ps2ArmAlu::executeHalfwordTransfer(0x008130B2u, transferRegs,
+        &cpsr, &halfwordMemory, readHalfword, writeHalfword));
+    assert(transferRegs[1] == 0x86u && halfwordMemory.bytes[0x80] == 0x78 &&
+        halfwordMemory.bytes[0x81] == 0x56);
+
+    // Differential address/writeback sweep across immediate and register
+    // offsets, add/subtract and pre/post-index forms.
+    for (int test = 0; test < 10000; test++)
+    {
+        bool immediate = (nextRandom() & 1u) != 0;
+        bool preIndex = (nextRandom() & 1u) != 0;
+        bool addOffset = (nextRandom() & 1u) != 0;
+        bool writeBack = preIndex && ((nextRandom() & 1u) != 0);
+        uint32_t offset = nextRandom() & 0x3Fu;
+        uint32_t base = addOffset ? 0x100u : 0x180u;
+        uint32_t opcode = 0xE00000B0u | (1u << 20) | (1u << 16) |
+            (2u << 12);
+        if (immediate)
+            opcode |= (1u << 22) | ((offset & 0xF0u) << 4) | (offset & 0xFu);
+        else
+            opcode |= 3u;
+        if (preIndex) opcode |= 1u << 24;
+        if (addOffset) opcode |= 1u << 23;
+        if (writeBack) opcode |= 1u << 21;
+
+        uint32_t state[16] = {};
+        state[1] = base;
+        state[3] = offset;
+        uint32_t address = preIndex
+            ? (addOffset ? base + offset : base - offset) : base;
+        halfwordMemory.bytes[address] = static_cast<uint8_t>(test);
+        halfwordMemory.bytes[address + 1] = static_cast<uint8_t>(test >> 8);
+        assert(Ps2ArmAlu::executeHalfwordTransfer(opcode, state, &cpsr,
+            &halfwordMemory, readHalfword, writeHalfword));
+        assert(state[2] == static_cast<uint16_t>(test));
+        assert(state[1] == ((writeBack || !preIndex)
+            ? (addOffset ? base + offset : base - offset) : base));
+    }
 
     char text[96] = {};
     Ps2ArmAlu::format(0xE0098E18u, 0x020672F8u, text, sizeof(text));

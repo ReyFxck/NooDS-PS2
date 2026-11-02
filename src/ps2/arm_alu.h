@@ -82,6 +82,25 @@ namespace Ps2ArmAlu
         int32_t offset = 0;
     };
 
+    struct DecodedHalfwordTransfer
+    {
+        uint8_t condition = 0xE;
+        bool load = false;
+        bool immediate = false;
+        bool preIndex = true;
+        bool addOffset = true;
+        bool writeBack = false;
+        uint8_t rn = 0;
+        uint8_t rd = 0;
+        uint8_t rm = 0;
+        uint8_t immediateOffset = 0;
+    };
+
+    typedef bool (*ReadHalfword)(void *context, uint32_t address,
+        uint16_t *value);
+    typedef bool (*WriteHalfword)(void *context, uint32_t address,
+        uint16_t value);
+
     bool applyImmediateShift(uint32_t value, uint8_t type,
         uint8_t encodedAmount, uint32_t *result);
     bool applyRegisterShift(uint32_t value, uint8_t type,
@@ -89,6 +108,11 @@ namespace Ps2ArmAlu
     bool conditionPassed(uint8_t condition, uint32_t cpsr);
     bool decode(uint32_t opcode, Decoded *decoded);
     bool decodeBranch(uint32_t opcode, DecodedBranch *decoded);
+    bool decodeHalfwordTransfer(uint32_t opcode,
+        DecodedHalfwordTransfer *decoded);
+    bool executeHalfwordTransfer(uint32_t opcode, uint32_t registers[16],
+        uint32_t *cpsr, void *context, ReadHalfword read,
+        WriteHalfword write = nullptr);
     bool executeBranch(uint32_t opcode, uint32_t pc, uint32_t cpsr,
         uint32_t *nextPc);
     bool execute(uint32_t opcode, uint32_t registers[16],

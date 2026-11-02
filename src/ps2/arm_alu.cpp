@@ -238,6 +238,86 @@ bool Ps2ArmAlu::decodeBranch(uint32_t opcode, DecodedBranch *decoded)
     return true;
 }
 
+bool Ps2ArmAlu::decodeHalfwordTransfer(uint32_t opcode,
+    DecodedHalfwordTransfer *decoded)
+{
+    // ARM extra load/store encoding. Restrict this first memory subset to
+    // unsigned halfwords; signed byte/halfword and doubleword transfers have
+    // different result/writeback rules and remain in the interpreter.
+    if (!decoded || (opcode & 0x0E000090u) != 0x00000090u ||
+        ((opcode >> 5) & 0x3u) != 1u)
+        return false;
+
+    *decoded = DecodedHalfwordTransfer();
+    decoded->condition = static_cast<uint8_t>(opcode >> 28);
+    decoded->load = (opcode & BIT(20)) != 0;
+    decoded->immediate = (opcode & BIT(22)) != 0;
+    decoded->preIndex = (opcode & BIT(24)) != 0;
+    decoded->addOffset = (opcode & BIT(23)) != 0;
+    decoded->writeBack = (opcode & BIT(21)) != 0 || !decoded->preIndex;
+    decoded->rn = static_cast<uint8_t>((opcode >> 16) & 0xFu);
+    decoded->rd = static_cast<uint8_t>((opcode >> 12) & 0xFu);
+    decoded->rm = static_cast<uint8_t>(opcode & 0xFu);
+
+    // NV, PC operands and the unprivileged post-indexed form are deliberately
+    // outside the shadow ABI. LDRH writeback with Rn == Rd is unpredictable.
+    if (decoded->condition == 0xFu || decoded->rn == 15 ||
+        decoded->rd == 15 || (!decoded->preIndex && (opcode & BIT(21))) ||
+        (decoded->load && decoded->writeBack && decoded->rn == decoded->rd))
+        return false;
+
+    if (decoded->immediate)
+    {
+        decoded->immediateOffset = static_cast<uint8_t>(
+            ((opcode >> 4) & 0xF0u) | (opcode & 0xFu));
+    }
+    else if ((opcode & 0x00000F00u) != 0 || decoded->rm == 15)
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool Ps2ArmAlu::executeHalfwordTransfer(uint32_t opcode,
+    uint32_t registers[16], uint32_t *cpsr, void *context,
+    ReadHalfword read, WriteHalfword write)
+{
+    if (!registers)
+        return false;
+
+    DecodedHalfwordTransfer decoded;
+    if (!decodeHalfwordTransfer(opcode, &decoded) ||
+        (decoded.condition != 0xEu && !cpsr))
+        return false;
+    if (cpsr && !conditionPassed(decoded.condition, *cpsr))
+        return true;
+
+    uint32_t base = registers[decoded.rn];
+    uint32_t offset = decoded.immediate
+        ? decoded.immediateOffset : registers[decoded.rm];
+    uint32_t adjusted = decoded.addOffset ? base + offset : base - offset;
+    uint32_t address = decoded.preIndex ? adjusted : base;
+
+    if (decoded.load)
+    {
+        uint16_t value = 0;
+        if (!read || !read(context, address, &value))
+            return false;
+        registers[decoded.rd] = value;
+    }
+    else
+    {
+        if (!write || !write(context, address,
+            static_cast<uint16_t>(registers[decoded.rd])))
+            return false;
+    }
+
+    if (decoded.writeBack)
+        registers[decoded.rn] = adjusted;
+    return true;
+}
+
 bool Ps2ArmAlu::executeBranch(uint32_t opcode, uint32_t pc, uint32_t cpsr,
     uint32_t *nextPc)
 {
@@ -492,6 +572,9 @@ Ps2ArmAlu::RejectReason Ps2ArmAlu::rejectionReason(uint32_t opcode)
         return REJECT_NONE;
     DecodedBranch branch;
     if (decodeBranch(opcode, &branch))
+        return REJECT_NONE;
+    DecodedHalfwordTransfer transfer;
+    if (decodeHalfwordTransfer(opcode, &transfer) && transfer.load)
         return REJECT_NONE;
 
     InstructionInfo info;
