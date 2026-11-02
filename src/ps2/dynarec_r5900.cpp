@@ -216,6 +216,13 @@ bool DynarecR5900::runProbe(uint32_t *value) const
 
 namespace
 {
+struct ArmMemoryWrite
+{
+    uint32_t address;
+    uint16_t before;
+    uint16_t after;
+};
+
 struct ArmAluState
 {
     uint32_t r[16];
@@ -223,6 +230,8 @@ struct ArmAluState
     uint32_t nextPc;
     Memory *memory;
     uint32_t memoryFault;
+    uint32_t writeCount;
+    ArmMemoryWrite writes[16];
 };
 static_assert(offsetof(ArmAluState, cpsr) == 64,
     "R5900 ARM-state CPSR ABI offset");
@@ -236,7 +245,8 @@ bool applyArmAlu(uint32_t opcode, ArmAluState *state)
 
 bool readDirectArm9Halfword(void *context, uint32_t address, uint16_t *value)
 {
-    Memory *memory = static_cast<Memory*>(context);
+    ArmAluState *state = static_cast<ArmAluState*>(context);
+    Memory *memory = state ? state->memory : nullptr;
     uint32_t offset = address & 0xFFFu;
     if (!memory || !value || offset == 0xFFFu)
         return false;
@@ -249,12 +259,70 @@ bool readDirectArm9Halfword(void *context, uint32_t address, uint16_t *value)
     return true;
 }
 
+bool writeDirectArm9Halfword(void *context, uint32_t address, uint16_t value)
+{
+    ArmAluState *state = static_cast<ArmAluState*>(context);
+    Memory *memory = state ? state->memory : nullptr;
+    uint32_t offset = address & 0xFFFu;
+    if (!memory || offset == 0xFFFu || state->writeCount >= 16)
+        return false;
+
+    uint8_t *page = memory->getDirectWritePage(0, address);
+    if (!page)
+        return false;
+
+    ArmMemoryWrite &write = state->writes[state->writeCount++];
+    write.address = address;
+    write.before = static_cast<uint16_t>(page[offset] |
+        (static_cast<uint16_t>(page[offset + 1]) << 8));
+    write.after = value;
+    page[offset] = static_cast<uint8_t>(value);
+    page[offset + 1] = static_cast<uint8_t>(value >> 8);
+    return true;
+}
+
+void restoreArmMemoryWrites(ArmAluState *state)
+{
+    if (!state || !state->memory)
+        return;
+
+    for (uint32_t i = state->writeCount; i > 0; i--)
+    {
+        const ArmMemoryWrite &write = state->writes[i - 1];
+        uint32_t offset = write.address & 0xFFFu;
+        uint8_t *page = state->memory->getDirectWritePage(0, write.address);
+        if (!page || offset == 0xFFFu)
+            continue;
+        page[offset] = static_cast<uint8_t>(write.before);
+        page[offset + 1] = static_cast<uint8_t>(write.before >> 8);
+    }
+}
+
+class ArmMemoryWriteGuard
+{
+    public:
+        explicit ArmMemoryWriteGuard(ArmAluState *state): state(state) {}
+        ~ArmMemoryWriteGuard() { restoreNow(); }
+
+        void restoreNow()
+        {
+            if (!active)
+                return;
+            restoreArmMemoryWrites(state);
+            active = false;
+        }
+
+    private:
+        ArmAluState *state;
+        bool active = true;
+};
+
 bool applyArmHalfwordTransfer(ArmAluState *state, uint32_t opcode)
 {
     if (!state || !state->memory)
         return false;
     if (Ps2ArmAlu::executeHalfwordTransfer(opcode, state->r, &state->cpsr,
-        state->memory, readDirectArm9Halfword))
+        state, readDirectArm9Halfword, writeDirectArm9Halfword))
         return true;
 
     state->memoryFault = 1;
@@ -609,13 +677,12 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code)
 size_t emitArmHalfwordTransferInstruction(uint32_t opcode, uint32_t *code)
 {
     Ps2ArmAlu::DecodedHalfwordTransfer decoded;
-    if (!code || !Ps2ArmAlu::decodeHalfwordTransfer(opcode, &decoded) ||
-        !decoded.load)
+    if (!code || !Ps2ArmAlu::decodeHalfwordTransfer(opcode, &decoded))
         return 0;
 
     // Call a tightly bounded C++ helper while the dynarec is shadow-only. It
-    // accepts direct ARM9 pages exclusively, so MMIO and cross-page reads can
-    // never be observed twice by the differential gate. t9 carries the callee
+    // accepts direct ARM9 pages exclusively, so MMIO and cross-page accesses
+    // never reach generated code. t9 carries the callee
     // address as required by the MIPS ABI; a0 and ra survive the nested call.
     uintptr_t helper = reinterpret_cast<uintptr_t>(&applyArmHalfwordTransfer);
     size_t words = 0;
@@ -736,13 +803,18 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         }
 
         Ps2ArmAlu::DecodedHalfwordTransfer transfer;
-        if (Ps2ArmAlu::decodeHalfwordTransfer(opcodes[i], &transfer) &&
-            transfer.load)
+        if (Ps2ArmAlu::decodeHalfwordTransfer(opcodes[i], &transfer))
         {
             block.readMask |= static_cast<uint16_t>(1u << transfer.rn);
             if (!transfer.immediate)
                 block.readMask |= static_cast<uint16_t>(1u << transfer.rm);
-            block.writeMask |= static_cast<uint16_t>(1u << transfer.rd);
+            if (transfer.load)
+                block.writeMask |= static_cast<uint16_t>(1u << transfer.rd);
+            else
+            {
+                block.readMask |= static_cast<uint16_t>(1u << transfer.rd);
+                block.writesMemory = true;
+            }
             if (transfer.writeBack)
                 block.writeMask |= static_cast<uint16_t>(1u << transfer.rn);
             block.readsFlags |= transfer.condition != 0xEu;
@@ -941,6 +1013,38 @@ bool DynarecR5900::runArmAluSelfTest()
     if (loadState.memoryFault || loadState.r[1] != expectedHalfword)
         return false;
 
+    const uint32_t storeAddress = loadAddress + 2u;
+    uint16_t beforeStore = static_cast<uint16_t>(loadPage[2] |
+        (static_cast<uint16_t>(loadPage[3]) << 8));
+    uint32_t *storeCode = cache.reserveWords(32);
+    if (!storeCode)
+        return false;
+    size_t storeWords = emitArmHalfwordTransferInstruction(0xE1C010B0u,
+        storeCode); // STRH r1,[r0]
+    if (!storeWords)
+        return false;
+    storeCode[storeWords++] = R5900::jr(R5900::R_RA);
+    storeCode[storeWords++] = R5900::nop();
+    cache.commitWords(storeWords);
+    cache.syncExecutable(storeCode, storeCode + storeWords);
+
+    {
+        ArmAluState storeState = {};
+        storeState.r[0] = storeAddress;
+        storeState.r[1] = 0xA55Au;
+        storeState.memory = memory;
+        ArmMemoryWriteGuard storeWrites(&storeState);
+        ArmLoadFunction storeFunction =
+            reinterpret_cast<ArmLoadFunction>(storeCode);
+        storeFunction(&storeState);
+        if (storeState.memoryFault || storeState.writeCount != 1 ||
+            loadPage[2] != 0x5Au || loadPage[3] != 0xA5u)
+            return false;
+    }
+    if (loadPage[2] != static_cast<uint8_t>(beforeStore) ||
+        loadPage[3] != static_cast<uint8_t>(beforeStore >> 8))
+        return false;
+
     return true;
 }
 
@@ -1094,8 +1198,7 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
         }
 
         Ps2ArmAlu::DecodedHalfwordTransfer transfer;
-        if (Ps2ArmAlu::decodeHalfwordTransfer(opcode, &transfer) &&
-            transfer.load)
+        if (Ps2ArmAlu::decodeHalfwordTransfer(opcode, &transfer))
         {
             opcodes[count++] = opcode;
             continue;
@@ -1118,6 +1221,7 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
     source.cpsr = expected.cpsr = CpuBackendAccess::readCpsr(cpu);
     source.nextPc = expected.nextPc = guestPc + static_cast<uint32_t>(count * 4);
     source.memory = expected.memory = memory;
+    ArmMemoryWriteGuard expectedWrites(&expected);
 
     for (size_t i = 0; i < count; i++)
     {
@@ -1130,8 +1234,7 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
         else
         {
             Ps2ArmAlu::DecodedHalfwordTransfer transfer;
-            if (Ps2ArmAlu::decodeHalfwordTransfer(opcodes[i], &transfer) &&
-                transfer.load)
+            if (Ps2ArmAlu::decodeHalfwordTransfer(opcodes[i], &transfer))
             {
                 if (!applyArmHalfwordTransfer(&expected, opcodes[i]))
                     return 0;
@@ -1145,17 +1248,32 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
         }
     }
 
+    // Generated code must observe the same original bytes as the portable
+    // shadow. Keep the journal for comparison, but roll its writes back first.
+    expectedWrites.restoreNow();
+
     uint32_t *entry = nullptr;
     uint32_t hostWords = 0;
     if (!emitArmAluSequence(opcodes, count, guestPc, &entry, &hostWords))
         return -1;
 
     ArmAluState actual = source;
+    ArmMemoryWriteGuard actualWrites(&actual);
     typedef void (*ArmAluBlockFunction)(ArmAluState *);
     ArmAluBlockFunction function = reinterpret_cast<ArmAluBlockFunction>(entry);
     function(&actual);
     if (actual.memoryFault)
         return 0;
+
+    if (actual.writeCount != expected.writeCount)
+        return -1;
+    for (uint32_t i = 0; i < actual.writeCount; i++)
+    {
+        if (actual.writes[i].address != expected.writes[i].address ||
+            actual.writes[i].before != expected.writes[i].before ||
+            actual.writes[i].after != expected.writes[i].after)
+            return -1;
+    }
 
     uint32_t hash = 2166136261u;
     for (int i = 0; i < 16; i++)
@@ -1200,6 +1318,8 @@ int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
     uint32_t guestPc = CpuBackendAccess::nextInstructionAddress(cpu);
     const R5900CompiledBlock *block = findBlock(guestPc, false);
     if (!block || !block->hostCode || block->guestInstructions == 0)
+        return 0;
+    if (block->writesMemory)
         return 0;
 
     uint32_t savedRegs[16] = {};

@@ -228,7 +228,7 @@ int main()
     assert(info.writeMask == (1u << 8));
     assert(Ps2ArmAlu::rejectionReason(0xE0098E18u) == Ps2ArmAlu::REJECT_NONE);
     assert(Ps2ArmAlu::rejectionReason(0xE11190B8u) == Ps2ArmAlu::REJECT_NONE);
-    assert(Ps2ArmAlu::rejectionReason(0xB18130BCu) == Ps2ArmAlu::REJECT_MEMORY);
+    assert(Ps2ArmAlu::rejectionReason(0xB18130BCu) == Ps2ArmAlu::REJECT_NONE);
     Ps2ArmAlu::inspect(0xE15C0002u, 0x02066E80u, &info);
     assert(info.kind == Ps2ArmAlu::KIND_DATA && info.writesFlags);
     assert(info.readMask == ((1u << 12) | (1u << 2)) && info.writeMask == 0);

@@ -574,7 +574,7 @@ Ps2ArmAlu::RejectReason Ps2ArmAlu::rejectionReason(uint32_t opcode)
     if (decodeBranch(opcode, &branch))
         return REJECT_NONE;
     DecodedHalfwordTransfer transfer;
-    if (decodeHalfwordTransfer(opcode, &transfer) && transfer.load)
+    if (decodeHalfwordTransfer(opcode, &transfer))
         return REJECT_NONE;
 
     InstructionInfo info;

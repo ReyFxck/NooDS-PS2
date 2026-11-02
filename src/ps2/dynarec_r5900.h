@@ -69,6 +69,7 @@ struct R5900CompiledBlock
     uint16_t writeMask = 0;
     bool readsFlags = false;
     bool writesFlags = false;
+    bool writesMemory = false;
     bool thumb = false;
 
     uint32_t *hostCode = nullptr;
@@ -117,9 +118,10 @@ class DynarecR5900
             uint32_t *guestPc = nullptr, uint32_t *instructionCount = nullptr,
             uint32_t *stateHash = nullptr);
 
-        // Differential gate against NooDS' own interpreter. Only ALU blocks
-        // with an optional terminating B are eligible; register results,
-        // conditions, NZCV and next PC are compared before exact restoration.
+        // Differential gate against NooDS' own interpreter. ALU/read-only
+        // blocks with an optional terminating B are eligible; store blocks are
+        // kept in the transactional shadow gate until interpreter writes can
+        // also be journaled and restored exactly.
         int runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
             uint32_t *guestPc = nullptr, uint32_t *instructionCount = nullptr,
             uint32_t *stateHash = nullptr);
