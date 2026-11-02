@@ -83,4 +83,35 @@ template <typename T> class Gpu2DLastAddressCache
         bool valid = false;
 };
 
+// Direct VRAM mappings are stable for the duration of a GPU scanline task.
+// Affine backgrounds frequently read hundreds of bytes from the same 4 KiB
+// page, so retaining that page avoids repeating the sparse-table lookup for
+// every pixel. Null/overlapped mappings are never cached and keep using the
+// normal Memory fallback path.
+class Gpu2DDirectPageCache
+{
+    public:
+        bool lookup(uint32_t address, uint8_t *&page) const
+        {
+            if (!valid || (address & ~0xFFFu) != cachedAddress)
+                return false;
+            page = cachedPage;
+            return true;
+        }
+
+        void store(uint32_t address, uint8_t *page)
+        {
+            if (!page)
+                return;
+            cachedAddress = address & ~0xFFFu;
+            cachedPage = page;
+            valid = true;
+        }
+
+    private:
+        uint32_t cachedAddress = 0;
+        uint8_t *cachedPage = nullptr;
+        bool valid = false;
+};
+
 #endif

@@ -106,6 +106,7 @@ void Gpu2D::endExtendedProfile(Gpu2DExtendedMode mode, clock_t start,
     total.rejected += counters.rejected;
     total.vramReads += counters.vramReads;
     total.tileCacheHits += counters.tileCacheHits;
+    total.directPageHits += counters.directPageHits;
     total.paletteReads += counters.paletteReads;
     total.transparent += counters.transparent;
     total.writes += counters.writes;
@@ -934,6 +935,8 @@ void Gpu2D::drawExtended(int bg, int line)
         Gpu2DAffineLineStepper coordinates(internalX[affine], internalY[affine],
             bgPA[affine], bgPC[affine]);
         Gpu2DLastAddressCache<uint16_t> tileCache;
+        Gpu2DDirectPageCache tilePageCache;
+        Gpu2DDirectPageCache indexPageCache;
 
         // Draw a line
         for (int i = 0; i < 256; i++)
@@ -964,7 +967,21 @@ void Gpu2D::drawExtended(int bg, int line)
             if (!tileCache.lookup(tileAddr, tile))
             {
                 GPU2D_EXT_COUNT(vramReads, 1);
-                tile = core->memory.read<uint16_t>(gba, tileAddr);
+                uint8_t *page = nullptr;
+                if (tilePageCache.lookup(tileAddr, page))
+                {
+                    GPU2D_EXT_COUNT(directPageHits, 1);
+                    tile = U8TO16(page, tileAddr & 0xFFFu);
+                }
+                else if ((page = core->memory.getDirectReadPage(gba, tileAddr)))
+                {
+                    tilePageCache.store(tileAddr, page);
+                    tile = U8TO16(page, tileAddr & 0xFFFu);
+                }
+                else
+                {
+                    tile = core->memory.read<uint16_t>(gba, tileAddr);
+                }
                 tileCache.store(tileAddr, tile);
             }
             else
@@ -993,7 +1010,22 @@ void Gpu2D::drawExtended(int bg, int line)
             uint32_t indexAddr = indexBase +
                 gpu2dExtendedPixelOffset(tile, rotscaleX, rotscaleY);
             GPU2D_EXT_COUNT(vramReads, 1);
-            uint8_t index = core->memory.read<uint8_t>(gba, indexAddr);
+            uint8_t *page = nullptr;
+            uint8_t index;
+            if (indexPageCache.lookup(indexAddr, page))
+            {
+                GPU2D_EXT_COUNT(directPageHits, 1);
+                index = page[indexAddr & 0xFFFu];
+            }
+            else if ((page = core->memory.getDirectReadPage(gba, indexAddr)))
+            {
+                indexPageCache.store(indexAddr, page);
+                index = page[indexAddr & 0xFFFu];
+            }
+            else
+            {
+                index = core->memory.read<uint8_t>(gba, indexAddr);
+            }
 
             // Draw a pixel
             if (index)

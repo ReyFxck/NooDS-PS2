@@ -137,6 +137,52 @@ bool testLastAddressCache()
     uint16_t value = 0;
     return cache.lookup(UINT32_MAX, value) && value == 0xA55Au;
 }
+
+bool testDirectPageCache()
+{
+    uint8_t firstPage[0x1000] = {};
+    uint8_t secondPage[0x1000] = {};
+    Gpu2DDirectPageCache cache;
+    uint8_t *page = nullptr;
+
+    if (cache.lookup(0x06001234u, page))
+        return false;
+    cache.store(0x06001234u, firstPage);
+    if (!cache.lookup(0x06001FFFu, page) || page != firstPage)
+        return false;
+    if (cache.lookup(0x06002000u, page))
+        return false;
+
+    // Null mappings represent overlapping/unmapped VRAM and must not replace
+    // the last valid direct page or become cache hits themselves.
+    cache.store(0x06002000u, nullptr);
+    if (cache.lookup(0x06002001u, page))
+        return false;
+    if (!cache.lookup(0x06001000u, page) || page != firstPage)
+        return false;
+
+    cache.store(0x06002000u, secondPage);
+    if (!cache.lookup(0x06002ABCu, page) || page != secondPage ||
+        cache.lookup(0x06001000u, page))
+        return false;
+
+    // A linear 256-pixel stream should consult its page table once.
+    Gpu2DDirectPageCache streamCache;
+    uint32_t pageLookups = 0;
+    for (uint32_t pixel = 0; pixel < 256; pixel++)
+    {
+        uint32_t address = 0x06003000u + pixel;
+        if (!streamCache.lookup(address, page))
+        {
+            page = firstPage;
+            streamCache.store(address, page);
+            pageLookups++;
+        }
+        if (page != firstPage)
+            return false;
+    }
+    return pageLookups == 1;
+}
 }
 
 int main()
@@ -159,6 +205,11 @@ int main()
     if (!testLastAddressCache())
     {
         std::fprintf(stderr, "last-address tile cache mismatch\n");
+        return 1;
+    }
+    if (!testDirectPageCache())
+    {
+        std::fprintf(stderr, "direct-page cache mismatch\n");
         return 1;
     }
     return 0;

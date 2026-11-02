@@ -709,7 +709,7 @@ void logGpu2DProfile(const char *label, const Gpu2DRunProfile &profile)
             1000000.0 / CLOCKS_PER_SEC / divisor;
         const Gpu2DExtendedCounters &counters = profile.extendedCounters[mode];
 
-        PS2_LOG("[PS2][PROF] %s extended-%s: calls=%llu samples=%llu avg-us=%.2f setup=%.2f body=%.2f sampledPixels=%llu wrap=%llu reject=%llu vram=%llu tileHit=%llu palette=%llu transparent=%llu writes=%llu\n",
+        PS2_LOG("[PS2][PROF] %s extended-%s: calls=%llu samples=%llu avg-us=%.2f setup=%.2f body=%.2f sampledPixels=%llu wrap=%llu reject=%llu vram=%llu tileHit=%llu pageHit=%llu palette=%llu transparent=%llu writes=%llu\n",
             label, modeNames[mode],
             static_cast<unsigned long long>(profile.extendedModeCount[mode]),
             static_cast<unsigned long long>(samples),
@@ -719,6 +719,7 @@ void logGpu2DProfile(const char *label, const Gpu2DRunProfile &profile)
             static_cast<unsigned long long>(counters.rejected),
             static_cast<unsigned long long>(counters.vramReads),
             static_cast<unsigned long long>(counters.tileCacheHits),
+            static_cast<unsigned long long>(counters.directPageHits),
             static_cast<unsigned long long>(counters.paletteReads),
             static_cast<unsigned long long>(counters.transparent),
             static_cast<unsigned long long>(counters.writes));

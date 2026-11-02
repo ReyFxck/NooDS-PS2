@@ -58,6 +58,7 @@ struct Gpu2DExtendedCounters
     uint64_t rejected = 0;
     uint64_t vramReads = 0;
     uint64_t tileCacheHits = 0;
+    uint64_t directPageHits = 0;
     uint64_t paletteReads = 0;
     uint64_t transparent = 0;
     uint64_t writes = 0;
