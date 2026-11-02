@@ -220,7 +220,12 @@ struct ArmAluState
 {
     uint32_t r[16];
     uint32_t cpsr;
+    uint32_t nextPc;
 };
+static_assert(offsetof(ArmAluState, cpsr) == 64,
+    "R5900 ARM-state CPSR ABI offset");
+static_assert(offsetof(ArmAluState, nextPc) == 68,
+    "R5900 ARM-state next-PC ABI offset");
 
 bool applyArmAlu(uint32_t opcode, ArmAluState *state)
 {
@@ -320,6 +325,42 @@ size_t emitArmCondition(uint8_t condition, uint32_t *code)
                 R5900::R_ZERO, R5900::R_ZERO);
             break;
     }
+    return words;
+}
+
+size_t emitArmBranchInstruction(uint32_t opcode, uint32_t pc, uint32_t *code)
+{
+    if (!code)
+        return 0;
+
+    Ps2ArmAlu::DecodedBranch decoded;
+    if (!Ps2ArmAlu::decodeBranch(opcode, &decoded))
+        return 0;
+
+    uint32_t fallthrough = pc + 4u;
+    uint32_t target = pc + 8u + static_cast<uint32_t>(decoded.offset);
+    size_t words = 0;
+
+    if (decoded.condition != 0xEu)
+    {
+        code[words++] = R5900::lui(R5900::R_T2,
+            static_cast<uint16_t>(fallthrough >> 16));
+        code[words++] = R5900::ori(R5900::R_T2, R5900::R_T2,
+            static_cast<uint16_t>(fallthrough));
+        words += emitArmCondition(decoded.condition, code + words);
+
+        // A failed guest condition skips the two target-load instructions and
+        // stores the already loaded fallthrough address. The MIPS delay slot
+        // remains an explicit NOP.
+        code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 3);
+        code[words++] = R5900::nop();
+    }
+
+    code[words++] = R5900::lui(R5900::R_T2,
+        static_cast<uint16_t>(target >> 16));
+    code[words++] = R5900::ori(R5900::R_T2, R5900::R_T2,
+        static_cast<uint16_t>(target));
+    code[words++] = R5900::sw(R5900::R_T2, 68, R5900::R_A0);
     return words;
 }
 
@@ -535,6 +576,14 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code)
     }
     return words;
 }
+
+size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code)
+{
+    Ps2ArmAlu::Decoded decoded;
+    if (Ps2ArmAlu::decode(opcode, &decoded))
+        return emitArmAluInstruction(opcode, code);
+    return emitArmBranchInstruction(opcode, pc, code);
+}
 }
 
 bool DynarecR5900::emitArmAluBlock(uint32_t opcode, uint32_t **entry, uint8_t *rdOut)
@@ -571,7 +620,8 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         return false;
 
     // Conditions plus exact NZCV generation are deliberately explicit for the
-    // correctness gate. Register caching can compact this after scheduler use.
+    // correctness gate. A supported B may terminate the sequence; register
+    // caching can compact this after scheduler use.
     const size_t maxWords = count * 64 + 2;
     uint32_t *code = cache.reserveWords(maxWords);
     if (!code)
@@ -580,7 +630,8 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     size_t words = 0;
     for (size_t i = 0; i < count; i++)
     {
-        size_t emitted = emitArmAluInstruction(opcodes[i], code + words);
+        size_t emitted = emitArmInstruction(opcodes[i],
+            guestPc + static_cast<uint32_t>(i * 4), code + words);
         if (!emitted)
             return false;
         words += emitted;
@@ -605,19 +656,25 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     for (size_t i = 0; i < count; i++)
     {
         Ps2ArmAlu::Decoded decoded;
-        if (!Ps2ArmAlu::decode(opcodes[i], &decoded))
-            return false;
+        if (Ps2ArmAlu::decode(opcodes[i], &decoded))
+        {
+            if (decoded.operation != 13 && decoded.operation != 15)
+                block.readMask |= static_cast<uint16_t>(1u << decoded.rn);
+            if (!decoded.immediate)
+                block.readMask |= static_cast<uint16_t>(1u << decoded.rm);
+            if (decoded.registerShift)
+                block.readMask |= static_cast<uint16_t>(1u << decoded.rs);
+            if (decoded.writesResult)
+                block.writeMask |= static_cast<uint16_t>(1u << decoded.rd);
+            block.readsFlags |= decoded.condition != 0xEu;
+            block.writesFlags |= decoded.setFlags;
+            continue;
+        }
 
-        if (decoded.operation != 13 && decoded.operation != 15)
-            block.readMask |= static_cast<uint16_t>(1u << decoded.rn);
-        if (!decoded.immediate)
-            block.readMask |= static_cast<uint16_t>(1u << decoded.rm);
-        if (decoded.registerShift)
-            block.readMask |= static_cast<uint16_t>(1u << decoded.rs);
-        if (decoded.writesResult)
-            block.writeMask |= static_cast<uint16_t>(1u << decoded.rd);
-        block.readsFlags |= decoded.condition != 0xEu;
-        block.writesFlags |= decoded.setFlags;
+        Ps2ArmAlu::DecodedBranch branch;
+        if (!Ps2ArmAlu::decodeBranch(opcodes[i], &branch) || i + 1 != count)
+            return false;
+        block.readsFlags |= branch.condition != 0xEu;
     }
     blocks.push_back(block);
 
@@ -725,6 +782,50 @@ bool DynarecR5900::runArmAluSelfTest()
         ArmAluState actual = source;
         typedef void (*ArmAluFunction)(ArmAluState *);
         ArmAluFunction function = reinterpret_cast<ArmAluFunction>(entry);
+        function(&actual);
+        if (std::memcmp(&actual, &expected, sizeof(actual)) != 0)
+            return false;
+    }
+
+    struct BranchTest
+    {
+        uint32_t opcode;
+        uint32_t pc;
+        uint32_t cpsr;
+    };
+    const BranchTest branchTests[] =
+    {
+        { 0xBAFFFFFAu, 0x02066E90u, 0x80000013u }, // B.LT taken
+        { 0xBAFFFFFAu, 0x02066E90u, 0x00000013u }, // B.LT not taken
+        { 0xEA000006u, 0x0206094Cu, 0xF0000013u }  // B.AL taken
+    };
+
+    for (size_t i = 0; i < sizeof(branchTests) / sizeof(branchTests[0]); i++)
+    {
+        ArmAluState expected = {};
+        expected.cpsr = branchTests[i].cpsr;
+        expected.nextPc = branchTests[i].pc + 4u;
+        if (!Ps2ArmAlu::executeBranch(branchTests[i].opcode,
+            branchTests[i].pc, expected.cpsr, &expected.nextPc))
+            return false;
+
+        uint32_t *code = cache.reserveWords(32);
+        if (!code)
+            return false;
+        size_t words = emitArmBranchInstruction(branchTests[i].opcode,
+            branchTests[i].pc, code);
+        if (!words)
+            return false;
+        code[words++] = R5900::jr(R5900::R_RA);
+        code[words++] = R5900::nop();
+        cache.commitWords(words);
+        cache.syncExecutable(code, code + words);
+
+        ArmAluState actual = {};
+        actual.cpsr = branchTests[i].cpsr;
+        actual.nextPc = branchTests[i].pc + 4u;
+        typedef void (*ArmBranchFunction)(ArmAluState *);
+        ArmBranchFunction function = reinterpret_cast<ArmBranchFunction>(code);
         function(&actual);
         if (std::memcmp(&actual, &expected, sizeof(actual)) != 0)
             return false;
@@ -875,10 +976,17 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
             opcode = memory->read<uint32_t>(0, guestPc + static_cast<uint32_t>(i * 4));
 
         Ps2ArmAlu::Decoded decoded;
-        if (!Ps2ArmAlu::decode(opcode, &decoded))
-            break;
+        if (Ps2ArmAlu::decode(opcode, &decoded))
+        {
+            opcodes[count++] = opcode;
+            continue;
+        }
 
+        Ps2ArmAlu::DecodedBranch branch;
+        if (!Ps2ArmAlu::decodeBranch(opcode, &branch))
+            break;
         opcodes[count++] = opcode;
+        break;
     }
 
     if (!count)
@@ -889,10 +997,23 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
     for (int i = 0; i < 16; i++)
         source.r[i] = expected.r[i] = CpuBackendAccess::readReg(cpu, i);
     source.cpsr = expected.cpsr = CpuBackendAccess::readCpsr(cpu);
+    source.nextPc = expected.nextPc = guestPc + static_cast<uint32_t>(count * 4);
 
     for (size_t i = 0; i < count; i++)
-        if (!applyArmAlu(opcodes[i], &expected))
+    {
+        Ps2ArmAlu::Decoded decoded;
+        if (Ps2ArmAlu::decode(opcodes[i], &decoded))
+        {
+            if (!applyArmAlu(opcodes[i], &expected))
+                return -1;
+        }
+        else if (!Ps2ArmAlu::executeBranch(opcodes[i],
+            guestPc + static_cast<uint32_t>(i * 4), expected.cpsr,
+            &expected.nextPc))
+        {
             return -1;
+        }
+    }
 
     uint32_t *entry = nullptr;
     uint32_t hostWords = 0;
@@ -916,6 +1037,10 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
     if (actual.cpsr != expected.cpsr)
         return -1;
     hash ^= actual.cpsr;
+    hash *= 16777619u;
+    if (actual.nextPc != expected.nextPc)
+        return -1;
+    hash ^= actual.nextPc;
     hash *= 16777619u;
 
     hash ^= static_cast<uint32_t>(count);
@@ -957,6 +1082,7 @@ int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
     for (int i = 0; i < 16; i++)
         dynarecState.r[i] = savedRegs[i];
     dynarecState.cpsr = savedCpsr;
+    dynarecState.nextPc = block->guestEndPc;
 
     typedef void (*ArmAluBlockFunction)(ArmAluState *);
     ArmAluBlockFunction function =
@@ -978,7 +1104,8 @@ int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
 
     uint32_t hash = 2166136261u;
     bool match = interpreterOk &&
-        CpuBackendAccess::readCpsr(cpu) == dynarecState.cpsr;
+        CpuBackendAccess::readCpsr(cpu) == dynarecState.cpsr &&
+        CpuBackendAccess::nextInstructionAddress(cpu) == dynarecState.nextPc;
 
     // r15/pipeline naturally advance in the interpreter while the current
     // dynarec block ABI only models architectural GPR results. Compare r0-r14.
@@ -993,6 +1120,8 @@ int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
     }
 
     hash ^= CpuBackendAccess::readCpsr(cpu);
+    hash *= 16777619u;
+    hash ^= CpuBackendAccess::nextInstructionAddress(cpu);
     hash *= 16777619u;
     hash ^= block->guestInstructions;
     hash *= 16777619u;

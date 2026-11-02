@@ -218,6 +218,42 @@ bool Ps2ArmAlu::decode(uint32_t opcode, Decoded *decoded)
     return true;
 }
 
+bool Ps2ArmAlu::decodeBranch(uint32_t opcode, DecodedBranch *decoded)
+{
+    if (!decoded || (opcode & 0x0E000000u) != 0x0A000000u ||
+        (opcode & BIT(24))) // BL writes LR and needs a wider block ABI.
+        return false;
+
+    uint8_t condition = static_cast<uint8_t>(opcode >> 28);
+    if (condition == 0xFu) // ARMv5 BLX immediate, not a normal B condition.
+        return false;
+
+    int32_t offset = static_cast<int32_t>(opcode & 0x00FFFFFFu);
+    if (offset & 0x00800000)
+        offset |= static_cast<int32_t>(0xFF000000u);
+    offset *= 4;
+
+    decoded->condition = condition;
+    decoded->offset = offset;
+    return true;
+}
+
+bool Ps2ArmAlu::executeBranch(uint32_t opcode, uint32_t pc, uint32_t cpsr,
+    uint32_t *nextPc)
+{
+    if (!nextPc)
+        return false;
+
+    DecodedBranch decoded;
+    if (!decodeBranch(opcode, &decoded))
+        return false;
+
+    *nextPc = conditionPassed(decoded.condition, cpsr)
+        ? pc + 8u + static_cast<uint32_t>(decoded.offset)
+        : pc + 4u;
+    return true;
+}
+
 bool Ps2ArmAlu::execute(uint32_t opcode, uint32_t registers[16], uint32_t *cpsr)
 {
     if (!registers)
@@ -453,6 +489,9 @@ Ps2ArmAlu::RejectReason Ps2ArmAlu::rejectionReason(uint32_t opcode)
 {
     Decoded decoded;
     if (decode(opcode, &decoded))
+        return REJECT_NONE;
+    DecodedBranch branch;
+    if (decodeBranch(opcode, &branch))
         return REJECT_NONE;
 
     InstructionInfo info;

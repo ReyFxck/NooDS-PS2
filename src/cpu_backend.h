@@ -50,7 +50,7 @@ class CpuBackendAccess
             return cpu.pipeline[slot & 1];
         }
 
-        // Restore a straight-line differential-test snapshot exactly. This is
+        // Restore an ALU/branch differential-test snapshot exactly. This is
         // intentionally raw: callers must only use it when the tested block
         // cannot change CPU mode, banked registers, memory or exceptions.
         static void restoreStraightLineState(Interpreter &cpu,

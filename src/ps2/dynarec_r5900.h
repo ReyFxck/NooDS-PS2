@@ -110,16 +110,16 @@ class DynarecR5900
         int runArm9PipelineSelfTest(const Interpreter &cpu,
             uint32_t *guestPc = nullptr, uint32_t *opcode = nullptr);
 
-        // Compile a contiguous real ARM9 ALU block into one R5900 function and
-        // compare every register against a software shadow result. The live
-        // emulated CPU remains untouched.
+        // Compile a contiguous real ARM9 ALU block, optionally ending in B,
+        // into one R5900 function and compare registers/next PC against a
+        // software shadow result. The live emulated CPU remains untouched.
         int runArm9BlockShadowSelfTest(const Interpreter &cpu,
             uint32_t *guestPc = nullptr, uint32_t *instructionCount = nullptr,
             uint32_t *stateHash = nullptr);
 
-        // Differential gate against NooDS' own interpreter. Only straight-line
-        // ALU blocks are eligible; register results, conditions and NZCV are
-        // compared before exact state restoration with no guest-visible effects.
+        // Differential gate against NooDS' own interpreter. Only ALU blocks
+        // with an optional terminating B are eligible; register results,
+        // conditions, NZCV and next PC are compared before exact restoration.
         int runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
             uint32_t *guestPc = nullptr, uint32_t *instructionCount = nullptr,
             uint32_t *stateHash = nullptr);

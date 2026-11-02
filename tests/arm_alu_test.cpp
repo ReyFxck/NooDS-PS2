@@ -212,7 +212,24 @@ int main()
     assert(info.readMask == ((1u << 2) | (1u << 3)));
     assert(info.writeMask == ((1u << 0) | (1u << 1)));
     assert(Ps2ArmAlu::rejectionReason(0x01A02001u) == Ps2ArmAlu::REJECT_NONE);
-    assert(Ps2ArmAlu::rejectionReason(0xBAFFFFFAu) == Ps2ArmAlu::REJECT_BRANCH);
+
+    Ps2ArmAlu::DecodedBranch branch;
+    assert(Ps2ArmAlu::decodeBranch(0xBAFFFFFAu, &branch));
+    assert(branch.condition == 0xB && branch.offset == -24);
+    uint32_t nextPc = 0;
+    assert(Ps2ArmAlu::executeBranch(0xBAFFFFFAu, 0x02066E90u,
+        0x80000013u, &nextPc));
+    assert(nextPc == 0x02066E80u); // LT taken
+    assert(Ps2ArmAlu::executeBranch(0xBAFFFFFAu, 0x02066E90u,
+        0x00000013u, &nextPc));
+    assert(nextPc == 0x02066E94u); // LT not taken
+    assert(Ps2ArmAlu::executeBranch(0xEA000006u, 0x0206094Cu,
+        0x00000013u, &nextPc));
+    assert(nextPc == 0x0206096Cu); // unconditional forward branch
+    assert(!Ps2ArmAlu::decodeBranch(0xEBFFFFFAu, &branch)); // BL not admitted
+    assert(!Ps2ArmAlu::decodeBranch(0xFAFFFFFAu, &branch)); // BLX immediate
+    assert(Ps2ArmAlu::rejectionReason(0xBAFFFFFAu) == Ps2ArmAlu::REJECT_NONE);
+    assert(Ps2ArmAlu::rejectionReason(0xEBFFFFFAu) == Ps2ArmAlu::REJECT_BRANCH);
 
     char text[96] = {};
     Ps2ArmAlu::format(0xE0098E18u, 0x020672F8u, text, sizeof(text));

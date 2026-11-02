@@ -76,12 +76,21 @@ namespace Ps2ArmAlu
         uint32_t immediateValue = 0;
     };
 
+    struct DecodedBranch
+    {
+        uint8_t condition = 0xE;
+        int32_t offset = 0;
+    };
+
     bool applyImmediateShift(uint32_t value, uint8_t type,
         uint8_t encodedAmount, uint32_t *result);
     bool applyRegisterShift(uint32_t value, uint8_t type,
         uint32_t registerAmount, uint32_t *result);
     bool conditionPassed(uint8_t condition, uint32_t cpsr);
     bool decode(uint32_t opcode, Decoded *decoded);
+    bool decodeBranch(uint32_t opcode, DecodedBranch *decoded);
+    bool executeBranch(uint32_t opcode, uint32_t pc, uint32_t cpsr,
+        uint32_t *nextPc);
     bool execute(uint32_t opcode, uint32_t registers[16],
         uint32_t *cpsr = nullptr);
     void inspect(uint32_t opcode, uint32_t pc, InstructionInfo *info);
