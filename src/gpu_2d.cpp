@@ -105,6 +105,7 @@ void Gpu2D::endExtendedProfile(Gpu2DExtendedMode mode, clock_t start,
     total.wrapped += counters.wrapped;
     total.rejected += counters.rejected;
     total.vramReads += counters.vramReads;
+    total.tileCacheHits += counters.tileCacheHits;
     total.paletteReads += counters.paletteReads;
     total.transparent += counters.transparent;
     total.writes += counters.writes;
@@ -932,6 +933,7 @@ void Gpu2D::drawExtended(int bg, int line)
 
         Gpu2DAffineLineStepper coordinates(internalX[affine], internalY[affine],
             bgPA[affine], bgPC[affine]);
+        Gpu2DLastAddressCache<uint16_t> tileCache;
 
         // Draw a line
         for (int i = 0; i < 256; i++)
@@ -958,8 +960,17 @@ void Gpu2D::drawExtended(int bg, int line)
             // Get the current tile
             uint32_t tileAddr = tileBase +
                 gpu2dExtendedTileOffset(rotscaleX, rotscaleY, size);
-            GPU2D_EXT_COUNT(vramReads, 1);
-            uint16_t tile = core->memory.read<uint16_t>(gba, tileAddr);
+            uint16_t tile;
+            if (!tileCache.lookup(tileAddr, tile))
+            {
+                GPU2D_EXT_COUNT(vramReads, 1);
+                tile = core->memory.read<uint16_t>(gba, tileAddr);
+                tileCache.store(tileAddr, tile);
+            }
+            else
+            {
+                GPU2D_EXT_COUNT(tileCacheHits, 1);
+            }
 
             // Get the tile's palette
             uint8_t *pal;

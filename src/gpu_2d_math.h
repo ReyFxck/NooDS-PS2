@@ -54,4 +54,33 @@ class Gpu2DAffineLineStepper
         int16_t yStep;
 };
 
+// GPU scanline rendering is atomic with respect to CPU execution, so repeated
+// reads from the same VRAM address within one draw call observe the same value.
+// Extended affine backgrounds commonly sample one tile-map entry for several
+// adjacent pixels; retaining the last entry avoids repeating the full memory
+// map lookup without changing VRAM overlap semantics on cache misses.
+template <typename T> class Gpu2DLastAddressCache
+{
+    public:
+        bool lookup(uint32_t address, T &value) const
+        {
+            if (!valid || address != cachedAddress)
+                return false;
+            value = cachedValue;
+            return true;
+        }
+
+        void store(uint32_t address, T value)
+        {
+            cachedAddress = address;
+            cachedValue = value;
+            valid = true;
+        }
+
+    private:
+        uint32_t cachedAddress = 0;
+        T cachedValue = T();
+        bool valid = false;
+};
+
 #endif

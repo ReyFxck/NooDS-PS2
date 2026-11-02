@@ -103,6 +103,40 @@ bool testExtendedTiledOffsets()
     }
     return true;
 }
+
+bool testLastAddressCache()
+{
+    uint16_t memory[64];
+    for (uint32_t i = 0; i < 64; i++)
+        memory[i] = static_cast<uint16_t>(nextRandom());
+
+    Gpu2DLastAddressCache<uint16_t> cache;
+    uint32_t physicalReads = 0;
+
+    // Model a 1:1 affine scanline: eight adjacent pixels share each tile-map
+    // entry. The cached stream must be bit-identical and perform one lookup per
+    // tile instead of one per pixel.
+    for (uint32_t pixel = 0; pixel < 256; pixel++)
+    {
+        uint32_t address = pixel >> 3;
+        uint16_t value;
+        if (!cache.lookup(address, value))
+        {
+            value = memory[address];
+            cache.store(address, value);
+            physicalReads++;
+        }
+        if (value != memory[address])
+            return false;
+    }
+    if (physicalReads != 32)
+        return false;
+
+    // The valid bit must keep every possible 32-bit address cacheable.
+    cache.store(UINT32_MAX, 0xA55Au);
+    uint16_t value = 0;
+    return cache.lookup(UINT32_MAX, value) && value == 0xA55Au;
+}
 }
 
 int main()
@@ -120,6 +154,11 @@ int main()
     if (!testExtendedTiledOffsets())
     {
         std::fprintf(stderr, "extended tiled address mismatch\n");
+        return 1;
+    }
+    if (!testLastAddressCache())
+    {
+        std::fprintf(stderr, "last-address tile cache mismatch\n");
         return 1;
     }
     return 0;
