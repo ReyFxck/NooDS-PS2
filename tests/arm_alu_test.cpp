@@ -93,14 +93,32 @@ int main()
     assert(Ps2ArmAlu::execute(0xE2910001u, registers, &cpsr)); // ADDS r0,r1,#1
     assert(registers[0] == 0 && cpsr == 0x60000013u);
 
-    // Differential flag coverage for the arithmetic forms emitted by the JIT.
+    // The steady-state hot loop compares r12/r2 without modifying any GPR.
+    uint32_t cmpState[16] = {};
+    cmpState[12] = 3;
+    cmpState[2] = 5;
+    uint32_t cmpBefore[16];
+    std::memcpy(cmpBefore, cmpState, sizeof(cmpState));
+    cpsr = 0xF0000013u;
+    assert(Ps2ArmAlu::execute(0xE15C0002u, cmpState, &cpsr)); // CMP r12,r2
+    assert(std::memcmp(cmpState, cmpBefore, sizeof(cmpState)) == 0);
+    assert(cpsr == 0x80000013u);
+
+    // A failed conditional test instruction is a complete no-op, flags included.
+    cpsr = 0x00000013u;
+    assert(Ps2ArmAlu::execute(0x015C0002u, cmpState, &cpsr)); // CMP.EQ r12,r2
+    assert(std::memcmp(cmpState, cmpBefore, sizeof(cmpState)) == 0);
+    assert(cpsr == 0x00000013u);
+
+    // Differential flag coverage for result-writing and test/compare forms.
     for (int test = 0; test < 100000; test++)
     {
         uint32_t left = nextRandom();
         uint32_t right = nextRandom();
         uint32_t lowCpsr = nextRandom() & 0x0FFFFFFFu;
         const uint32_t opcodes[] =
-            { 0xE0902001u, 0xE0502001u, 0xE0702001u, 0xE0302001u };
+            { 0xE0902001u, 0xE0502001u, 0xE0702001u, 0xE0302001u,
+              0xE1100001u, 0xE1300001u, 0xE1500001u, 0xE1700001u };
 
         for (unsigned int operation = 0;
             operation < sizeof(opcodes) / sizeof(opcodes[0]); operation++)
@@ -114,14 +132,14 @@ int main()
             uint32_t expected;
             bool carry;
             bool overflow;
-            if (operation == 0) // ADD
+            if (operation == 0 || operation == 7) // ADD/CMN
             {
                 expected = left + right;
                 carry = static_cast<uint64_t>(left) + right > 0xFFFFFFFFu;
                 overflow = ((~(left ^ right) & (left ^ expected)) &
                     0x80000000u) != 0;
             }
-            else if (operation == 1) // SUB
+            else if (operation == 1 || operation == 6) // SUB/CMP
             {
                 expected = left - right;
                 carry = left >= right;
@@ -135,9 +153,15 @@ int main()
                 overflow = (((right ^ left) & (right ^ expected)) &
                     0x80000000u) != 0;
             }
-            else // EOR preserves C/V for an unshifted register Operand2.
+            else if (operation == 3 || operation == 5) // EOR/TEQ
             {
                 expected = left ^ right;
+                carry = true;
+                overflow = true;
+            }
+            else // TST preserves C/V for an unshifted register Operand2.
+            {
+                expected = left & right;
                 carry = true;
                 overflow = true;
             }
@@ -147,7 +171,10 @@ int main()
             if (!expected) expectedFlags |= 0x40000000u;
             if (carry) expectedFlags |= 0x20000000u;
             if (overflow) expectedFlags |= 0x10000000u;
-            assert(state[2] == expected);
+            if (operation < 4)
+                assert(state[2] == expected);
+            else
+                assert(state[0] == left && state[1] == right && state[2] == 0);
             assert(flags == expectedFlags);
         }
     }
@@ -161,6 +188,10 @@ int main()
     assert(!Ps2ArmAlu::decode(0xE1A02061u, &decoded)); // RRX needs carry
     assert(Ps2ArmAlu::decode(0xE1A02111u, &decoded));  // register-controlled LSL
     assert(decoded.registerShift && decoded.rs == 1);
+    assert(Ps2ArmAlu::decode(0xE15C0002u, &decoded)); // hot CMP r12,r2
+    assert(!decoded.writesResult && decoded.setFlags && decoded.rd == 0);
+    assert(!Ps2ArmAlu::decode(0xE14C0002u, &decoded)); // CMP encoding requires S
+    assert(!Ps2ArmAlu::decode(0xE15C1002u, &decoded)); // CMP encoding requires Rd=0
     assert(!Ps2ArmAlu::decode(0xE1A0F001u, &decoded)); // writes PC
     assert(!Ps2ArmAlu::decode(0xE1A0200Fu, &decoded)); // reads PC
 
@@ -172,6 +203,10 @@ int main()
     assert(info.writeMask == (1u << 8));
     assert(Ps2ArmAlu::rejectionReason(0xE0098E18u) == Ps2ArmAlu::REJECT_NONE);
     assert(Ps2ArmAlu::rejectionReason(0xE11190B8u) == Ps2ArmAlu::REJECT_MEMORY);
+    Ps2ArmAlu::inspect(0xE15C0002u, 0x02066E80u, &info);
+    assert(info.kind == Ps2ArmAlu::KIND_DATA && info.writesFlags);
+    assert(info.readMask == ((1u << 12) | (1u << 2)) && info.writeMask == 0);
+    assert(Ps2ArmAlu::rejectionReason(0xE15C0002u) == Ps2ArmAlu::REJECT_NONE);
     Ps2ArmAlu::inspect(0xE0810293u, 0x02000000u, &info); // UMULL r0,r1,r3,r2
     assert(info.kind == Ps2ArmAlu::KIND_MULTIPLY);
     assert(info.readMask == ((1u << 2) | (1u << 3)));

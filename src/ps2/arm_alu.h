@@ -63,6 +63,7 @@ namespace Ps2ArmAlu
         uint8_t condition = 0xE;
         bool immediate = false;
         bool setFlags = false;
+        bool writesResult = true;
         uint8_t operation = 0;
         uint8_t rn = 0;
         uint8_t rd = 0;

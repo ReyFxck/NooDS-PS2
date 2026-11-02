@@ -133,6 +133,13 @@ bool Ps2ArmAlu::decode(uint32_t opcode, Decoded *decoded)
     decoded->rn = static_cast<uint8_t>((opcode >> 16) & 0xF);
     decoded->rd = static_cast<uint8_t>((opcode >> 12) & 0xF);
     decoded->rm = static_cast<uint8_t>(opcode & 0xF);
+    decoded->writesResult = decoded->operation < 8 || decoded->operation > 11;
+
+    // TST/TEQ/CMP/CMN have a fixed S=1, Rd=0 encoding and only update flags.
+    // Rejecting the other encodings avoids admitting overlapping PSR/system
+    // instructions as ordinary data processing operations.
+    if (!decoded->writesResult && (!decoded->setFlags || decoded->rd != 0))
+        return false;
 
     if (!decoded->immediate)
     {
@@ -154,7 +161,7 @@ bool Ps2ArmAlu::decode(uint32_t opcode, Decoded *decoded)
         }
     }
 
-    if (decoded->rd == 15 ||
+    if ((decoded->writesResult && decoded->rd == 15) ||
         (!decoded->immediate && decoded->rm == 15) ||
         (decoded->registerShift && decoded->rs == 15) ||
         (decoded->operation != 13 && decoded->operation != 15 &&
@@ -168,6 +175,10 @@ bool Ps2ArmAlu::decode(uint32_t opcode, Decoded *decoded)
         case 2:  // SUB
         case 3:  // RSB
         case 4:  // ADD
+        case 8:  // TST
+        case 9:  // TEQ
+        case 10: // CMP
+        case 11: // CMN
         case 12: // ORR
         case 13: // MOV
         case 14: // BIC
@@ -192,6 +203,7 @@ bool Ps2ArmAlu::decode(uint32_t opcode, Decoded *decoded)
     // result and may use any otherwise supported shifter form.
     if (decoded->setFlags &&
         (decoded->operation == 0 || decoded->operation == 1 ||
+         decoded->operation == 8 || decoded->operation == 9 ||
          decoded->operation == 12 || decoded->operation == 13 ||
          decoded->operation == 14 || decoded->operation == 15))
     {
@@ -240,6 +252,10 @@ bool Ps2ArmAlu::execute(uint32_t opcode, uint32_t registers[16], uint32_t *cpsr)
         case 2:  result = operand1 - operand2; break;
         case 3:  result = operand2 - operand1; break;
         case 4:  result = operand1 + operand2; break;
+        case 8:  result = operand1 & operand2; break;
+        case 9:  result = operand1 ^ operand2; break;
+        case 10: result = operand1 - operand2; break;
+        case 11: result = operand1 + operand2; break;
         case 12: result = operand1 | operand2; break;
         case 13: result = operand2; break;
         case 14: result = operand1 & ~operand2; break;
@@ -247,7 +263,8 @@ bool Ps2ArmAlu::execute(uint32_t opcode, uint32_t registers[16], uint32_t *cpsr)
         default: return false;
     }
 
-    registers[decoded.rd] = result;
+    if (decoded.writesResult)
+        registers[decoded.rd] = result;
 
     if (decoded.setFlags)
     {
@@ -255,7 +272,7 @@ bool Ps2ArmAlu::execute(uint32_t opcode, uint32_t registers[16], uint32_t *cpsr)
         if (!result) flags |= BIT(30);
 
         uint32_t left = operand1;
-        if (decoded.operation == 2) // SUB
+        if (decoded.operation == 2 || decoded.operation == 10) // SUB/CMP
         {
             if (left >= operand2) flags |= BIT(29);
             if (((left ^ operand2) & (left ^ result)) & BIT(31))
@@ -267,7 +284,7 @@ bool Ps2ArmAlu::execute(uint32_t opcode, uint32_t registers[16], uint32_t *cpsr)
             if (((operand2 ^ left) & (operand2 ^ result)) & BIT(31))
                 flags |= BIT(28);
         }
-        else if (decoded.operation == 4) // ADD
+        else if (decoded.operation == 4 || decoded.operation == 11) // ADD/CMN
         {
             if (static_cast<uint64_t>(left) + operand2 > 0xFFFFFFFFu)
                 flags |= BIT(29);

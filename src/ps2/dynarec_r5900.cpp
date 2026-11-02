@@ -330,7 +330,8 @@ size_t emitArmFlags(const Ps2ArmAlu::Decoded &decoded, uint32_t *code)
 
     size_t words = 0;
     bool arithmetic = decoded.operation == 2 || decoded.operation == 3 ||
-        decoded.operation == 4;
+        decoded.operation == 4 || decoded.operation == 10 ||
+        decoded.operation == 11;
     code[words++] = R5900::lw(R5900::R_T5, 64, R5900::R_A0);
     code[words++] = R5900::lui(R5900::R_T6,
         arithmetic ? 0x0FFFu : 0x3FFFu);
@@ -347,7 +348,7 @@ size_t emitArmFlags(const Ps2ArmAlu::Decoded &decoded, uint32_t *code)
 
     if (arithmetic)
     {
-        if (decoded.operation == 2) // SUB: T0 - T1
+        if (decoded.operation == 2 || decoded.operation == 10) // SUB/CMP: T0 - T1
         {
             code[words++] = R5900::nor_(R5900::R_T3, R5900::R_T0, R5900::R_ZERO);
             code[words++] = R5900::and_(R5900::R_T3, R5900::R_T3, R5900::R_T1);
@@ -506,6 +507,10 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code)
         case 2:  code[words++] = R5900::subu(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
         case 3:  code[words++] = R5900::subu(R5900::R_T2, R5900::R_T1, R5900::R_T0); break;
         case 4:  code[words++] = R5900::addu(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
+        case 8:  code[words++] = R5900::and_(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
+        case 9:  code[words++] = R5900::xor_(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
+        case 10: code[words++] = R5900::subu(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
+        case 11: code[words++] = R5900::addu(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
         case 12: code[words++] = R5900::or_(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
         case 13: code[words++] = R5900::or_(R5900::R_T2, R5900::R_T1, R5900::R_ZERO); break;
         case 14:
@@ -516,8 +521,9 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code)
         default: return 0;
     }
 
-    code[words++] = R5900::sw(R5900::R_T2,
-        static_cast<int16_t>(decoded.rd * 4), R5900::R_A0);
+    if (decoded.writesResult)
+        code[words++] = R5900::sw(R5900::R_T2,
+            static_cast<int16_t>(decoded.rd * 4), R5900::R_A0);
     words += emitArmFlags(decoded, code + words);
     if (conditionBranch != static_cast<size_t>(-1))
     {
@@ -608,7 +614,8 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             block.readMask |= static_cast<uint16_t>(1u << decoded.rm);
         if (decoded.registerShift)
             block.readMask |= static_cast<uint16_t>(1u << decoded.rs);
-        block.writeMask |= static_cast<uint16_t>(1u << decoded.rd);
+        if (decoded.writesResult)
+            block.writeMask |= static_cast<uint16_t>(1u << decoded.rd);
         block.readsFlags |= decoded.condition != 0xEu;
         block.writesFlags |= decoded.setFlags;
     }
@@ -693,7 +700,11 @@ bool DynarecR5900::runArmAluSelfTest()
         { 0xE2322008u, 0x30000013u, 2, 0x00000008u }, // EORS -> Z, preserve C/V
         { 0xE2555001u, 0xF0000013u, 5, 0x00000000u }, // SUBS -> N
         { 0xE2555001u, 0x00000013u, 5, 0x80000000u }, // SUBS overflow
-        { 0xE2910001u, 0xF0000013u, 1, 0xFFFFFFFFu }  // ADDS carry + zero
+        { 0xE2910001u, 0xF0000013u, 1, 0xFFFFFFFFu }, // ADDS carry + zero
+        { 0xE1100001u, 0x30000013u, 0, 0xFFFFFFFFu }, // TST preserves registers
+        { 0xE1300001u, 0x30000013u, 0, 0x01020304u }, // TEQ preserves registers
+        { 0xE15C0002u, 0xF0000013u, 12, 0x00000010u }, // hot CMP r12,r2
+        { 0xE1700001u, 0xF0000013u, 0, 0xFEFDFCFCu }  // CMN preserves registers
     };
 
     for (size_t i = 0; i < sizeof(flagTests) / sizeof(flagTests[0]); i++)

@@ -823,7 +823,7 @@ int main(int argc, char **argv)
 #else
     PS2_LOG(" Instrumentation: disabled\n");
 #endif
-    PS2_LOG(" Dynarec: ARM-ALU-v3 shadow-only\n");
+    PS2_LOG(" Dynarec: ARM-ALU-v4 shadow-only\n");
     PS2_LOG("============================================================\n");
 
     std::string romPath = (argc > 1 && argv[1] && argv[1][0])
@@ -940,7 +940,7 @@ int main(int argc, char **argv)
 
                 if (dynarec.runArmAluSelfTest())
                 {
-                    PS2_LOG("[PS2][OK] ARM->R5900 ALU self-test: 23 base operations + 7 condition/NZCV cases passed; rotated immediates and immediate/register LSL/LSR/ASR/ROR passed.\n");
+                    PS2_LOG("[PS2][OK] ARM->R5900 ALU self-test: 23 base operations + 11 condition/NZCV cases passed; TST/TEQ/CMP/CMN, rotated immediates and immediate/register LSL/LSR/ASR/ROR passed.\n");
 
                     uint32_t arm9StateHash = 0;
                     if (dynarec.runArm9StateSelfTest(core->interpreter[0], &arm9StateHash))
