@@ -313,6 +313,7 @@ To compile for Android, the easiest way would be to use [Android Studio](https:/
 
 - Fast-map direto usa carga/armazenamento nativo little-endian via `memcpy` para u8/u16/u32, evitando montar cada leitura byte a byte no hot path; hosts big-endian mantêm fallback explícito.
 - Os quatro mapas diretos de 1.048.576 ponteiros foram substituídos por `SparsePageTable` de dois níveis.
+- No PS2, cada mapa/CPU retém quatro páginas recentes com a respectiva `mapGeneration`, evitando repetir a consulta esparsa em fetches/transfers quentes; páginas nulas preservam MMIO/fallback e PROFILE reporta `pageHit`.
 - A granularidade continua sendo 4 KiB; RAM/WRAM/TCM/VRAM e fallbacks preservam a mesma semântica.
 - O core expõe `getDirectReadPage()`, `getDirectWritePage()` e `getMapGeneration()` para backends de CPU.
 - `mapGeneration` permite invalidar code cache quando TCM/WRAM/VRAM são remapeados, sem acoplar o core ao PS2.

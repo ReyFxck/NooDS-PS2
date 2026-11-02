@@ -43,6 +43,7 @@ struct MemoryCpuProfile
     uint64_t sampledWrites = 0;
     uint64_t directReads = 0;
     uint64_t directWrites = 0;
+    uint64_t pageCacheHits = 0;
     uint64_t fallbackReads = 0;
     uint64_t fallbackWrites = 0;
     uint64_t mmioReads = 0;
@@ -122,6 +123,47 @@ class SparsePageTable
         Level2 *level1[0x1000] = {};
         size_t allocatedTables = 0;
 };
+
+#ifdef NOODS_PS2
+// The PS2 frontend runs the core single-threaded. A tiny direct-mapped cache
+// keeps hot code/data pages from repeating both sparse-table pointer loads on
+// every interpreter fetch or transfer. Mapping updates invalidate all entries
+// alongside mapGeneration changes. Null pages are cached too, preserving the
+// normal MMIO/overlap fallback semantics.
+class MemoryPageCache
+{
+    public:
+        FORCE_INLINE bool lookup(uint32_t address, uint8_t *&page) const
+        {
+            const Entry &entry = entries[(address >> 12) & 3u];
+            if (entry.tag != (address >> 12) + 1u)
+                return false;
+            page = entry.page;
+            return true;
+        }
+
+        FORCE_INLINE void store(uint32_t address, uint8_t *page)
+        {
+            Entry &entry = entries[(address >> 12) & 3u];
+            entry.tag = (address >> 12) + 1u;
+            entry.page = page;
+        }
+
+        void invalidate()
+        {
+            for (size_t i = 0; i < 4; i++)
+                entries[i].tag = 0;
+        }
+
+    private:
+        struct Entry
+        {
+            uint32_t tag = 0;
+            uint8_t *page = nullptr;
+        };
+        Entry entries[4];
+};
+#endif
 
 class VramMapping
 {
@@ -219,6 +261,20 @@ class Memory
         SparsePageTable writeMap9;
         SparsePageTable writeMap7;
 
+#ifdef NOODS_PS2
+        MemoryPageCache readPageCache[2];
+        MemoryPageCache writePageCache[2];
+
+        void invalidatePageCaches()
+        {
+            for (int cpu = 0; cpu < 2; cpu++)
+            {
+                readPageCache[cpu].invalidate();
+                writePageCache[cpu].invalidate();
+            }
+        }
+#endif
+
         uint32_t mapGeneration = 1;
 
 #ifdef NOODS_PROFILE
@@ -228,7 +284,7 @@ class Memory
         MemoryProfile profile;
 
         FORCE_INLINE void profileAccess(bool cpu, uint32_t rawAddress,
-            size_t size, bool write, bool direct)
+            size_t size, bool write, bool direct, bool pageCacheHit)
         {
             (void)cpu;
             if (!profileEnabled || profileCpuContext < 0)
@@ -239,6 +295,8 @@ class Memory
                 return;
 
             MemoryCpuProfile &entry = profile.cpu[cpuIndex];
+            if (pageCacheHit)
+                entry.pageCacheHits++;
             uint32_t address = rawAddress & ~static_cast<uint32_t>(size - 1u);
             bool unaligned = (rawAddress & (size - 1u)) != 0;
             bool crossPage = (rawAddress & 0xFFFu) + size > 0x1000u;
@@ -380,9 +438,24 @@ template <typename T> FORCE_INLINE T Memory::read(bool cpu, uint32_t address)
     address &= ~(sizeof(T) - 1);
 
     const SparsePageTable &readMap = (cpu == 0) ? readMap9 : readMap7;
-    uint8_t *page = readMap.get(address);
+    uint8_t *page = nullptr;
+    bool pageCacheHit = false;
+#ifdef NOODS_PS2
+    MemoryPageCache &pageCache = readPageCache[cpu ? 1 : 0];
+    pageCacheHit = pageCache.lookup(address, page);
+    if (!pageCacheHit)
+    {
+        page = readMap.get(address);
+        pageCache.store(address, page);
+    }
+#else
+    page = readMap.get(address);
+#endif
 #ifdef NOODS_PROFILE
-    profileAccess(cpu, rawAddress, sizeof(T), false, page != nullptr);
+    profileAccess(cpu, rawAddress, sizeof(T), false, page != nullptr,
+        pageCacheHit);
+#else
+    (void)pageCacheHit;
 #endif
     if (page)
     {
@@ -418,9 +491,24 @@ template <typename T> FORCE_INLINE void Memory::write(bool cpu, uint32_t address
     address &= ~(sizeof(T) - 1);
 
     const SparsePageTable &writeMap = (cpu == 0) ? writeMap9 : writeMap7;
-    uint8_t *page = writeMap.get(address);
+    uint8_t *page = nullptr;
+    bool pageCacheHit = false;
+#ifdef NOODS_PS2
+    MemoryPageCache &pageCache = writePageCache[cpu ? 1 : 0];
+    pageCacheHit = pageCache.lookup(address, page);
+    if (!pageCacheHit)
+    {
+        page = writeMap.get(address);
+        pageCache.store(address, page);
+    }
+#else
+    page = writeMap.get(address);
+#endif
 #ifdef NOODS_PROFILE
-    profileAccess(cpu, rawAddress, sizeof(T), true, page != nullptr);
+    profileAccess(cpu, rawAddress, sizeof(T), true, page != nullptr,
+        pageCacheHit);
+#else
+    (void)pageCacheHit;
 #endif
     if (page)
     {

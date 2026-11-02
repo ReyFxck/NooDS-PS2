@@ -343,7 +343,7 @@ const char *ndsMemoryClass(uint32_t address)
 
 void logMemoryProfile(const char *label, const MemoryCpuProfile &profile)
 {
-    PS2_LOG("[PS2][PROF] memory %s sampled/64: read=%llu direct=%llu fallback=%llu write=%llu direct=%llu fallback=%llu | MMIO=%llu/%llu VRAM=%llu/%llu palette=%llu/%llu TCM=%llu/%llu unaligned=%llu/%llu crossPage=%llu/%llu\n",
+    PS2_LOG("[PS2][PROF] memory %s sampled/64: read=%llu direct=%llu fallback=%llu write=%llu direct=%llu fallback=%llu pageHit=%llu | MMIO=%llu/%llu VRAM=%llu/%llu palette=%llu/%llu TCM=%llu/%llu unaligned=%llu/%llu crossPage=%llu/%llu\n",
         label,
         static_cast<unsigned long long>(profile.sampledReads),
         static_cast<unsigned long long>(profile.directReads),
@@ -351,6 +351,7 @@ void logMemoryProfile(const char *label, const MemoryCpuProfile &profile)
         static_cast<unsigned long long>(profile.sampledWrites),
         static_cast<unsigned long long>(profile.directWrites),
         static_cast<unsigned long long>(profile.fallbackWrites),
+        static_cast<unsigned long long>(profile.pageCacheHits),
         static_cast<unsigned long long>(profile.mmioReads),
         static_cast<unsigned long long>(profile.mmioWrites),
         static_cast<unsigned long long>(profile.vramReads),

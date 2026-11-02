@@ -198,6 +198,9 @@ void Memory::updateMap9(uint32_t start, uint32_t end)
     {
         if (++mapGeneration == 0)
             mapGeneration = 1;
+#ifdef NOODS_PS2
+        invalidatePageCaches();
+#endif
     }
 }
 
@@ -363,6 +366,10 @@ void Memory::updateMap7(uint32_t start, uint32_t end)
 
         changed |= writeMap7.set(static_cast<uint32_t>(address), data);
     }
+#ifdef NOODS_PS2
+    if (changed)
+        invalidatePageCaches();
+#endif
 }
 
 template <typename T> T Memory::readFallback(bool cpu, uint32_t address)
