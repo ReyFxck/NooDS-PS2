@@ -104,8 +104,6 @@ class Cartridge
         uint32_t getRomCacheSeekCount() const { return romCacheSeekCount; }
         uint32_t getRomCacheSequentialMisses() const { return romCacheSequentialMisses; }
         uint32_t getRomCacheSequentialRunMax() const { return romCacheSequentialRunMax; }
-        uint32_t getRomCacheReadAheadReads() const { return romCacheReadAheadReads; }
-        uint32_t getRomCacheReadAheadPages() const { return romCacheReadAheadPages; }
 
 #ifdef NOODS_PROFILE
         const RomIoProfile &getRomIoProfile() const { return romIoProfile; }
@@ -130,7 +128,6 @@ class Cartridge
         };
 
         uint8_t *romCache = nullptr;
-        uint8_t *romReadAhead = nullptr;
         RomCacheEntry *romCacheEntries = nullptr;
         uint32_t romCachePageSize = 0x4000;
         uint32_t romCachePageCount = 0;
@@ -144,9 +141,7 @@ class Cartridge
         uint32_t romCacheSequentialMisses = 0;
         uint32_t romCacheSequentialRun = 0;
         uint32_t romCacheSequentialRunMax = 0;
-        uint32_t romCacheLastAccessTag = 0xFFFFFFFFu;
-        uint32_t romCacheReadAheadReads = 0;
-        uint32_t romCacheReadAheadPages = 0;
+        uint32_t romCacheLastMissTag = 0xFFFFFFFFu;
 
 #ifdef NOODS_PROFILE
         RomIoProfile romIoProfile;
@@ -158,7 +153,6 @@ class Cartridge
         int seekRomFile(long offset, int origin);
         size_t readRomFile(void *buffer, size_t size, RomIoCaller caller,
             bool seekNeeded, uint64_t seekTicks, bool cacheMiss);
-        uint32_t chooseRomCacheVictim(int excluded = -1) const;
 
     private:
         std::string romName, saveName;
