@@ -175,6 +175,19 @@ bool DynarecR5900::analyzeArmBlock(uint32_t pc, R5900BlockAnalysis *analysis,
     return analysis->instructionCount != 0;
 }
 
+bool DynarecR5900::isDirectArmHalfwordAccess(uint32_t opcode,
+    uint32_t address) const
+{
+    Ps2ArmAlu::DecodedHalfwordTransfer transfer;
+    if (!memory || !Ps2ArmAlu::decodeHalfwordTransfer(opcode, &transfer) ||
+        (address & 0xFFFu) == 0xFFFu)
+        return false;
+
+    return transfer.load
+        ? memory->getDirectReadPage(0, address) != nullptr
+        : memory->getDirectWritePage(0, address) != nullptr;
+}
+
 bool DynarecR5900::emitProbe()
 {
     // Emit a tiny valid leaf function:

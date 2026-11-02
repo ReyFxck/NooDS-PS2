@@ -532,7 +532,37 @@ void logDynarecHotBlocks(DynarecR5900 &dynarec,
             ? ndsMemoryClass(sampledMemoryAddress)
             : (hasMemory ? "address-unsampled" : "none");
 
-        PS2_LOG("[PS2][HOTBLOCK] cpu=ARM9 pc=%08lX end=%08lX sampledExec=%lu estExec=%lu guestInstr=%u guestCycles=%u branch=%08lX backEdge=%u mem=%08lX memClass=%s dynarecSupported=%u/%u read=%04X write=%04X nextEvent=%lu\n",
+        uint8_t sampledHalfwordReads = 0;
+        uint8_t directHalfwordReads = 0;
+        uint8_t sampledHalfwordWrites = 0;
+        uint8_t directHalfwordWrites = 0;
+        for (int sample = 0; sample < 6 && top[sample].samples; sample++)
+        {
+            if (top[sample].pc < analysis.startPc ||
+                top[sample].pc >= analysis.endPc ||
+                top[sample].memoryAddress == 0xFFFFFFFFu)
+                continue;
+
+            Ps2ArmAlu::DecodedHalfwordTransfer transfer;
+            if (!Ps2ArmAlu::decodeHalfwordTransfer(top[sample].opcode,
+                &transfer))
+                continue;
+
+            bool direct = dynarec.isDirectArmHalfwordAccess(
+                top[sample].opcode, top[sample].memoryAddress);
+            if (transfer.load)
+            {
+                sampledHalfwordReads++;
+                directHalfwordReads += direct ? 1u : 0u;
+            }
+            else
+            {
+                sampledHalfwordWrites++;
+                directHalfwordWrites += direct ? 1u : 0u;
+            }
+        }
+
+        PS2_LOG("[PS2][HOTBLOCK] cpu=ARM9 pc=%08lX end=%08lX sampledExec=%lu estExec=%lu guestInstr=%u guestCycles=%u branch=%08lX backEdge=%u mem=%08lX memClass=%s dynarecSupported=%u/%u halfDirect=R%u/%u,W%u/%u read=%04X write=%04X nextEvent=%lu\n",
             static_cast<unsigned long>(analysis.startPc),
             static_cast<unsigned long>(analysis.endPc),
             static_cast<unsigned long>(top[hot].samples),
@@ -545,6 +575,10 @@ void logDynarecHotBlocks(DynarecR5900 &dynarec,
             memoryClass,
             analysis.supportedInstructions,
             analysis.instructionCount,
+            directHalfwordReads,
+            sampledHalfwordReads,
+            directHalfwordWrites,
+            sampledHalfwordWrites,
             analysis.readMask,
             analysis.writeMask,
             static_cast<unsigned long>(top[hot].nextEventCycles));

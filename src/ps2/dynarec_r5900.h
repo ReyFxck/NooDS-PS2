@@ -130,6 +130,7 @@ class DynarecR5900
         // ARM9 direct map and never executes or mutates guest state.
         bool analyzeArmBlock(uint32_t pc, R5900BlockAnalysis *analysis,
             size_t maxInstructions = R5900_ANALYSIS_MAX_INSTRUCTIONS);
+        bool isDirectArmHalfwordAccess(uint32_t opcode, uint32_t address) const;
         void resetProfile() { profile = R5900DynarecProfile(); }
         const R5900DynarecProfile &getProfile() const { return profile; }
 
