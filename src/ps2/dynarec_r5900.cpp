@@ -426,6 +426,18 @@ bool applyArmBranchExchange(ArmAluState *state, uint32_t opcode)
         &state->cpsr, &state->nextPc);
 }
 
+bool applyArmSingleBlockTransfer(ArmAluState *state, uint32_t opcode)
+{
+    if (!state || !state->memory)
+        return false;
+    if (Ps2ArmAlu::executeSingleBlockTransfer(opcode, state->r, &state->cpsr,
+        state, readDirectArm9Word, writeDirectArm9Word))
+        return true;
+
+    state->memoryFault = 1;
+    return false;
+}
+
 size_t emitArmCondition(uint8_t condition, uint32_t *code)
 {
     if (!code || condition == 0xEu)
@@ -829,6 +841,34 @@ size_t emitArmSingleTransferInstruction(uint32_t opcode, uint32_t *code)
     return words;
 }
 
+size_t emitArmSingleBlockTransferInstruction(uint32_t opcode,
+    uint32_t *code)
+{
+    Ps2ArmAlu::DecodedSingleBlockTransfer decoded;
+    if (!code || !Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &decoded))
+        return 0;
+
+    uintptr_t helper = reinterpret_cast<uintptr_t>(&applyArmSingleBlockTransfer);
+    size_t words = 0;
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, -32);
+    code[words++] = R5900::sw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::sw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lui(R5900::R_A1,
+        static_cast<uint16_t>(opcode >> 16));
+    code[words++] = R5900::ori(R5900::R_A1, R5900::R_A1,
+        static_cast<uint16_t>(opcode));
+    code[words++] = R5900::lui(R5900::R_T9,
+        static_cast<uint16_t>(helper >> 16));
+    code[words++] = R5900::ori(R5900::R_T9, R5900::R_T9,
+        static_cast<uint16_t>(helper));
+    code[words++] = R5900::jalr(R5900::R_RA, R5900::R_T9);
+    code[words++] = R5900::nop();
+    code[words++] = R5900::lw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
+    return words;
+}
+
 size_t emitArmBranchExchangeInstruction(uint32_t opcode, uint32_t *code)
 {
     Ps2ArmAlu::DecodedBranchExchange decoded;
@@ -867,6 +907,9 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code)
     Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
     if (Ps2ArmAlu::decodeSingleTransfer(opcode, &singleTransfer))
         return emitArmSingleTransferInstruction(opcode, code);
+    Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
+    if (Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &blockTransfer))
+        return emitArmSingleBlockTransferInstruction(opcode, code);
     Ps2ArmAlu::DecodedBranchExchange branchExchange;
     if (Ps2ArmAlu::decodeBranchExchange(opcode, &branchExchange))
         return emitArmBranchExchangeInstruction(opcode, code);
@@ -994,6 +1037,23 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             if (singleTransfer.writeBack)
                 block.writeMask |= static_cast<uint16_t>(1u << singleTransfer.rn);
             block.readsFlags |= singleTransfer.condition != 0xEu;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
+        if (Ps2ArmAlu::decodeSingleBlockTransfer(opcodes[i], &blockTransfer))
+        {
+            block.readMask |= static_cast<uint16_t>(1u << blockTransfer.rn);
+            if (blockTransfer.load)
+                block.writeMask |= static_cast<uint16_t>(1u << blockTransfer.reg);
+            else
+            {
+                block.readMask |= static_cast<uint16_t>(1u << blockTransfer.reg);
+                block.writesMemory = true;
+            }
+            if (blockTransfer.writeBack)
+                block.writeMask |= static_cast<uint16_t>(1u << blockTransfer.rn);
+            block.readsFlags |= blockTransfer.condition != 0xEu;
             continue;
         }
 
@@ -1166,6 +1226,38 @@ bool DynarecR5900::runArmAluSelfTest()
         if (std::memcmp(&actual, &expected, sizeof(actual)) != 0)
             return false;
     }
+
+    // Gate the hot single-register LDMIA/STMIA form on a direct ARM9 page.
+    uint32_t *blockLoadCode = cache.reserveWords(32);
+    if (!blockLoadCode)
+        return false;
+    size_t blockLoadWords = emitArmSingleBlockTransferInstruction(
+        0xE8B00002u, blockLoadCode); // LDMIA r0!,{r1}
+    if (!blockLoadWords)
+        return false;
+    blockLoadCode[blockLoadWords++] = R5900::jr(R5900::R_RA);
+    blockLoadCode[blockLoadWords++] = R5900::nop();
+    cache.commitWords(blockLoadWords);
+    cache.syncExecutable(blockLoadCode, blockLoadCode + blockLoadWords);
+
+    ArmAluState blockLoadState = {};
+    blockLoadState.r[0] = 0x02000000u;
+    blockLoadState.r[1] = 0xFFFFFFFFu;
+    blockLoadState.memory = memory;
+    typedef void (*ArmBlockTransferFunction)(ArmAluState *);
+    ArmBlockTransferFunction blockLoadFunction =
+        reinterpret_cast<ArmBlockTransferFunction>(blockLoadCode);
+    blockLoadFunction(&blockLoadState);
+    uint8_t *blockLoadPage = memory->getDirectReadPage(0, 0x02000000u);
+    if (!blockLoadPage)
+        return false;
+    uint32_t blockExpected = static_cast<uint32_t>(blockLoadPage[0]) |
+        (static_cast<uint32_t>(blockLoadPage[1]) << 8) |
+        (static_cast<uint32_t>(blockLoadPage[2]) << 16) |
+        (static_cast<uint32_t>(blockLoadPage[3]) << 24);
+    if (blockLoadState.memoryFault || blockLoadState.r[1] != blockExpected ||
+        blockLoadState.r[0] != 0x02000004u)
+        return false;
 
     // Gate BX, including ARM<->THUMB state selection, through generated code.
     uint32_t *bxCode = cache.reserveWords(32);
@@ -1481,6 +1573,13 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
             continue;
         }
 
+        Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
+        if (Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &blockTransfer))
+        {
+            opcodes[count++] = opcode;
+            continue;
+        }
+
         Ps2ArmAlu::DecodedBranchExchange branchExchange;
         if (Ps2ArmAlu::decodeBranchExchange(opcode, &branchExchange))
         {
@@ -1533,19 +1632,29 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
                 }
                 else
                 {
-                    Ps2ArmAlu::DecodedBranchExchange branchExchange;
-                    if (Ps2ArmAlu::decodeBranchExchange(opcodes[i],
-                        &branchExchange))
+                    Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
+                    if (Ps2ArmAlu::decodeSingleBlockTransfer(opcodes[i],
+                        &blockTransfer))
                     {
+                        if (!applyArmSingleBlockTransfer(&expected, opcodes[i]))
+                            return 0;
+                    }
+                    else
+                    {
+                        Ps2ArmAlu::DecodedBranchExchange branchExchange;
+                        if (Ps2ArmAlu::decodeBranchExchange(opcodes[i],
+                            &branchExchange))
+                        {
                         if (!Ps2ArmAlu::executeBranchExchange(opcodes[i],
                             expected.r, &expected.cpsr, &expected.nextPc))
                             return -1;
                     }
-                    else if (!Ps2ArmAlu::executeBranch(opcodes[i],
-                        guestPc + static_cast<uint32_t>(i * 4), expected.cpsr,
-                        &expected.nextPc))
-                    {
-                        return -1;
+                        else if (!Ps2ArmAlu::executeBranch(opcodes[i],
+                            guestPc + static_cast<uint32_t>(i * 4), expected.cpsr,
+                            &expected.nextPc))
+                        {
+                            return -1;
+                        }
                     }
                 }
             }

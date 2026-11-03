@@ -420,6 +420,66 @@ bool Ps2ArmAlu::executeSingleTransfer(uint32_t opcode,
     return true;
 }
 
+bool Ps2ArmAlu::decodeSingleBlockTransfer(uint32_t opcode,
+    DecodedSingleBlockTransfer *decoded)
+{
+    // First block-transfer subset: one ordinary register in increment-after
+    // mode. This directly covers the common ARM copy-loop form while leaving
+    // user-bank, PC-list and multi-register ordering edge cases to interpreter.
+    if (!decoded || (opcode & 0x0E000000u) != 0x08000000u ||
+        (opcode & BIT(24)) || !(opcode & BIT(23)) || (opcode & BIT(22)))
+        return false;
+
+    uint16_t list = static_cast<uint16_t>(opcode);
+    if (!list || (list & (list - 1)) || (list & BIT(15)))
+        return false;
+
+    *decoded = DecodedSingleBlockTransfer();
+    decoded->condition = static_cast<uint8_t>(opcode >> 28);
+    decoded->load = (opcode & BIT(20)) != 0;
+    decoded->writeBack = (opcode & BIT(21)) != 0;
+    decoded->rn = static_cast<uint8_t>((opcode >> 16) & 0xFu);
+    decoded->reg = static_cast<uint8_t>(__builtin_ctz(list));
+
+    if (decoded->condition == 0xFu || decoded->rn == 15 ||
+        (decoded->writeBack && decoded->rn == decoded->reg))
+        return false;
+    return true;
+}
+
+bool Ps2ArmAlu::executeSingleBlockTransfer(uint32_t opcode,
+    uint32_t registers[16], uint32_t *cpsr, void *context,
+    ReadWord read, WriteWord write)
+{
+    if (!registers)
+        return false;
+
+    DecodedSingleBlockTransfer decoded;
+    if (!decodeSingleBlockTransfer(opcode, &decoded) ||
+        (decoded.condition != 0xEu && !cpsr))
+        return false;
+    if (cpsr && !conditionPassed(decoded.condition, *cpsr))
+        return true;
+
+    uint32_t address = registers[decoded.rn];
+    if (decoded.load)
+    {
+        uint32_t value = 0;
+        if (!read || !read(context, address, &value))
+            return false;
+        registers[decoded.reg] = value;
+    }
+    else
+    {
+        if (!write || !write(context, address, registers[decoded.reg]))
+            return false;
+    }
+
+    if (decoded.writeBack)
+        registers[decoded.rn] = address + 4u;
+    return true;
+}
+
 bool Ps2ArmAlu::executeBranch(uint32_t opcode, uint32_t pc, uint32_t cpsr,
     uint32_t *nextPc)
 {
@@ -706,6 +766,9 @@ Ps2ArmAlu::RejectReason Ps2ArmAlu::rejectionReason(uint32_t opcode)
         return REJECT_NONE;
     DecodedSingleTransfer singleTransfer;
     if (decodeSingleTransfer(opcode, &singleTransfer))
+        return REJECT_NONE;
+    DecodedSingleBlockTransfer blockTransfer;
+    if (decodeSingleBlockTransfer(opcode, &blockTransfer))
         return REJECT_NONE;
 
     InstructionInfo info;

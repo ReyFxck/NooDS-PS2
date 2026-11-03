@@ -119,6 +119,16 @@ namespace Ps2ArmAlu
         uint16_t immediateOffset = 0;
     };
 
+    struct DecodedSingleBlockTransfer
+    {
+        uint8_t condition = 0xE;
+        bool load = false;
+        bool writeBack = false;
+        uint8_t rn = 0;
+        uint8_t reg = 0;
+    };
+
+
 
     typedef bool (*ReadHalfword)(void *context, uint32_t address,
         uint16_t *value);
@@ -143,10 +153,15 @@ namespace Ps2ArmAlu
         DecodedHalfwordTransfer *decoded);
     bool decodeSingleTransfer(uint32_t opcode,
         DecodedSingleTransfer *decoded);
+    bool decodeSingleBlockTransfer(uint32_t opcode,
+        DecodedSingleBlockTransfer *decoded);
     bool executeHalfwordTransfer(uint32_t opcode, uint32_t registers[16],
         uint32_t *cpsr, void *context, ReadHalfword read,
         WriteHalfword write = nullptr);
     bool executeSingleTransfer(uint32_t opcode, uint32_t registers[16],
+        uint32_t *cpsr, void *context, ReadWord read,
+        WriteWord write = nullptr);
+    bool executeSingleBlockTransfer(uint32_t opcode, uint32_t registers[16],
         uint32_t *cpsr, void *context, ReadWord read,
         WriteWord write = nullptr);
     bool executeBranch(uint32_t opcode, uint32_t pc, uint32_t cpsr,

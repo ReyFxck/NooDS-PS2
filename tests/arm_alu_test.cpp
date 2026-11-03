@@ -282,6 +282,47 @@ int main()
     assert(Ps2ArmAlu::rejectionReason(0xBAFFFFFAu) == Ps2ArmAlu::REJECT_NONE);
     assert(Ps2ArmAlu::rejectionReason(0xEBFFFFFAu) == Ps2ArmAlu::REJECT_BRANCH);
 
+    Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
+    assert(Ps2ArmAlu::decodeSingleBlockTransfer(0xB8B00004u, &blockTransfer));
+    assert(blockTransfer.condition == 0xBu && blockTransfer.load &&
+        blockTransfer.writeBack && blockTransfer.rn == 0 &&
+        blockTransfer.reg == 2);
+    assert(Ps2ArmAlu::decodeSingleBlockTransfer(0xB8A10004u, &blockTransfer));
+    assert(!blockTransfer.load && blockTransfer.writeBack &&
+        blockTransfer.rn == 1 && blockTransfer.reg == 2);
+    assert(!Ps2ArmAlu::decodeSingleBlockTransfer(0xE8B0000Cu, &blockTransfer));
+    assert(!Ps2ArmAlu::decodeSingleBlockTransfer(0xE8B08000u, &blockTransfer));
+    assert(!Ps2ArmAlu::decodeSingleBlockTransfer(0xE8F00004u, &blockTransfer));
+    assert(Ps2ArmAlu::rejectionReason(0xB8B00004u) ==
+        Ps2ArmAlu::REJECT_NONE);
+    assert(Ps2ArmAlu::rejectionReason(0xB8A10004u) ==
+        Ps2ArmAlu::REJECT_NONE);
+
+    HalfwordMemory blockMemory = {};
+    assert(writeWord(&blockMemory, 0x40u, 0x12345678u));
+    uint32_t blockRegs[16] = {};
+    blockRegs[0] = 0x40u;
+    uint32_t blockCpsr = 0x80000000u; // LT true: N != V.
+    assert(Ps2ArmAlu::executeSingleBlockTransfer(0xB8B00004u, blockRegs,
+        &blockCpsr, &blockMemory, readWord, writeWord));
+    assert(blockRegs[2] == 0x12345678u && blockRegs[0] == 0x44u);
+
+    blockRegs[1] = 0x48u;
+    blockRegs[2] = 0x89ABCDEFu;
+    assert(Ps2ArmAlu::executeSingleBlockTransfer(0xB8A10004u, blockRegs,
+        &blockCpsr, &blockMemory, readWord, writeWord));
+    uint32_t blockStored = 0;
+    assert(readWord(&blockMemory, 0x48u, &blockStored));
+    assert(blockStored == 0x89ABCDEFu && blockRegs[1] == 0x4Cu);
+
+    // Failed LT condition is a complete no-op.
+    blockRegs[0] = 0x60u;
+    blockRegs[2] = 0xAAAAAAAAu;
+    blockCpsr = 0;
+    assert(Ps2ArmAlu::executeSingleBlockTransfer(0xB8B00004u, blockRegs,
+        &blockCpsr, &blockMemory, readWord, writeWord));
+    assert(blockRegs[0] == 0x60u && blockRegs[2] == 0xAAAAAAAAu);
+
     Ps2ArmAlu::DecodedBranchExchange bx;
     assert(Ps2ArmAlu::decodeBranchExchange(0xE12FFF1Eu, &bx));
     assert(bx.condition == 0xEu && bx.rm == 14);
