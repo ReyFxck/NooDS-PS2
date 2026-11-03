@@ -1221,6 +1221,35 @@ void Gpu2D::drawObjects(int line, bool window)
     ProfileScope profile(this, GPU2D_PROFILE_OBJECTS);
 #endif
 
+    const bool gba = core->isGbaMode();
+    Gpu2DDirectPageCache objectPageCache;
+
+    auto readObject8 = [&](uint32_t address) -> uint8_t
+    {
+        uint8_t *page = nullptr;
+        if (objectPageCache.lookup(address, page))
+            return page[address & 0xFFFu];
+        if ((page = core->memory.getDirectReadPage(gba, address)))
+        {
+            objectPageCache.store(address, page);
+            return page[address & 0xFFFu];
+        }
+        return core->memory.read<uint8_t>(gba, address);
+    };
+
+    auto readObject16 = [&](uint32_t address) -> uint16_t
+    {
+        uint8_t *page = nullptr;
+        if (objectPageCache.lookup(address, page))
+            return U8TO16(page, address & 0xFFFu);
+        if ((page = core->memory.getDirectReadPage(gba, address)))
+        {
+            objectPageCache.store(address, page);
+            return U8TO16(page, address & 0xFFFu);
+        }
+        return core->memory.read<uint16_t>(gba, address);
+    };
+
     // Loop through and draw the 128 sprites in OAM
     for (int i = 0; i < 128; i++)
     {
@@ -1316,22 +1345,27 @@ void Gpu2D::drawObjects(int line, bool window)
                     (int16_t)U8TO16(oam, ((object[1] >> 9) & 0x1F) * 0x20 + 0x1E)
                 };
 
+                const int centeredY = spriteY - height2 / 2;
+                Gpu2DAffineLineStepper objectCoordinates(
+                    params[0] * (-width2 / 2) + params[1] * centeredY,
+                    params[2] * (-width2 / 2) + params[3] * centeredY,
+                    params[0], params[2]);
+
                 // Draw a line of the object
                 for (int j = 0; j < width2; j++)
                 {
+                    int rotscaleX = objectCoordinates.x() + width / 2;
+                    int rotscaleY = objectCoordinates.y() + height / 2;
+                    objectCoordinates.advance();
+
                     int offset = x + j;
                     if (offset < 0 || offset >= 256) continue;
-
-                    // Calculate the rotscaled X coordinate relative to the object
-                    int rotscaleX = ((params[0] * (j - width2 / 2) + params[1] * (spriteY - height2 / 2)) >> 8) + width / 2;
                     if (rotscaleX < 0 || rotscaleX >= width) continue;
-
-                    // Calculate the rotscaled Y coordinate relative to the object
-                    int rotscaleY = ((params[2] * (j - width2 / 2) + params[3] * (spriteY - height2 / 2)) >> 8) + height / 2;
                     if (rotscaleY < 0 || rotscaleY >= height) continue;
 
                     // Draw a pixel
-                    uint16_t pixel = core->memory.read<uint16_t>(0, dataBase + (rotscaleY * bitmapWidth + rotscaleX) * 2);
+                    uint16_t pixel = readObject16(
+                        dataBase + (rotscaleY * bitmapWidth + rotscaleX) * 2);
                     if (pixel & BIT(15))
                         drawObjPixel(line, offset, pixel, priority);
                 }
@@ -1345,7 +1379,8 @@ void Gpu2D::drawObjects(int line, bool window)
                     if (offset < 0 || offset >= 256) continue;
 
                     // Draw a pixel
-                    uint16_t pixel = core->memory.read<uint16_t>(0, dataBase + (spriteY * bitmapWidth + j) * 2);
+                    uint16_t pixel = readObject16(
+                        dataBase + (spriteY * bitmapWidth + j) * 2);
                     if (pixel & BIT(15))
                         drawObjPixel(line, offset, pixel, priority);
                 }
@@ -1395,23 +1430,28 @@ void Gpu2D::drawObjects(int line, bool window)
                     pal = &palette[0x200];
                 }
 
+                const int centeredY = spriteY - height2 / 2;
+                Gpu2DAffineLineStepper objectCoordinates(
+                    params[0] * (-width2 / 2) + params[1] * centeredY,
+                    params[2] * (-width2 / 2) + params[3] * centeredY,
+                    params[0], params[2]);
+
                 // Draw a line of the object
                 for (int j = 0; j < width2; j++)
                 {
+                    int rotscaleX = objectCoordinates.x() + width / 2;
+                    int rotscaleY = objectCoordinates.y() + height / 2;
+                    objectCoordinates.advance();
+
                     int offset = x + j;
                     if (offset < 0 || offset >= 256) continue;
-
-                    // Calculate the rotscaled X coordinate relative to the object
-                    int rotscaleX = ((params[0] * (j - width2 / 2) + params[1] * (spriteY - height2 / 2)) >> 8) + width / 2;
                     if (rotscaleX < 0 || rotscaleX >= width) continue;
-
-                    // Calculate the rotscaled Y coordinate relative to the object
-                    int rotscaleY = ((params[2] * (j - width2 / 2) + params[3] * (spriteY - height2 / 2)) >> 8) + height / 2;
                     if (rotscaleY < 0 || rotscaleY >= height) continue;
 
                     // Get the palette index for the current pixel
-                    uint8_t index = core->memory.read<uint8_t>(core->isGbaMode(), tileBase +
-                        ((rotscaleY / 8) * mapWidth + rotscaleY % 8) * 8 + (rotscaleX / 8) * 64 + rotscaleX % 8);
+                    uint8_t index = readObject8(tileBase +
+                        ((rotscaleY >> 3) * mapWidth + (rotscaleY & 7)) * 8 +
+                        (rotscaleX >> 3) * 64 + (rotscaleX & 7));
 
                     if (index && type == 2) // Object window
                     {
@@ -1439,23 +1479,28 @@ void Gpu2D::drawObjects(int line, bool window)
                 // In 4-bit mode, the object can select from multiple 16-color palettes
                 uint8_t *pal = &palette[0x200 + ((object[2] & 0xF000) >> 12) * 32];
 
+                const int centeredY = spriteY - height2 / 2;
+                Gpu2DAffineLineStepper objectCoordinates(
+                    params[0] * (-width2 / 2) + params[1] * centeredY,
+                    params[2] * (-width2 / 2) + params[3] * centeredY,
+                    params[0], params[2]);
+
                 // Draw a line of the object
                 for (int j = 0; j < width2; j++)
                 {
+                    int rotscaleX = objectCoordinates.x() + width / 2;
+                    int rotscaleY = objectCoordinates.y() + height / 2;
+                    objectCoordinates.advance();
+
                     int offset = x + j;
                     if (offset < 0 || offset >= 256) continue;
-
-                    // Calculate the rotscaled X coordinate relative to the object
-                    int rotscaleX = ((params[0] * (j - width2 / 2) + params[1] * (spriteY - height2 / 2)) >> 8) + width / 2;
                     if (rotscaleX < 0 || rotscaleX >= width) continue;
-
-                    // Calculate the rotscaled Y coordinate relative to the object
-                    int rotscaleY = ((params[2] * (j - width2 / 2) + params[3] * (spriteY - height2 / 2)) >> 8) + height / 2;
                     if (rotscaleY < 0 || rotscaleY >= height) continue;
 
                     // Get the palette index for the current pixel
-                    uint8_t index = core->memory.read<uint8_t>(core->isGbaMode(), tileBase +
-                        ((rotscaleY / 8) * mapWidth + rotscaleY % 8) * 4 + (rotscaleX / 8) * 32 + (rotscaleX % 8) / 2);
+                    uint8_t index = readObject8(tileBase +
+                        ((rotscaleY >> 3) * mapWidth + (rotscaleY & 7)) * 4 +
+                        (rotscaleX >> 3) * 32 + ((rotscaleX & 7) >> 1));
                     index = (rotscaleX & 1) ? ((index & 0xF0) >> 4) : (index & 0x0F);
 
                     if (index && type == 2) // Object window
@@ -1507,7 +1552,8 @@ void Gpu2D::drawObjects(int line, bool window)
                 if (offset < 0 || offset >= 256) continue;
 
                 // Get the palette index for the current pixel
-                uint8_t index = core->memory.read<uint8_t>(core->isGbaMode(), tileBase + (j / 8) * 64 + j % 8);
+                uint8_t index = readObject8(
+                    tileBase + (j >> 3) * 64 + (j & 7));
 
                 if (index && type == 2) // Object window
                 {
@@ -1548,7 +1594,8 @@ void Gpu2D::drawObjects(int line, bool window)
                 if (offset < 0 || offset >= 256) continue;
 
                 // Get the palette index for the current pixel
-                uint8_t index = core->memory.read<uint8_t>(core->isGbaMode(), tileBase + (j / 8) * 32 + (j % 8) / 2);
+                uint8_t index = readObject8(
+                    tileBase + (j >> 3) * 32 + ((j & 7) >> 1));
                 index = (j & 1) ? ((index & 0xF0) >> 4) : (index & 0x0F);
 
                 if (index && type == 2) // Object window
