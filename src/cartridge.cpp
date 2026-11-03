@@ -411,7 +411,7 @@ void CartridgeNds::loadRom(std::string path)
 
 #ifdef NOODS_PS2
     // The PS2 only has 32MB of main RAM. Keep NDS ROMs file-backed, but cache
-    // recently used 16KB pages to avoid repeated CD/DVD/USB/HDD reads.
+    // recently used 64 KiB pages to amortize high CD/DVD/USB/HDD read latency.
     configureRomCache(2 * 1024 * 1024);
     loadRomSection(0, (romSize < 0x5000) ? romSize : 0x5000, true,
         ROM_IO_HEADER);
