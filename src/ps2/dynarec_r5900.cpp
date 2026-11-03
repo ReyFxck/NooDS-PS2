@@ -1971,9 +1971,8 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
                     Ps2ArmAlu::DecodedLiteralLoad literalLoad;
                     if (Ps2ArmAlu::decodeLiteralLoad(opcodes[i], &literalLoad))
                     {
-                        if (!Ps2ArmAlu::executeLiteralLoad(opcodes[i],
-                            guestPc + static_cast<uint32_t>(i * 4), expected.r,
-                            &expected.cpsr, &expected, readDirectArm9Word))
+                        if (!applyArmLiteralLoad(&expected, opcodes[i],
+                            guestPc + static_cast<uint32_t>(i * 4)))
                             return 0;
                     }
                     else
@@ -1999,8 +1998,7 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
                                 if (Ps2ArmAlu::decodeBranchExchange(opcodes[i],
                                     &branchExchange))
                                 {
-                                    if (!Ps2ArmAlu::executeBranchExchange(opcodes[i],
-                                        expected.r, &expected.cpsr, &expected.nextPc))
+                                    if (!applyArmBranchExchange(&expected, opcodes[i]))
                                         return -1;
                                 }
                                 else if (!applyArmBranch(&expected, opcodes[i],
