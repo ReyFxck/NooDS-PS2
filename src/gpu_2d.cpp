@@ -725,7 +725,7 @@ void Gpu2D::drawText(int bg, int line)
         if (noWindows)
             drawBgPixelNoWindow(bg, x, pixel, bgPriority);
         else
-            putBgPixel(x, pixel);
+            drawBgPixel(bg, line, x, pixel);
     };
     Gpu2DDirectPageCache tilePageCache;
     Gpu2DDirectPageCache indexPageCache;
@@ -1319,7 +1319,7 @@ void Gpu2D::drawObjects(int line, bool window)
         if (noWindows)
             drawObjPixelNoWindow(x, pixel, priority);
         else
-            putObjPixel(x, pixel, priority);
+            drawObjPixel(line, x, pixel, priority);
     };
     Gpu2DDirectPageCache objectPageCache;
 
@@ -1723,13 +1723,13 @@ void Gpu2D::writeDispCnt(uint32_t mask, uint32_t value)
     // Write to the DISPCNT register
     mask &= ((engine == 0) ? 0xFFFFFFFF : 0xC0B1FFF7);
     dispCnt = (dispCnt & ~mask) | (value & mask);
-    if (gba) dispCnt &= 0xFFFF;
+    if (core->isGbaMode()) dispCnt &= 0xFFFF;
 }
 
 void Gpu2D::writeBgCnt(int bg, uint16_t mask, uint16_t value)
 {
     // Write to one of the BGCNT registers
-    if (gba && bg < 2) mask &= 0xDFFF;
+    if (core->isGbaMode() && bg < 2) mask &= 0xDFFF;
     bgCnt[bg] = (bgCnt[bg] & ~mask) | (value & mask);
 }
 

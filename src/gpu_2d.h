@@ -197,10 +197,10 @@ class Gpu2D
         static uint32_t rgb5ToRgb6(uint32_t color);
 
         void drawBgPixel(int bg, int line, int x, uint32_t pixel);
-        FORCE_INLINE void drawBgPixelNoWindow(int bg, int x, uint32_t pixel,
+        void drawBgPixelNoWindow(int bg, int x, uint32_t pixel,
             int8_t priority);
         void drawObjPixel(int line, int x, uint32_t pixel, int8_t priority);
-        FORCE_INLINE void drawObjPixelNoWindow(int x, uint32_t pixel,
+        void drawObjPixelNoWindow(int x, uint32_t pixel,
             int8_t priority);
 
         void drawText(int bg, int line);
