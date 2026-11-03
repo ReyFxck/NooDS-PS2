@@ -82,6 +82,13 @@ namespace Ps2ArmAlu
         int32_t offset = 0;
     };
 
+    struct DecodedBranchExchange
+    {
+        uint8_t condition = 0xE;
+        uint8_t rm = 0;
+    };
+
+
     struct DecodedHalfwordTransfer
     {
         uint8_t condition = 0xE;
@@ -130,6 +137,8 @@ namespace Ps2ArmAlu
     bool conditionPassed(uint8_t condition, uint32_t cpsr);
     bool decode(uint32_t opcode, Decoded *decoded);
     bool decodeBranch(uint32_t opcode, DecodedBranch *decoded);
+    bool decodeBranchExchange(uint32_t opcode,
+        DecodedBranchExchange *decoded);
     bool decodeHalfwordTransfer(uint32_t opcode,
         DecodedHalfwordTransfer *decoded);
     bool decodeSingleTransfer(uint32_t opcode,
@@ -142,6 +151,8 @@ namespace Ps2ArmAlu
         WriteWord write = nullptr);
     bool executeBranch(uint32_t opcode, uint32_t pc, uint32_t cpsr,
         uint32_t *nextPc);
+    bool executeBranchExchange(uint32_t opcode, uint32_t registers[16],
+        uint32_t *cpsr, uint32_t *nextPc);
     bool execute(uint32_t opcode, uint32_t registers[16],
         uint32_t *cpsr = nullptr);
     void inspect(uint32_t opcode, uint32_t pc, InstructionInfo *info);

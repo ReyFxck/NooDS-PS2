@@ -238,6 +238,22 @@ bool Ps2ArmAlu::decodeBranch(uint32_t opcode, DecodedBranch *decoded)
     return true;
 }
 
+bool Ps2ArmAlu::decodeBranchExchange(uint32_t opcode,
+    DecodedBranchExchange *decoded)
+{
+    if (!decoded || (opcode & 0x0FFFFFF0u) != 0x012FFF10u)
+        return false;
+
+    uint8_t condition = static_cast<uint8_t>(opcode >> 28);
+    uint8_t rm = static_cast<uint8_t>(opcode & 0xFu);
+    if (condition == 0xFu || rm == 15)
+        return false;
+
+    decoded->condition = condition;
+    decoded->rm = rm;
+    return true;
+}
+
 bool Ps2ArmAlu::decodeHalfwordTransfer(uint32_t opcode,
     DecodedHalfwordTransfer *decoded)
 {
@@ -417,6 +433,27 @@ bool Ps2ArmAlu::executeBranch(uint32_t opcode, uint32_t pc, uint32_t cpsr,
     *nextPc = conditionPassed(decoded.condition, cpsr)
         ? pc + 8u + static_cast<uint32_t>(decoded.offset)
         : pc + 4u;
+    return true;
+}
+
+bool Ps2ArmAlu::executeBranchExchange(uint32_t opcode,
+    uint32_t registers[16], uint32_t *cpsr, uint32_t *nextPc)
+{
+    if (!registers || !cpsr || !nextPc)
+        return false;
+
+    DecodedBranchExchange decoded;
+    if (!decodeBranchExchange(opcode, &decoded))
+        return false;
+    if (!conditionPassed(decoded.condition, *cpsr))
+        return true;
+
+    uint32_t target = registers[decoded.rm];
+    if (target & 1u)
+        *cpsr |= BIT(5);
+    else
+        *cpsr &= ~BIT(5);
+    *nextPc = target & ~1u;
     return true;
 }
 
@@ -660,6 +697,9 @@ Ps2ArmAlu::RejectReason Ps2ArmAlu::rejectionReason(uint32_t opcode)
         return REJECT_NONE;
     DecodedBranch branch;
     if (decodeBranch(opcode, &branch))
+        return REJECT_NONE;
+    DecodedBranchExchange branchExchange;
+    if (decodeBranchExchange(opcode, &branchExchange))
         return REJECT_NONE;
     DecodedHalfwordTransfer transfer;
     if (decodeHalfwordTransfer(opcode, &transfer))

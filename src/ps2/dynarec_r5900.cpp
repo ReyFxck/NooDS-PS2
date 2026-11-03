@@ -407,6 +407,12 @@ bool applyArmSingleTransfer(ArmAluState *state, uint32_t opcode)
     return false;
 }
 
+bool applyArmBranchExchange(ArmAluState *state, uint32_t opcode)
+{
+    return state && Ps2ArmAlu::executeBranchExchange(opcode, state->r,
+        &state->cpsr, &state->nextPc);
+}
+
 size_t emitArmCondition(uint8_t condition, uint32_t *code)
 {
     if (!code || condition == 0xEu)
@@ -810,6 +816,33 @@ size_t emitArmSingleTransferInstruction(uint32_t opcode, uint32_t *code)
     return words;
 }
 
+size_t emitArmBranchExchangeInstruction(uint32_t opcode, uint32_t *code)
+{
+    Ps2ArmAlu::DecodedBranchExchange decoded;
+    if (!code || !Ps2ArmAlu::decodeBranchExchange(opcode, &decoded))
+        return 0;
+
+    uintptr_t helper = reinterpret_cast<uintptr_t>(&applyArmBranchExchange);
+    size_t words = 0;
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, -32);
+    code[words++] = R5900::sw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::sw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lui(R5900::R_A1,
+        static_cast<uint16_t>(opcode >> 16));
+    code[words++] = R5900::ori(R5900::R_A1, R5900::R_A1,
+        static_cast<uint16_t>(opcode));
+    code[words++] = R5900::lui(R5900::R_T9,
+        static_cast<uint16_t>(helper >> 16));
+    code[words++] = R5900::ori(R5900::R_T9, R5900::R_T9,
+        static_cast<uint16_t>(helper));
+    code[words++] = R5900::jalr(R5900::R_RA, R5900::R_T9);
+    code[words++] = R5900::nop();
+    code[words++] = R5900::lw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
+    return words;
+}
+
 size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code)
 {
     Ps2ArmAlu::Decoded decoded;
@@ -821,6 +854,9 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code)
     Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
     if (Ps2ArmAlu::decodeSingleTransfer(opcode, &singleTransfer))
         return emitArmSingleTransferInstruction(opcode, code);
+    Ps2ArmAlu::DecodedBranchExchange branchExchange;
+    if (Ps2ArmAlu::decodeBranchExchange(opcode, &branchExchange))
+        return emitArmBranchExchangeInstruction(opcode, code);
     return emitArmBranchInstruction(opcode, pc, code);
 }
 }
@@ -945,6 +981,16 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             if (singleTransfer.writeBack)
                 block.writeMask |= static_cast<uint16_t>(1u << singleTransfer.rn);
             block.readsFlags |= singleTransfer.condition != 0xEu;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedBranchExchange branchExchange;
+        if (Ps2ArmAlu::decodeBranchExchange(opcodes[i], &branchExchange))
+        {
+            if (i + 1 != count)
+                return false;
+            block.readMask |= static_cast<uint16_t>(1u << branchExchange.rm);
+            block.readsFlags |= branchExchange.condition != 0xEu;
             continue;
         }
 
@@ -1107,6 +1153,29 @@ bool DynarecR5900::runArmAluSelfTest()
         if (std::memcmp(&actual, &expected, sizeof(actual)) != 0)
             return false;
     }
+
+    // Gate BX, including ARM<->THUMB state selection, through generated code.
+    uint32_t *bxCode = cache.reserveWords(32);
+    if (!bxCode)
+        return false;
+    size_t bxWords = emitArmBranchExchangeInstruction(0xE12FFF1Eu,
+        bxCode); // BX lr
+    if (!bxWords)
+        return false;
+    bxCode[bxWords++] = R5900::jr(R5900::R_RA);
+    bxCode[bxWords++] = R5900::nop();
+    cache.commitWords(bxWords);
+    cache.syncExecutable(bxCode, bxCode + bxWords);
+
+    ArmAluState bxState = {};
+    bxState.r[14] = 0x02000101u;
+    bxState.cpsr = 0x00000013u;
+    bxState.nextPc = 0x02000004u;
+    typedef void (*ArmBxFunction)(ArmAluState *);
+    ArmBxFunction bxFunction = reinterpret_cast<ArmBxFunction>(bxCode);
+    bxFunction(&bxState);
+    if (bxState.nextPc != 0x02000100u || !(bxState.cpsr & BIT(5)))
+        return false;
 
     // Exercise the non-leaf helper ABI and a real direct ARM9 page before any
     // live block may contain LDRH. This is read-only and therefore invisible
@@ -1399,6 +1468,13 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
             continue;
         }
 
+        Ps2ArmAlu::DecodedBranchExchange branchExchange;
+        if (Ps2ArmAlu::decodeBranchExchange(opcode, &branchExchange))
+        {
+            opcodes[count++] = opcode;
+            break;
+        }
+
         Ps2ArmAlu::DecodedBranch branch;
         if (!Ps2ArmAlu::decodeBranch(opcode, &branch))
             break;
@@ -1442,11 +1518,22 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
                     if (!applyArmSingleTransfer(&expected, opcodes[i]))
                         return 0;
                 }
-                else if (!Ps2ArmAlu::executeBranch(opcodes[i],
-                    guestPc + static_cast<uint32_t>(i * 4), expected.cpsr,
-                    &expected.nextPc))
+                else
                 {
-                    return -1;
+                    Ps2ArmAlu::DecodedBranchExchange branchExchange;
+                    if (Ps2ArmAlu::decodeBranchExchange(opcodes[i],
+                        &branchExchange))
+                    {
+                        if (!Ps2ArmAlu::executeBranchExchange(opcodes[i],
+                            expected.r, &expected.cpsr, &expected.nextPc))
+                            return -1;
+                    }
+                    else if (!Ps2ArmAlu::executeBranch(opcodes[i],
+                        guestPc + static_cast<uint32_t>(i * 4), expected.cpsr,
+                        &expected.nextPc))
+                    {
+                        return -1;
+                    }
                 }
             }
         }
