@@ -890,13 +890,26 @@ FORCE_INLINE int Interpreter::ldmiaW(uint32_t opcode) // LDMIA Rn!, <Rlist>
 {
     // Decode the operand
     int m = (opcode & 0x000F0000) >> 16;
-    int n = bitCount[opcode & 0xFF] + bitCount[(opcode >> 8) & 0xFF];
+    uint32_t registerMask = opcode & 0x0000FFFFu;
     uint32_t op0 = *registers[m];
 
+    // Extremely common copy-loop case: one ordinary register, with the base
+    // outside Rlist. Avoid bitCount, the sparse-list loop, writeback edge-case
+    // checks, and PC/pipeline handling. Memory semantics stay exactly in the
+    // normal Memory::read path, including MMIO and alignment behavior.
+    if (registerMask && !(registerMask & (registerMask - 1)) &&
+        !(registerMask & BIT(m)) && !(registerMask & BIT(15)))
+    {
+        int i = __builtin_ctz(registerMask);
+        *registers[i] = core->memory.read<uint32_t>(cpu, op0);
+        *registers[m] = op0 + 4;
+        return (cpu == 0) ? 2 : 3;
+    }
+
+    int n = bitCount[opcode & 0xFF] + bitCount[(opcode >> 8) & 0xFF];
+
     // Block load, post-increment. Iterate only the registers present in
-    // Rlist instead of testing all 16 slots. This is especially important for
-    // the very common single-register LDMIA copy loops seen on ARM9.
-    uint32_t registerMask = opcode & 0x0000FFFFu;
+    // Rlist instead of testing all 16 slots.
     while (registerMask)
     {
         int i = __builtin_ctz(registerMask);
@@ -922,8 +935,22 @@ FORCE_INLINE int Interpreter::stmiaW(uint32_t opcode) // STMIA Rn!, <Rlist>
 {
     // Decode the operand
     int m = (opcode & 0x000F0000) >> 16;
-    int n = bitCount[opcode & 0xFF] + bitCount[(opcode >> 8) & 0xFF];
+    uint32_t registerMask = opcode & 0x0000FFFFu;
     uint32_t op0 = *registers[m];
+
+    // Match the LDMIA fast path for the common one-register copy loop. Keep
+    // base-in-list cases on the generic path because ARM7/ARM9 writeback
+    // semantics differ there.
+    if (registerMask && !(registerMask & (registerMask - 1)) &&
+        !(registerMask & BIT(m)))
+    {
+        int i = __builtin_ctz(registerMask);
+        core->memory.write<uint32_t>(cpu, op0, *registers[i]);
+        *registers[m] = op0 + 4;
+        return 2;
+    }
+
+    int n = bitCount[opcode & 0xFF] + bitCount[(opcode >> 8) & 0xFF];
 
     // On ARM9, if Rn is in Rlist, the writeback value is never stored
     // On ARM7, if Rn is in Rlist, the writeback value is stored if Rn is not the first register
@@ -933,7 +960,6 @@ FORCE_INLINE int Interpreter::stmiaW(uint32_t opcode) // STMIA Rn!, <Rlist>
     // Block store, post-increment. ARM block transfers always visit the
     // register list in ascending register order, which ctz preserves while
     // avoiding 16 branch/tests for sparse lists.
-    uint32_t registerMask = opcode & 0x0000FFFFu;
     while (registerMask)
     {
         int i = __builtin_ctz(registerMask);
