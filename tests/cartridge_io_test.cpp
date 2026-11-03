@@ -24,7 +24,11 @@ class TestCartridge: public Cartridge
 int main()
 {
     static const char *path = "cartridge_io_test.nds";
+#ifdef NOODS_PS2
+    static const uint32_t pageSize = 0x10000;
+#else
     static const uint32_t pageSize = 0x4000;
+#endif
 
     std::vector<uint8_t> expected(pageSize * 4);
     for (size_t i = 0; i < expected.size(); i++)
@@ -71,7 +75,11 @@ int main()
         assert(profile.readBytes == pageSize * 3);
         assert(profile.shortReads == 0);
         assert(profile.callerReads[ROM_IO_CACHE_MISS] == 3);
+#ifdef NOODS_PS2
+        assert(profile.sizeHistogram[2] == 3); // Three physical 64 KiB pages.
+#else
         assert(profile.sizeHistogram[1] == 3); // Three physical 16 KiB pages.
+#endif
         uint64_t latencySamples = 0;
         for (int i = 0; i < 7; i++)
             latencySamples += profile.latencyHistogram[i];
