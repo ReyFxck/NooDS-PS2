@@ -60,8 +60,8 @@ inline void gpu2dFill32(uint32_t *destination, int count, uint32_t value)
         }
     }
 
-    if (count)
-        *destination = value;
+    while (count-- > 0)
+        *destination++ = value;
 }
 
 // Extended tiled backgrounds are always 128, 256, 512, or 1024 pixels wide.
