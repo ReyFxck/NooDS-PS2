@@ -287,12 +287,9 @@ void Gpu2D::drawScanline(int line)
 #endif
         // Clear the layers with the backdrop (first palette index)
         uint16_t backdrop = U8TO16(palette, 0) & ~BIT(15);
-        for (int i = 0; i < 2; i++)
-        {
-            gpu2dFill32(layers[i], 256, backdrop);
-            memset(priorities[i], 4, 256 * sizeof(uint8_t));
-            memset(blendBits[i],  5, 256 * sizeof(uint8_t));
-        }
+        gpu2dFill32(&layers[0][0], 2 * 256, backdrop);
+        memset(&priorities[0][0], 4, sizeof(priorities));
+        memset(&blendBits[0][0], 5, sizeof(blendBits));
     }
 
     // Draw the objects, object window first if enabled

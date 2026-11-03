@@ -136,8 +136,8 @@ class Gpu2D
         uint8_t *palette, *oam;
         uint8_t **extPalettes;
 
-        uint32_t framebuffer[256 * 192] = {};
-        uint32_t layers[2][256] = {};
+        alignas(8) uint32_t framebuffer[256 * 192] = {};
+        alignas(8) uint32_t layers[2][256] = {};
         int8_t priorities[2][256] = {};
         int8_t blendBits[2][256] = {};
 

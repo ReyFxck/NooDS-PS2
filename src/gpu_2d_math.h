@@ -2,28 +2,66 @@
 #define GPU_2D_MATH_H
 
 #include <cstdint>
+#include <cstring>
 
 // Backdrop clear is executed twice per visible scanline. Keep the stores
 // strictly typed as uint32_t (no aliasing tricks), but unroll eight pixels per
 // iteration to reduce loop/index overhead on the R5900.
 inline void gpu2dFill32(uint32_t *destination, int count, uint32_t value)
 {
-    while (count >= 8)
+    // EE/R5900 has native 64-bit stores. Production GPU buffers are explicitly
+    // 8-byte aligned, so fill two identical 32-bit pixels per store. Keep a
+    // 32-bit fallback for arbitrary callers/tests and use memcpy for the wide
+    // store to avoid strict-aliasing violations.
+    if ((reinterpret_cast<uintptr_t>(destination) & 7u) == 0)
     {
-        destination[0] = value;
-        destination[1] = value;
-        destination[2] = value;
-        destination[3] = value;
-        destination[4] = value;
-        destination[5] = value;
-        destination[6] = value;
-        destination[7] = value;
-        destination += 8;
-        count -= 8;
+        const uint64_t pair = static_cast<uint64_t>(value) |
+            (static_cast<uint64_t>(value) << 32);
+        uint8_t *bytes = static_cast<uint8_t *>(
+            __builtin_assume_aligned(destination, 8));
+
+        while (count >= 16)
+        {
+            std::memcpy(bytes +  0, &pair, sizeof(pair));
+            std::memcpy(bytes +  8, &pair, sizeof(pair));
+            std::memcpy(bytes + 16, &pair, sizeof(pair));
+            std::memcpy(bytes + 24, &pair, sizeof(pair));
+            std::memcpy(bytes + 32, &pair, sizeof(pair));
+            std::memcpy(bytes + 40, &pair, sizeof(pair));
+            std::memcpy(bytes + 48, &pair, sizeof(pair));
+            std::memcpy(bytes + 56, &pair, sizeof(pair));
+            bytes += 64;
+            count -= 16;
+        }
+
+        while (count >= 2)
+        {
+            std::memcpy(bytes, &pair, sizeof(pair));
+            bytes += 8;
+            count -= 2;
+        }
+
+        destination = reinterpret_cast<uint32_t *>(bytes);
+    }
+    else
+    {
+        while (count >= 8)
+        {
+            destination[0] = value;
+            destination[1] = value;
+            destination[2] = value;
+            destination[3] = value;
+            destination[4] = value;
+            destination[5] = value;
+            destination[6] = value;
+            destination[7] = value;
+            destination += 8;
+            count -= 8;
+        }
     }
 
-    while (count-- > 0)
-        *destination++ = value;
+    if (count)
+        *destination = value;
 }
 
 // Extended tiled backgrounds are always 128, 256, 512, or 1024 pixels wide.

@@ -34,21 +34,24 @@ bool testWrapPowerOfTwo()
 
 bool testFill32()
 {
-    uint32_t storage[264];
-    for (int count = 0; count <= 257; count++)
+    alignas(8) uint32_t storage[264];
+    for (int offset = 0; offset < 4; offset++)
     {
-        for (int i = 0; i < 264; i++)
-            storage[i] = 0xDEADBEEFu;
-
-        uint32_t value = nextRandom();
-        gpu2dFill32(storage + 3, count, value);
-
-        for (int i = 0; i < 264; i++)
+        for (int count = 0; count <= 257; count++)
         {
-            bool inside = i >= 3 && i < 3 + count;
-            uint32_t expected = inside ? value : 0xDEADBEEFu;
-            if (storage[i] != expected)
-                return false;
+            for (int i = 0; i < 264; i++)
+                storage[i] = 0xDEADBEEFu;
+
+            uint32_t value = nextRandom();
+            gpu2dFill32(storage + offset, count, value);
+
+            for (int i = 0; i < 264; i++)
+            {
+                bool inside = i >= offset && i < offset + count;
+                uint32_t expected = inside ? value : 0xDEADBEEFu;
+                if (storage[i] != expected)
+                    return false;
+            }
         }
     }
     return true;
