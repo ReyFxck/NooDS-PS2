@@ -460,6 +460,8 @@ void Ps2ArmAlu::inspect(uint32_t opcode, uint32_t pc, InstructionInfo *info)
             info->writeMask = registers;
         else
             info->readMask |= registers;
+        if (opcode & BIT(21))
+            info->writeMask |= static_cast<uint16_t>(1u << info->rn);
         if ((opcode & BIT(20)) && (registers & BIT(15)))
             info->terminatesBlock = true;
         return;
@@ -642,7 +644,33 @@ void Ps2ArmAlu::format(uint32_t opcode, uint32_t pc, char *buffer, uint32_t size
         std::snprintf(buffer, size, "BX.%s r%u", condition, info.rm);
         return;
     }
-    if (info.kind == KIND_MEMORY || info.kind == KIND_MULTI_MEMORY)
+    if (info.kind == KIND_MULTI_MEMORY)
+    {
+        const bool pre = (opcode & BIT(24)) != 0;
+        const bool up = (opcode & BIT(23)) != 0;
+        const char *mode = !pre ? (up ? "IA" : "DA") : (up ? "IB" : "DB");
+
+        char registers[64] = {};
+        uint32_t used = 0;
+        uint16_t mask = static_cast<uint16_t>(opcode);
+        for (int reg = 0; reg < 16 && used + 5 < sizeof(registers); reg++)
+        {
+            if (!(mask & BIT(reg)))
+                continue;
+            int wrote = std::snprintf(registers + used, sizeof(registers) - used,
+                "%sr%d", used ? "," : "", reg);
+            if (wrote <= 0)
+                break;
+            used += static_cast<uint32_t>(wrote);
+        }
+
+        std::snprintf(buffer, size, "%s%s.%s r%u%s,{%s}%s",
+            (opcode & BIT(20)) ? "LDM" : "STM", mode, condition, info.rn,
+            (opcode & BIT(21)) ? "!" : "", registers,
+            (opcode & BIT(22)) ? "^" : "");
+        return;
+    }
+    if (info.kind == KIND_MEMORY)
     {
         bool extraTransfer = (opcode & 0x0E000090u) == 0x00000090u;
         const char *mnemonic = (opcode & BIT(20)) ? "LDR" : "STR";
