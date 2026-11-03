@@ -131,6 +131,7 @@ class DynarecR5900
         bool analyzeArmBlock(uint32_t pc, R5900BlockAnalysis *analysis,
             size_t maxInstructions = R5900_ANALYSIS_MAX_INSTRUCTIONS);
         bool isDirectArmHalfwordAccess(uint32_t opcode, uint32_t address) const;
+        bool isDirectArmWordAccess(uint32_t opcode, uint32_t address) const;
         void resetProfile() { profile = R5900DynarecProfile(); }
         const R5900DynarecProfile &getProfile() const { return profile; }
 

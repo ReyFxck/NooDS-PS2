@@ -188,6 +188,19 @@ bool DynarecR5900::isDirectArmHalfwordAccess(uint32_t opcode,
         : memory->getDirectWritePage(0, address) != nullptr;
 }
 
+bool DynarecR5900::isDirectArmWordAccess(uint32_t opcode,
+    uint32_t address) const
+{
+    Ps2ArmAlu::DecodedSingleTransfer transfer;
+    if (!memory || !Ps2ArmAlu::decodeSingleTransfer(opcode, &transfer) ||
+        (address & 3u) || (address & 0xFFFu) > 0xFFCu)
+        return false;
+
+    return transfer.load
+        ? memory->getDirectReadPage(0, address) != nullptr
+        : memory->getDirectWritePage(0, address) != nullptr;
+}
+
 bool DynarecR5900::emitProbe()
 {
     // Emit a tiny valid leaf function:

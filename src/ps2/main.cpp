@@ -745,33 +745,71 @@ void logDynarecHotBlocks(DynarecR5900 &dynarec,
         uint8_t directHalfwordReads = 0;
         uint8_t sampledHalfwordWrites = 0;
         uint8_t directHalfwordWrites = 0;
+        uint8_t sampledWordReads = 0;
+        uint8_t directWordReads = 0;
+        uint8_t sampledWordWrites = 0;
+        uint8_t directWordWrites = 0;
         for (int sample = 0; sample < 6 && top[sample].samples; sample++)
         {
             if (top[sample].pc < analysis.startPc ||
-                top[sample].pc >= analysis.endPc ||
-                top[sample].memoryAddress == 0xFFFFFFFFu)
+                top[sample].pc >= analysis.endPc)
                 continue;
 
-            Ps2ArmAlu::DecodedHalfwordTransfer transfer;
-            if (!Ps2ArmAlu::decodeHalfwordTransfer(top[sample].opcode,
-                &transfer))
-                continue;
-
-            bool direct = dynarec.isDirectArmHalfwordAccess(
-                top[sample].opcode, top[sample].memoryAddress);
-            if (transfer.load)
+            Ps2ArmAlu::DecodedHalfwordTransfer halfTransfer;
+            if (Ps2ArmAlu::decodeHalfwordTransfer(top[sample].opcode,
+                &halfTransfer) &&
+                top[sample].memoryAddress != 0xFFFFFFFFu)
             {
-                sampledHalfwordReads++;
-                directHalfwordReads += direct ? 1u : 0u;
+                bool direct = dynarec.isDirectArmHalfwordAccess(
+                    top[sample].opcode, top[sample].memoryAddress);
+                if (halfTransfer.load)
+                {
+                    sampledHalfwordReads++;
+                    directHalfwordReads += direct ? 1u : 0u;
+                }
+                else
+                {
+                    sampledHalfwordWrites++;
+                    directHalfwordWrites += direct ? 1u : 0u;
+                }
+                continue;
+            }
+
+            Ps2ArmAlu::DecodedSingleTransfer wordTransfer;
+            if (!Ps2ArmAlu::decodeSingleTransfer(top[sample].opcode,
+                &wordTransfer))
+                continue;
+
+            uint32_t address = top[sample].memoryAddress;
+            if (address == 0xFFFFFFFFu && wordTransfer.registerOffset)
+            {
+                uint32_t offset = 0;
+                if (!Ps2ArmAlu::applyImmediateShift(top[sample].rmValue,
+                    wordTransfer.shiftType, wordTransfer.shiftAmount, &offset))
+                    continue;
+                uint32_t base = top[sample].rnValue;
+                uint32_t adjusted = wordTransfer.addOffset
+                    ? base + offset : base - offset;
+                address = wordTransfer.preIndex ? adjusted : base;
+            }
+            if (address == 0xFFFFFFFFu)
+                continue;
+
+            bool direct = dynarec.isDirectArmWordAccess(
+                top[sample].opcode, address);
+            if (wordTransfer.load)
+            {
+                sampledWordReads++;
+                directWordReads += direct ? 1u : 0u;
             }
             else
             {
-                sampledHalfwordWrites++;
-                directHalfwordWrites += direct ? 1u : 0u;
+                sampledWordWrites++;
+                directWordWrites += direct ? 1u : 0u;
             }
         }
 
-        PS2_LOG("[PS2][HOTBLOCK] cpu=ARM9 pc=%08lX end=%08lX sampledExec=%lu estExec=%lu guestInstr=%u guestCycles=%u branch=%08lX backEdge=%u mem=%08lX memClass=%s dynarecSupported=%u/%u halfDirect=R%u/%u,W%u/%u read=%04X write=%04X nextEvent=%lu\n",
+        PS2_LOG("[PS2][HOTBLOCK] cpu=ARM9 pc=%08lX end=%08lX sampledExec=%lu estExec=%lu guestInstr=%u guestCycles=%u branch=%08lX backEdge=%u mem=%08lX memClass=%s dynarecSupported=%u/%u halfDirect=R%u/%u,W%u/%u wordDirect=R%u/%u,W%u/%u read=%04X write=%04X nextEvent=%lu\n",
             static_cast<unsigned long>(analysis.startPc),
             static_cast<unsigned long>(analysis.endPc),
             static_cast<unsigned long>(top[hot].samples),
@@ -788,6 +826,10 @@ void logDynarecHotBlocks(DynarecR5900 &dynarec,
             sampledHalfwordReads,
             directHalfwordWrites,
             sampledHalfwordWrites,
+            directWordReads,
+            sampledWordReads,
+            directWordWrites,
+            sampledWordWrites,
             analysis.readMask,
             analysis.writeMask,
             static_cast<unsigned long>(top[hot].nextEventCycles));
