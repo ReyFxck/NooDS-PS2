@@ -15,6 +15,23 @@ uint32_t nextRandom()
     return randomState;
 }
 
+bool testWrapPowerOfTwo()
+{
+    const int sizes[] = { 128, 256, 512, 1024 };
+    for (int size : sizes)
+    {
+        for (int value = -4097; value <= 4097; value++)
+        {
+            int expected = value % size;
+            if (expected < 0)
+                expected += size;
+            if (gpu2dWrapPowerOfTwo(value, size) != expected)
+                return false;
+        }
+    }
+    return true;
+}
+
 bool testFill32()
 {
     uint32_t storage[264];
@@ -209,6 +226,11 @@ bool testDirectPageCache()
 
 int main()
 {
+    if (!testWrapPowerOfTwo())
+    {
+        std::fprintf(stderr, "power-of-two wrap mismatch\n");
+        return 1;
+    }
     if (!testFill32())
     {
         std::fprintf(stderr, "fill32 mismatch\n");

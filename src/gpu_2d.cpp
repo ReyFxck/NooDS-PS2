@@ -505,6 +505,13 @@ void Gpu2D::drawScanline(int line)
             case 1: // Increase
             {
                 uint8_t factor = std::min(masterBright & 0x1F, 16);
+                if (!factor)
+                    break;
+                if (factor == 16)
+                {
+                    gpu2dFill32(&framebuffer[line * 256], 256, 0x3FFFFu);
+                    break;
+                }
                 for (int i = 0; i < 256; i++)
                 {
                     uint32_t *pixel = &framebuffer[line * 256 + i];
@@ -519,6 +526,13 @@ void Gpu2D::drawScanline(int line)
             case 2: // Decrease
             {
                 uint8_t factor = std::min(masterBright & 0x1F, 16);
+                if (!factor)
+                    break;
+                if (factor == 16)
+                {
+                    gpu2dFill32(&framebuffer[line * 256], 256, 0);
+                    break;
+                }
                 for (int i = 0; i < 256; i++)
                 {
                     uint32_t *pixel = &framebuffer[line * 256 + i];
@@ -721,32 +735,44 @@ void Gpu2D::drawAffine(int bg, int line)
     uint32_t tileBase  = bgVramAddr + ((bgCnt[bg] & 0x1F00) >> 8) * 0x0800 + ((dispCnt & 0x38000000) >> 27) * 0x10000;
     uint32_t indexBase = bgVramAddr + ((bgCnt[bg] & 0x003C) >> 2) * 0x4000 + ((dispCnt & 0x07000000) >> 24) * 0x10000;
 
-    // Get the background's size
-    int size = 128 << ((bgCnt[bg] & 0xC000) >> 14);
+    // Get the background's size. Classic affine sizes are always powers of two.
+    const int size = 128 << ((bgCnt[bg] & 0xC000) >> 14);
+    const int tilesPerRow = size >> 3;
+    const bool wrap = bg < 2 || (bgCnt[bg] & BIT(13));
+
+    // Increment the fixed-point affine coordinates instead of multiplying by
+    // the pixel index on every iteration. This is the same stepper already
+    // validated by the extended-background renderer.
+    Gpu2DAffineLineStepper coordinates(internalX[bg - 2], internalY[bg - 2],
+        bgPA[bg - 2], bgPC[bg - 2]);
 
     // Draw a line
     for (int i = 0; i < 256; i++)
     {
-        // Calculate the rotscaled coordinates relative to the background
-        int rotscaleX = (internalX[bg - 2] + bgPA[bg - 2] * i) >> 8;
-        int rotscaleY = (internalY[bg - 2] + bgPC[bg - 2] * i) >> 8;
+        int rotscaleX = coordinates.x();
+        int rotscaleY = coordinates.y();
+        coordinates.advance();
 
-        // Handle display area overflow
-        if (bg < 2 || (bgCnt[bg] & BIT(13))) // Wraparound
+        // Handle display area overflow. Since size is a power of two, a mask
+        // is exactly equivalent to positive modulo and avoids two divisions.
+        if (wrap)
         {
-            rotscaleX %= size; if (rotscaleX < 0) rotscaleX += size;
-            rotscaleY %= size; if (rotscaleY < 0) rotscaleY += size;
+            rotscaleX = gpu2dWrapPowerOfTwo(rotscaleX, size);
+            rotscaleY = gpu2dWrapPowerOfTwo(rotscaleY, size);
         }
-        else if (rotscaleX < 0 || rotscaleX >= size || rotscaleY < 0 || rotscaleY >= size) // Transparent
+        else if (rotscaleX < 0 || rotscaleX >= size ||
+            rotscaleY < 0 || rotscaleY >= size) // Transparent
         {
             continue;
         }
 
         // Get the current tile
-        uint8_t tile = core->memory.read<uint8_t>(core->isGbaMode(), tileBase + (rotscaleY / 8) * (size / 8) + (rotscaleX / 8));
+        uint8_t tile = core->memory.read<uint8_t>(core->isGbaMode(),
+            tileBase + (rotscaleY >> 3) * tilesPerRow + (rotscaleX >> 3));
 
         // Get the palette index for the current pixel of the tile
-        uint32_t indexAddr = indexBase + tile * 64 + (rotscaleY % 8) * 8 + (rotscaleX % 8);
+        uint32_t indexAddr = indexBase + tile * 64 +
+            (rotscaleY & 7) * 8 + (rotscaleX & 7);
         uint8_t index = core->memory.read<uint8_t>(core->isGbaMode(), indexAddr);
 
         // Draw a pixel

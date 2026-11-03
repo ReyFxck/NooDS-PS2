@@ -6,6 +6,15 @@
 // Backdrop clear is executed twice per visible scanline. Keep the stores
 // strictly typed as uint32_t (no aliasing tricks), but unroll eight pixels per
 // iteration to reduce loop/index overhead on the R5900.
+inline int gpu2dWrapPowerOfTwo(int value, int size)
+{
+    // All classic affine-background dimensions are powers of two (128..1024).
+    // Signed-to-unsigned conversion is modulo 2^32, so masking implements the
+    // same positive wrap as ((value % size) + size) % size, including negatives.
+    return static_cast<int>(static_cast<uint32_t>(value) &
+        static_cast<uint32_t>(size - 1));
+}
+
 inline void gpu2dFill32(uint32_t *destination, int count, uint32_t value)
 {
     while (count >= 8)
