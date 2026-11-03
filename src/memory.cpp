@@ -22,6 +22,9 @@
 #include "memory.h"
 #include "core.h"
 #include "settings.h"
+#ifdef NOODS_PS2
+#include "ps2/ps2_file.h"
+#endif
 
 void VramMapping::add(uint8_t *mapping)
 {
@@ -55,22 +58,50 @@ template <typename T> void VramMapping::write(uint32_t address, T value)
 
 void Memory::loadBios()
 {
-    // Attempt to load the ARM9 BIOS
-    FILE *bios9File = fopen(Settings::getBios9Path().c_str(), "rb");
-    if (!bios9File) throw 1;
-    fread(bios9, sizeof(uint8_t), 0x1000, bios9File);
-    fclose(bios9File);
+#ifdef NOODS_PS2
+    const std::string &bios9Path = Settings::getBios9Path();
+    const std::string &bios7Path = Settings::getBios7Path();
+    if (Ps2File::isHostPath(bios9Path.c_str()))
+    {
+        if (!Ps2File::readExact(bios9Path.c_str(), bios9, 0x1000))
+            throw 1;
+    }
+    else
+#endif
+    {
+        FILE *bios9File = fopen(Settings::getBios9Path().c_str(), "rb");
+        if (!bios9File) throw 1;
+        fread(bios9, sizeof(uint8_t), 0x1000, bios9File);
+        fclose(bios9File);
+    }
 
-    // Attempt to load the ARM7 BIOS
-    FILE *bios7File = fopen(Settings::getBios7Path().c_str(), "rb");
-    if (!bios7File) throw 1;
-    fread(bios7, sizeof(uint8_t), 0x4000, bios7File);
-    fclose(bios7File);
+#ifdef NOODS_PS2
+    if (Ps2File::isHostPath(bios7Path.c_str()))
+    {
+        if (!Ps2File::readExact(bios7Path.c_str(), bios7, 0x4000))
+            throw 1;
+    }
+    else
+#endif
+    {
+        FILE *bios7File = fopen(Settings::getBios7Path().c_str(), "rb");
+        if (!bios7File) throw 1;
+        fread(bios7, sizeof(uint8_t), 0x4000, bios7File);
+        fclose(bios7File);
+    }
 }
 
 void Memory::loadGbaBios()
 {
-    // Attempt to load the GBA BIOS
+#ifdef NOODS_PS2
+    const std::string &gbaBiosPath = Settings::getGbaBiosPath();
+    if (Ps2File::isHostPath(gbaBiosPath.c_str()))
+    {
+        if (!Ps2File::readExact(gbaBiosPath.c_str(), gbaBios, 0x4000))
+            throw 1;
+        return;
+    }
+#endif
     FILE *gbaBiosFile = fopen(Settings::getGbaBiosPath().c_str(), "rb");
     if (!gbaBiosFile) throw 1;
     fread(gbaBios, sizeof(uint8_t), 0x4000, gbaBiosFile);

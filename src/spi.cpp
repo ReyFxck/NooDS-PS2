@@ -20,10 +20,21 @@
 #include "spi.h"
 #include "core.h"
 #include "settings.h"
+#ifdef NOODS_PS2
+#include "ps2/ps2_file.h"
+#endif
 
 void Spi::loadFirmware()
 {
-    // Attempt to load the firmware
+#ifdef NOODS_PS2
+    const std::string &firmwarePath = Settings::getFirmwarePath();
+    if (Ps2File::isHostPath(firmwarePath.c_str()))
+    {
+        if (!Ps2File::readExact(firmwarePath.c_str(), firmware, 0x40000))
+            throw 1;
+        return;
+    }
+#endif
     FILE *firmwareFile = fopen(Settings::getFirmwarePath().c_str(), "rb");
     if (!firmwareFile) throw 1;
     fread(firmware, sizeof(uint8_t), 0x40000, firmwareFile);

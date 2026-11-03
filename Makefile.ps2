@@ -47,6 +47,7 @@ CORE_SOURCES := \
 
 PS2_SOURCES := \
 	src/ps2/main.cpp \
+	src/ps2/ps2_file.cpp \
 	src/ps2/arm_alu.cpp \
 	src/ps2/r5900_code_cache.cpp \
 	src/ps2/dynarec_r5900.cpp
@@ -62,7 +63,7 @@ COMMON_FLAGS := -D_EE -DNOODS_PS2 -G0 -Wall -Wextra -std=gnu++11 \
                 -fno-rtti \
                 -DNOODS_BUILD_REVISION=\"$(BUILD_REVISION)\" \
                 -DNOODS_BUILD_STATE=\"$(BUILD_STATE)\" \
-                -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include -I$(GSKIT)/include -Isrc
+                -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include -I$(PS2SDK)/ports/include -I$(GSKIT)/include -Isrc
 
 ifeq ($(PROFILE),1)
 COMMON_FLAGS += -DNOODS_PROFILE -DNOODS_PROFILE_LEVEL=$(PROFILE_LEVEL)
@@ -77,12 +78,12 @@ OPT_FLAGS := -O2
 endif
 
 CXXFLAGS := $(COMMON_FLAGS) $(OPT_FLAGS)
-LDFLAGS  := -T$(PS2SDK)/ee/startup/linkfile -L$(PS2SDK)/ee/lib -L$(GSKIT)/lib -Wl,-zmax-page-size=128
+LDFLAGS  := -T$(PS2SDK)/ee/startup/linkfile -L$(PS2SDK)/ee/lib -L$(PS2SDK)/ports/lib -L$(GSKIT)/lib -Wl,-zmax-page-size=128
 
 # NooDS 2021 uses std::thread/mutex/condition_variable in GPU/SPU paths.
 # PS2SDK supplies pthread + pthreadglue; keep them in a group with libstdc++
 # because all of these libraries are static in the PS2 toolchain.
-LIBS := -Wl,--start-group -lgskit -ldmakit -lpad -lstdc++ -latomic -ldebug -lm -lc -lcglue -lpthread -lpthreadglue -lkernel -Wl,--end-group
+LIBS := -Wl,--start-group -lgskit -ldmakit -lpad -lps2_drivers -lfileXio -lpatches -lstdc++ -latomic -ldebug -lm -lc -lcglue -lpthread -lpthreadglue -lkernel -Wl,--end-group
 
 .PHONY: all clean debug profile info
 

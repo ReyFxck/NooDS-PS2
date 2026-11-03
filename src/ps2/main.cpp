@@ -24,6 +24,7 @@
 
 #include "../core.h"
 #include "dynarec_r5900.h"
+#include "ps2_file.h"
 #include "../settings.h"
 
 #ifndef NOODS_BUILD_REVISION
@@ -146,6 +147,9 @@ void pollPadIntoNds(Core *core)
 
 bool pathReadable(const char *path)
 {
+    if (Ps2File::isHostPath(path))
+        return Ps2File::canRead(path);
+
     FILE *file = fopen(path, "rb");
     if (!file)
         return false;
@@ -153,78 +157,8 @@ bool pathReadable(const char *path)
     return true;
 }
 
-std::string hostSafDirectoryPrefix;
-
-bool isHexDigitSafe(char value)
-{
-    return (value >= '0' && value <= '9') ||
-        (value >= 'a' && value <= 'f') ||
-        (value >= 'A' && value <= 'F');
-}
-
-std::string encodeSafLeaf(const char *leaf)
-{
-    static const char hex[] = "0123456789ABCDEF";
-    std::string encoded;
-    if (!leaf)
-        return encoded;
-
-    for (const unsigned char *p =
-            reinterpret_cast<const unsigned char*>(leaf); *p; p++)
-    {
-        unsigned char ch = *p;
-        if ((ch >= 'a' && ch <= 'z') ||
-            (ch >= 'A' && ch <= 'Z') ||
-            (ch >= '0' && ch <= '9') ||
-            ch == '.' || ch == '-' || ch == '_' || ch == '~')
-        {
-            encoded += static_cast<char>(ch);
-        }
-        else
-        {
-            encoded += '%';
-            encoded += hex[(ch >> 4) & 0x0F];
-            encoded += hex[ch & 0x0F];
-        }
-    }
-    return encoded;
-}
-
-void configureHostSafDirectory(const char *argv0)
-{
-    hostSafDirectoryPrefix.clear();
-    if (!argv0)
-        return;
-
-    std::string path(argv0);
-    if (path.compare(0, 15, "host:content://") != 0)
-        return;
-
-    // Android document URIs encode the slash between the tree document ID and
-    // the filename as %2F. NetherSX2 accepts the full URI used to launch the
-    // ELF, but its host:/file shortcut appends a literal slash and then rejects
-    // that sibling as outside the SAF tree. Retain the launch URI up to the
-    // final encoded slash and build sibling document URIs from it.
-    size_t separator = std::string::npos;
-    for (size_t i = 0; i + 2 < path.size(); i++)
-    {
-        if (path[i] == '%' && path[i + 1] == '2' &&
-            (path[i + 2] == 'F' || path[i + 2] == 'f'))
-            separator = i;
-    }
-
-    if (separator == std::string::npos)
-        return;
-
-    hostSafDirectoryPrefix = path.substr(0, separator + 3);
-    PS2_LOG("[PS2][HOSTFS] SAF sibling prefix: %s<file>\n",
-        hostSafDirectoryPrefix.c_str());
-}
-
 std::string makeHostFilePath(const char *leaf)
 {
-    if (!hostSafDirectoryPrefix.empty())
-        return hostSafDirectoryPrefix + encodeSafLeaf(leaf);
     return std::string("host:") + (leaf ? leaf : "");
 }
 
@@ -374,13 +308,44 @@ std::string chooseReadablePath(const char *label, const char *preferred, const c
 
 bool fileIsAllZero(const char *path, size_t expectedSize)
 {
-    FILE *file = fopen(path, "rb");
-    if (!file)
-        return false;
-
     uint8_t buffer[512];
     size_t total = 0;
     bool allZero = true;
+
+    if (Ps2File::isHostPath(path))
+    {
+        int fd = Ps2File::openRead(path);
+        if (fd < 0)
+            return false;
+
+        while (total < expectedSize)
+        {
+            size_t want = expectedSize - total;
+            if (want > sizeof(buffer))
+                want = sizeof(buffer);
+            int got = Ps2File::read(fd, buffer, want);
+            if (got <= 0)
+                break;
+
+            for (int i = 0; i < got; i++)
+                if (buffer[i] != 0)
+                {
+                    allZero = false;
+                    break;
+                }
+
+            total += static_cast<size_t>(got);
+            if (!allZero)
+                break;
+        }
+
+        Ps2File::close(fd);
+        return allZero && total == expectedSize;
+    }
+
+    FILE *file = fopen(path, "rb");
+    if (!file)
+        return false;
 
     while (total < expectedSize)
     {
@@ -427,17 +392,34 @@ long getFileSize(FILE *file)
 
 bool probeFile(const char *label, const char *path, long minimumSize, bool required)
 {
-    FILE *file = fopen(path, "rb");
-    if (!file)
+    long size = -1;
+
+    if (Ps2File::isHostPath(path))
+    {
+        int fd = Ps2File::openRead(path);
+        if (fd >= 0)
+        {
+            size = Ps2File::size(fd);
+            Ps2File::close(fd);
+        }
+    }
+    else
+    {
+        FILE *file = fopen(path, "rb");
+        if (file)
+        {
+            size = getFileSize(file);
+            fclose(file);
+        }
+    }
+
+    if (size < 0)
     {
         PS2_LOG("[PS2][%s] %s: %s\n", required ? "ERROR" : "WARN", label, path);
         if (required)
             PS2_LOG("[PS2] Could not open the required file.\n");
         return false;
     }
-
-    long size = getFileSize(file);
-    fclose(file);
 
     if (size < minimumSize)
     {
@@ -452,17 +434,37 @@ bool probeFile(const char *label, const char *path, long minimumSize, bool requi
 
 bool probeNdsRom(const char *path)
 {
-    FILE *file = fopen(path, "rb");
-    if (!file)
+    uint8_t header[0x20] = {};
+    size_t read = 0;
+    long size = -1;
+
+    if (Ps2File::isHostPath(path))
+    {
+        int fd = Ps2File::openRead(path);
+        if (fd >= 0)
+        {
+            int got = Ps2File::read(fd, header, sizeof(header));
+            read = got > 0 ? static_cast<size_t>(got) : 0;
+            size = Ps2File::size(fd);
+            Ps2File::close(fd);
+        }
+    }
+    else
+    {
+        FILE *file = fopen(path, "rb");
+        if (file)
+        {
+            read = fread(header, 1, sizeof(header), file);
+            size = getFileSize(file);
+            fclose(file);
+        }
+    }
+
+    if (size < 0)
     {
         PS2_LOG("[PS2][ERROR] ROM not found: %s\n", path);
         return false;
     }
-
-    uint8_t header[0x20] = {};
-    size_t read = fread(header, 1, sizeof(header), file);
-    long size = getFileSize(file);
-    fclose(file);
 
     if (read != sizeof(header) || size < 0x200)
     {
@@ -1037,6 +1039,11 @@ int main(int argc, char **argv)
     // held a debug-text framebuffer on screen while slow NDS boot frames ran.
     // The GS frontend now takes over after the first emulated frame instead.
     sceSifInitRpc(0);
+    const char *launchPath = (argc > 0 && argv && argv[0] && argv[0][0])
+        ? argv[0] : nullptr;
+    bool fileXioReady = Ps2File::init(launchPath);
+    PS2_LOG("[PS2][HOSTFS] fileXio backend: %s\n",
+        fileXioReady ? "ready" : "inactive/unavailable");
     bool padReady = initPs2Pad();
     PS2_LOG("\n");
     PS2_LOG("============================================================\n");
@@ -1071,10 +1078,7 @@ int main(int argc, char **argv)
     PS2_LOG("============================================================\n");
 
     if (argc > 0 && argv[0] && argv[0][0])
-    {
         PS2_LOG("[PS2][HOSTFS] ELF argv[0]: %s\n", argv[0]);
-        configureHostSafDirectory(argv[0]);
-    }
 
     std::string requestedRom;
     if (argc > 1 && argv[1] && argv[1][0])

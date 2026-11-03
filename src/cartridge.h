@@ -115,6 +115,9 @@ class Cartridge
         Core *core;
 
         FILE *romFile = nullptr;
+#ifdef NOODS_PS2
+        int romFileFd = -1;
+#endif
         uint8_t *rom = nullptr, *save = nullptr;
         int romSize = 0, saveSize = 0;
         long romFilePosition = -1;

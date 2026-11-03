@@ -25,6 +25,9 @@
 #include "cartridge.h"
 #include "core.h"
 #include "settings.h"
+#ifdef NOODS_PS2
+#include "ps2/ps2_file.h"
+#endif
 
 #ifdef NOODS_PROFILE
 namespace
@@ -55,6 +58,9 @@ Cartridge::~Cartridge()
     writeSave();
 
     // Free the ROM and save memory
+#ifdef NOODS_PS2
+    if (romFileFd >= 0) Ps2File::close(romFileFd);
+#endif
     if (romFile) fclose(romFile);
     if (rom)  delete[] rom;
     if (save) delete[] save;
@@ -67,26 +73,72 @@ void Cartridge::loadRom(std::string path)
 #ifdef NOODS_PROFILE
     resetRomIoProfile();
 #endif
-    // Attempt to open a ROM file
+    // Attempt to open a ROM file. HostFS on PS2 uses fileXio directly;
+    // stdio remains unchanged for CDFS and every non-PS2 build.
     romName = path;
-    romFile = fopen(romName.c_str(), "rb");
-    if (!romFile) throw 2;
-    seekRomFile(0, SEEK_END);
-    romSize = ftell(romFile);
-    seekRomFile(0, SEEK_SET);
-    romFilePosition = 0;
+#ifdef NOODS_PS2
+    if (Ps2File::isHostPath(romName.c_str()))
+    {
+        romFileFd = Ps2File::openRead(romName.c_str());
+        if (romFileFd < 0) throw 2;
+        romSize = static_cast<int>(Ps2File::size(romFileFd));
+        if (romSize < 0)
+        {
+            Ps2File::close(romFileFd);
+            romFileFd = -1;
+            throw 2;
+        }
+        Ps2File::seek(romFileFd, 0, SEEK_SET);
+        romFilePosition = 0;
+    }
+    else
+#endif
+    {
+        romFile = fopen(romName.c_str(), "rb");
+        if (!romFile) throw 2;
+        seekRomFile(0, SEEK_END);
+        romSize = ftell(romFile);
+        seekRomFile(0, SEEK_SET);
+        romFilePosition = 0;
+    }
 
     // Attempt to load the ROM's save into memory
     saveName = path.substr(0, path.rfind(".")) + ".sav";
-    FILE *saveFile = fopen(saveName.c_str(), "rb");
-    if (saveFile)
+#ifdef NOODS_PS2
+    if (Ps2File::isHostPath(saveName.c_str()))
     {
-        fseek(saveFile, 0, SEEK_END);
-        saveSize = ftell(saveFile);
-        fseek(saveFile, 0, SEEK_SET);
-        save = new uint8_t[saveSize];
-        fread(save, sizeof(uint8_t), saveSize, saveFile);
-        fclose(saveFile);
+        int saveFd = Ps2File::openRead(saveName.c_str());
+        if (saveFd >= 0)
+        {
+            saveSize = static_cast<int>(Ps2File::size(saveFd));
+            if (saveSize > 0)
+            {
+                Ps2File::seek(saveFd, 0, SEEK_SET);
+                save = new uint8_t[saveSize];
+                int got = Ps2File::read(saveFd, save, saveSize);
+                if (got != saveSize)
+                {
+                    delete[] save;
+                    save = nullptr;
+                    saveSize = 0;
+                }
+            }
+            Ps2File::close(saveFd);
+        }
+    }
+    else
+#endif
+    {
+        FILE *saveFile = fopen(saveName.c_str(), "rb");
+        if (saveFile)
+        {
+            fseek(saveFile, 0, SEEK_END);
+            saveSize = ftell(saveFile);
+            fseek(saveFile, 0, SEEK_SET);
+            save = new uint8_t[saveSize];
+            fread(save, sizeof(uint8_t), saveSize, saveFile);
+            fclose(saveFile);
+        }
     }
 }
 
@@ -95,7 +147,15 @@ int Cartridge::seekRomFile(long offset, int origin)
 #ifdef NOODS_PROFILE
     clock_t start = clock();
 #endif
+#ifdef NOODS_PS2
+    int result;
+    if (romFileFd >= 0)
+        result = Ps2File::seek(romFileFd, offset, origin) >= 0 ? 0 : -1;
+    else
+        result = fseek(romFile, offset, origin);
+#else
     int result = fseek(romFile, offset, origin);
+#endif
 #ifdef NOODS_PROFILE
     uint64_t ticks = static_cast<uint64_t>(clock() - start);
     romIoProfile.seekCalls++;
@@ -113,7 +173,21 @@ size_t Cartridge::readRomFile(void *buffer, size_t size, RomIoCaller caller,
     long positionBefore = romFilePosition;
     clock_t start = clock();
 #endif
+#ifdef NOODS_PS2
+    size_t got = 0;
+    if (romFileFd >= 0)
+    {
+        int result = Ps2File::read(romFileFd, buffer, size);
+        if (result > 0)
+            got = static_cast<size_t>(result);
+    }
+    else
+    {
+        got = fread(buffer, sizeof(uint8_t), size, romFile);
+    }
+#else
     size_t got = fread(buffer, sizeof(uint8_t), size, romFile);
+#endif
 #ifdef NOODS_PROFILE
     uint64_t ticks = static_cast<uint64_t>(clock() - start);
     romIoProfile.readCalls++;
@@ -334,6 +408,20 @@ void Cartridge::writeSave()
     // Update the save file if the data changed
     if (saveDirty)
     {
+#ifdef NOODS_PS2
+        if (Ps2File::isHostPath(saveName.c_str()))
+        {
+            int saveFd = Ps2File::openWrite(saveName.c_str());
+            if (saveFd >= 0)
+            {
+                int wrote = saveSize > 0 ? Ps2File::write(saveFd, save, saveSize) : 0;
+                Ps2File::close(saveFd);
+                if (saveSize == 0 || wrote == saveSize)
+                    saveDirty = false;
+            }
+            return;
+        }
+#endif
         FILE *saveFile = fopen(saveName.c_str(), "wb");
         if (saveFile)
         {
@@ -366,12 +454,27 @@ void Cartridge::trimRom()
         romCapacity = newSize;
 
         // Update the ROM file
-        FILE *romFile = fopen(romName.c_str(), "wb");
-        if (romFile)
+#ifdef NOODS_PS2
+        if (Ps2File::isHostPath(romName.c_str()))
         {
-            if (newSize > 0)
-                fwrite(rom, sizeof(uint8_t), newSize, romFile);
-            fclose(romFile);
+            int fd = Ps2File::openWrite(romName.c_str());
+            if (fd >= 0)
+            {
+                if (newSize > 0)
+                    Ps2File::write(fd, rom, newSize);
+                Ps2File::close(fd);
+            }
+        }
+        else
+#endif
+        {
+            FILE *romOut = fopen(romName.c_str(), "wb");
+            if (romOut)
+            {
+                if (newSize > 0)
+                    fwrite(rom, sizeof(uint8_t), newSize, romOut);
+                fclose(romOut);
+            }
         }
     }
 }
@@ -1196,8 +1299,18 @@ void CartridgeGba::loadRom(std::string path)
 
     // Load the ROM into memory
     loadRomSection(0, romSize);
-    fclose(romFile);
-    romFile = nullptr;
+#ifdef NOODS_PS2
+    if (romFileFd >= 0)
+    {
+        Ps2File::close(romFileFd);
+        romFileFd = -1;
+    }
+#endif
+    if (romFile)
+    {
+        fclose(romFile);
+        romFile = nullptr;
+    }
 
     // Update the memory maps at the GBA ROM locations
     core->memory.updateMap9(0x08000000, 0x0A000000);
