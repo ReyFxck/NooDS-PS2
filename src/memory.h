@@ -437,6 +437,41 @@ template <typename T> FORCE_INLINE T Memory::read(bool cpu, uint32_t address)
     // Align the address
     address &= ~(sizeof(T) - 1);
 
+#ifdef NOODS_PS2
+    // Palette and OAM are only 2 KiB each, so they intentionally stay out of
+    // the 4 KiB sparse page tables. ARM9 software (including common copy
+    // loops) hits them frequently, though, and routing every access through
+    // readFallback() adds an avoidable function/switch/byte-assembly cost.
+    //
+    // Preserve the fallback path's exact mirroring and aligned little-endian
+    // semantics, but handle these two side-effect-free regions inline.
+    if (cpu == 0)
+    {
+        uint8_t *special = nullptr;
+        switch (address & 0xFF000000u)
+        {
+            case 0x05000000u: special = &palette[address & 0x7FFu]; break;
+            case 0x07000000u: special = &oam[address & 0x7FFu];     break;
+        }
+
+        if (special)
+        {
+#ifdef NOODS_PROFILE
+            profileAccess(cpu, rawAddress, sizeof(T), false, true, false);
+#endif
+            T value = 0;
+#if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && \
+    (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+            std::memcpy(&value, special, sizeof(T));
+#else
+            for (size_t i = 0; i < sizeof(T); i++)
+                value |= static_cast<T>(special[i]) << (i * 8);
+#endif
+            return value;
+        }
+    }
+#endif
+
     const SparsePageTable &readMap = (cpu == 0) ? readMap9 : readMap7;
     uint8_t *page = nullptr;
     bool pageCacheHit = false;
@@ -489,6 +524,35 @@ template <typename T> FORCE_INLINE void Memory::write(bool cpu, uint32_t address
 #endif
     // Align the address
     address &= ~(sizeof(T) - 1);
+
+#ifdef NOODS_PS2
+    // Match the read fast path above. Palette/OAM writes have no MMIO side
+    // effects in this core; writeFallback() simply writes the mirrored bytes.
+    if (cpu == 0)
+    {
+        uint8_t *special = nullptr;
+        switch (address & 0xFF000000u)
+        {
+            case 0x05000000u: special = &palette[address & 0x7FFu]; break;
+            case 0x07000000u: special = &oam[address & 0x7FFu];     break;
+        }
+
+        if (special)
+        {
+#ifdef NOODS_PROFILE
+            profileAccess(cpu, rawAddress, sizeof(T), true, true, false);
+#endif
+#if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && \
+    (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+            std::memcpy(special, &value, sizeof(T));
+#else
+            for (size_t i = 0; i < sizeof(T); i++)
+                special[i] = value >> (i * 8);
+#endif
+            return;
+        }
+    }
+#endif
 
     const SparsePageTable &writeMap = (cpu == 0) ? writeMap9 : writeMap7;
     uint8_t *page = nullptr;
