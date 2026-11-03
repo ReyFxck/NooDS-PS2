@@ -1470,7 +1470,7 @@ int main(int argc, char **argv)
                 uint32_t windowSeeks = currentRomSeeks - profLastRomSeeks;
                 uint32_t windowSequentialMisses =
                     currentSequentialMisses - profLastSequentialMisses;
-                PS2_LOG("[PS2][PROF] ROM window: hits=%lu misses=%lu hitRate=%.2f%% seeks=%lu read=%lluKiB seqMiss=%lu maxSeq=%lu cache=%luKiB\n",
+                PS2_LOG("[PS2][PROF] ROM window: hits=%lu misses=%lu hitRate=%.2f%% seeks=%lu read=%lluKiB seqMiss=%lu maxSeq=%lu cache=%luKiB page=%luKiB\n",
                     static_cast<unsigned long>(windowHits),
                     static_cast<unsigned long>(windowMisses),
                     windowHitRate,
@@ -1478,7 +1478,8 @@ int main(int argc, char **argv)
                     static_cast<unsigned long long>(windowReadBytes / 1024u),
                     static_cast<unsigned long>(windowSequentialMisses),
                     static_cast<unsigned long>(core->cartridgeNds.getRomCacheSequentialRunMax()),
-                    static_cast<unsigned long>(core->cartridgeNds.getRomCacheBytes() / 1024u));
+                    static_cast<unsigned long>(core->cartridgeNds.getRomCacheBytes() / 1024u),
+                    static_cast<unsigned long>(core->cartridgeNds.getRomCachePageSize() / 1024u));
 
                 const RomIoProfile &romIo = core->cartridgeNds.getRomIoProfile();
                 uint64_t romIoTicks = romIo.seekTicks + romIo.readTicks;
