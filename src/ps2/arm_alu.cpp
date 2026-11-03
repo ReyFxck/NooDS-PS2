@@ -318,6 +318,92 @@ bool Ps2ArmAlu::executeHalfwordTransfer(uint32_t opcode,
     return true;
 }
 
+bool Ps2ArmAlu::decodeSingleTransfer(uint32_t opcode,
+    DecodedSingleTransfer *decoded)
+{
+    // ARM single data transfer. Start with aligned 32-bit LDR/STR only;
+    // byte transfers, PC operands and unprivileged post-index forms remain in
+    // the interpreter until their exact ARM9 semantics are gated separately.
+    if (!decoded || (opcode & 0x0C000000u) != 0x04000000u ||
+        (opcode & BIT(22)))
+        return false;
+
+    *decoded = DecodedSingleTransfer();
+    decoded->condition = static_cast<uint8_t>(opcode >> 28);
+    decoded->load = (opcode & BIT(20)) != 0;
+    decoded->registerOffset = (opcode & BIT(25)) != 0;
+    decoded->preIndex = (opcode & BIT(24)) != 0;
+    decoded->addOffset = (opcode & BIT(23)) != 0;
+    decoded->writeBack = (opcode & BIT(21)) != 0 || !decoded->preIndex;
+    decoded->rn = static_cast<uint8_t>((opcode >> 16) & 0xFu);
+    decoded->rd = static_cast<uint8_t>((opcode >> 12) & 0xFu);
+
+    if (decoded->condition == 0xFu || decoded->rn == 15 ||
+        decoded->rd == 15 || (!decoded->preIndex && (opcode & BIT(21))) ||
+        (decoded->writeBack && decoded->rn == decoded->rd))
+        return false;
+
+    if (!decoded->registerOffset)
+    {
+        decoded->immediateOffset =
+            static_cast<uint16_t>(opcode & 0x0FFFu);
+        return true;
+    }
+
+    // Register-offset single transfers use only an immediate shifter.
+    if (opcode & BIT(4))
+        return false;
+    decoded->rm = static_cast<uint8_t>(opcode & 0xFu);
+    decoded->shiftType = static_cast<uint8_t>((opcode >> 5) & 0x3u);
+    decoded->shiftAmount = static_cast<uint8_t>((opcode >> 7) & 0x1Fu);
+    if (decoded->rm == 15 ||
+        (decoded->shiftType == 3 && decoded->shiftAmount == 0))
+        return false; // RRX consumes CPSR.C.
+    return true;
+}
+
+bool Ps2ArmAlu::executeSingleTransfer(uint32_t opcode,
+    uint32_t registers[16], uint32_t *cpsr, void *context,
+    ReadWord read, WriteWord write)
+{
+    if (!registers)
+        return false;
+
+    DecodedSingleTransfer decoded;
+    if (!decodeSingleTransfer(opcode, &decoded) ||
+        (decoded.condition != 0xEu && !cpsr))
+        return false;
+    if (cpsr && !conditionPassed(decoded.condition, *cpsr))
+        return true;
+
+    uint32_t offset = decoded.immediateOffset;
+    if (decoded.registerOffset &&
+        !applyImmediateShift(registers[decoded.rm], decoded.shiftType,
+            decoded.shiftAmount, &offset))
+        return false;
+
+    uint32_t base = registers[decoded.rn];
+    uint32_t adjusted = decoded.addOffset ? base + offset : base - offset;
+    uint32_t address = decoded.preIndex ? adjusted : base;
+
+    if (decoded.load)
+    {
+        uint32_t value = 0;
+        if (!read || !read(context, address, &value))
+            return false;
+        registers[decoded.rd] = value;
+    }
+    else
+    {
+        if (!write || !write(context, address, registers[decoded.rd]))
+            return false;
+    }
+
+    if (decoded.writeBack)
+        registers[decoded.rn] = adjusted;
+    return true;
+}
+
 bool Ps2ArmAlu::executeBranch(uint32_t opcode, uint32_t pc, uint32_t cpsr,
     uint32_t *nextPc)
 {
@@ -577,6 +663,9 @@ Ps2ArmAlu::RejectReason Ps2ArmAlu::rejectionReason(uint32_t opcode)
         return REJECT_NONE;
     DecodedHalfwordTransfer transfer;
     if (decodeHalfwordTransfer(opcode, &transfer))
+        return REJECT_NONE;
+    DecodedSingleTransfer singleTransfer;
+    if (decodeSingleTransfer(opcode, &singleTransfer))
         return REJECT_NONE;
 
     InstructionInfo info;

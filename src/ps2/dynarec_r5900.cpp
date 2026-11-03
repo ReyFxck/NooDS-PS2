@@ -232,8 +232,9 @@ namespace
 struct ArmMemoryWrite
 {
     uint32_t address;
-    uint16_t before;
-    uint16_t after;
+    uint32_t before;
+    uint32_t after;
+    uint8_t size;
 };
 
 struct ArmAluState
@@ -289,6 +290,7 @@ bool writeDirectArm9Halfword(void *context, uint32_t address, uint16_t value)
     write.before = static_cast<uint16_t>(page[offset] |
         (static_cast<uint16_t>(page[offset + 1]) << 8));
     write.after = value;
+    write.size = 2;
     page[offset] = static_cast<uint8_t>(value);
     page[offset + 1] = static_cast<uint8_t>(value >> 8);
     return true;
@@ -304,10 +306,15 @@ void restoreArmMemoryWrites(ArmAluState *state)
         const ArmMemoryWrite &write = state->writes[i - 1];
         uint32_t offset = write.address & 0xFFFu;
         uint8_t *page = state->memory->getDirectWritePage(0, write.address);
-        if (!page || offset == 0xFFFu)
+        if (!page || !write.size || offset + write.size > 0x1000u)
             continue;
         page[offset] = static_cast<uint8_t>(write.before);
         page[offset + 1] = static_cast<uint8_t>(write.before >> 8);
+        if (write.size == 4)
+        {
+            page[offset + 2] = static_cast<uint8_t>(write.before >> 16);
+            page[offset + 3] = static_cast<uint8_t>(write.before >> 24);
+        }
     }
 }
 
@@ -336,6 +343,64 @@ bool applyArmHalfwordTransfer(ArmAluState *state, uint32_t opcode)
         return false;
     if (Ps2ArmAlu::executeHalfwordTransfer(opcode, state->r, &state->cpsr,
         state, readDirectArm9Halfword, writeDirectArm9Halfword))
+        return true;
+
+    state->memoryFault = 1;
+    return false;
+}
+
+bool readDirectArm9Word(void *context, uint32_t address, uint32_t *value)
+{
+    ArmAluState *state = static_cast<ArmAluState*>(context);
+    Memory *memory = state ? state->memory : nullptr;
+    uint32_t offset = address & 0xFFFu;
+    if (!memory || !value || (address & 3u) || offset > 0xFFCu)
+        return false;
+
+    uint8_t *page = memory->getDirectReadPage(0, address);
+    if (!page)
+        return false;
+    *value = static_cast<uint32_t>(page[offset]) |
+        (static_cast<uint32_t>(page[offset + 1]) << 8) |
+        (static_cast<uint32_t>(page[offset + 2]) << 16) |
+        (static_cast<uint32_t>(page[offset + 3]) << 24);
+    return true;
+}
+
+bool writeDirectArm9Word(void *context, uint32_t address, uint32_t value)
+{
+    ArmAluState *state = static_cast<ArmAluState*>(context);
+    Memory *memory = state ? state->memory : nullptr;
+    uint32_t offset = address & 0xFFFu;
+    if (!memory || (address & 3u) || offset > 0xFFCu ||
+        state->writeCount >= 16)
+        return false;
+
+    uint8_t *page = memory->getDirectWritePage(0, address);
+    if (!page)
+        return false;
+
+    ArmMemoryWrite &write = state->writes[state->writeCount++];
+    write.address = address;
+    write.before = static_cast<uint32_t>(page[offset]) |
+        (static_cast<uint32_t>(page[offset + 1]) << 8) |
+        (static_cast<uint32_t>(page[offset + 2]) << 16) |
+        (static_cast<uint32_t>(page[offset + 3]) << 24);
+    write.after = value;
+    write.size = 4;
+    page[offset] = static_cast<uint8_t>(value);
+    page[offset + 1] = static_cast<uint8_t>(value >> 8);
+    page[offset + 2] = static_cast<uint8_t>(value >> 16);
+    page[offset + 3] = static_cast<uint8_t>(value >> 24);
+    return true;
+}
+
+bool applyArmSingleTransfer(ArmAluState *state, uint32_t opcode)
+{
+    if (!state || !state->memory)
+        return false;
+    if (Ps2ArmAlu::executeSingleTransfer(opcode, state->r, &state->cpsr,
+        state, readDirectArm9Word, writeDirectArm9Word))
         return true;
 
     state->memoryFault = 1;
@@ -718,6 +783,33 @@ size_t emitArmHalfwordTransferInstruction(uint32_t opcode, uint32_t *code)
     return words;
 }
 
+size_t emitArmSingleTransferInstruction(uint32_t opcode, uint32_t *code)
+{
+    Ps2ArmAlu::DecodedSingleTransfer decoded;
+    if (!code || !Ps2ArmAlu::decodeSingleTransfer(opcode, &decoded))
+        return 0;
+
+    uintptr_t helper = reinterpret_cast<uintptr_t>(&applyArmSingleTransfer);
+    size_t words = 0;
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, -32);
+    code[words++] = R5900::sw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::sw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lui(R5900::R_A1,
+        static_cast<uint16_t>(opcode >> 16));
+    code[words++] = R5900::ori(R5900::R_A1, R5900::R_A1,
+        static_cast<uint16_t>(opcode));
+    code[words++] = R5900::lui(R5900::R_T9,
+        static_cast<uint16_t>(helper >> 16));
+    code[words++] = R5900::ori(R5900::R_T9, R5900::R_T9,
+        static_cast<uint16_t>(helper));
+    code[words++] = R5900::jalr(R5900::R_RA, R5900::R_T9);
+    code[words++] = R5900::nop();
+    code[words++] = R5900::lw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
+    return words;
+}
+
 size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code)
 {
     Ps2ArmAlu::Decoded decoded;
@@ -726,6 +818,9 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code)
     Ps2ArmAlu::DecodedHalfwordTransfer transfer;
     if (Ps2ArmAlu::decodeHalfwordTransfer(opcode, &transfer))
         return emitArmHalfwordTransferInstruction(opcode, code);
+    Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
+    if (Ps2ArmAlu::decodeSingleTransfer(opcode, &singleTransfer))
+        return emitArmSingleTransferInstruction(opcode, code);
     return emitArmBranchInstruction(opcode, pc, code);
 }
 }
@@ -831,6 +926,25 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             if (transfer.writeBack)
                 block.writeMask |= static_cast<uint16_t>(1u << transfer.rn);
             block.readsFlags |= transfer.condition != 0xEu;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
+        if (Ps2ArmAlu::decodeSingleTransfer(opcodes[i], &singleTransfer))
+        {
+            block.readMask |= static_cast<uint16_t>(1u << singleTransfer.rn);
+            if (singleTransfer.registerOffset)
+                block.readMask |= static_cast<uint16_t>(1u << singleTransfer.rm);
+            if (singleTransfer.load)
+                block.writeMask |= static_cast<uint16_t>(1u << singleTransfer.rd);
+            else
+            {
+                block.readMask |= static_cast<uint16_t>(1u << singleTransfer.rd);
+                block.writesMemory = true;
+            }
+            if (singleTransfer.writeBack)
+                block.writeMask |= static_cast<uint16_t>(1u << singleTransfer.rn);
+            block.readsFlags |= singleTransfer.condition != 0xEu;
             continue;
         }
 
@@ -1058,6 +1172,67 @@ bool DynarecR5900::runArmAluSelfTest()
         loadPage[3] != static_cast<uint8_t>(beforeStore >> 8))
         return false;
 
+    // Gate ordinary 32-bit LDR/STR through the same direct-page helper ABI.
+    uint32_t expectedWord = static_cast<uint32_t>(loadPage[0]) |
+        (static_cast<uint32_t>(loadPage[1]) << 8) |
+        (static_cast<uint32_t>(loadPage[2]) << 16) |
+        (static_cast<uint32_t>(loadPage[3]) << 24);
+    uint32_t *wordLoadCode = cache.reserveWords(32);
+    if (!wordLoadCode)
+        return false;
+    size_t wordLoadWords = emitArmSingleTransferInstruction(0xE5901000u,
+        wordLoadCode); // LDR r1,[r0]
+    if (!wordLoadWords)
+        return false;
+    wordLoadCode[wordLoadWords++] = R5900::jr(R5900::R_RA);
+    wordLoadCode[wordLoadWords++] = R5900::nop();
+    cache.commitWords(wordLoadWords);
+    cache.syncExecutable(wordLoadCode, wordLoadCode + wordLoadWords);
+
+    ArmAluState wordLoadState = {};
+    wordLoadState.r[0] = loadAddress;
+    wordLoadState.r[1] = 0xFFFFFFFFu;
+    wordLoadState.memory = memory;
+    ArmLoadFunction wordLoadFunction =
+        reinterpret_cast<ArmLoadFunction>(wordLoadCode);
+    wordLoadFunction(&wordLoadState);
+    if (wordLoadState.memoryFault || wordLoadState.r[1] != expectedWord)
+        return false;
+
+    uint32_t beforeWordStore = expectedWord;
+    uint32_t *wordStoreCode = cache.reserveWords(32);
+    if (!wordStoreCode)
+        return false;
+    size_t wordStoreWords = emitArmSingleTransferInstruction(0xE5801000u,
+        wordStoreCode); // STR r1,[r0]
+    if (!wordStoreWords)
+        return false;
+    wordStoreCode[wordStoreWords++] = R5900::jr(R5900::R_RA);
+    wordStoreCode[wordStoreWords++] = R5900::nop();
+    cache.commitWords(wordStoreWords);
+    cache.syncExecutable(wordStoreCode, wordStoreCode + wordStoreWords);
+
+    {
+        ArmAluState wordStoreState = {};
+        wordStoreState.r[0] = loadAddress;
+        wordStoreState.r[1] = 0x89ABCDEFu;
+        wordStoreState.memory = memory;
+        ArmMemoryWriteGuard wordStoreWrites(&wordStoreState);
+        ArmLoadFunction wordStoreFunction =
+            reinterpret_cast<ArmLoadFunction>(wordStoreCode);
+        wordStoreFunction(&wordStoreState);
+        if (wordStoreState.memoryFault || wordStoreState.writeCount != 1 ||
+            loadPage[0] != 0xEFu || loadPage[1] != 0xCDu ||
+            loadPage[2] != 0xABu || loadPage[3] != 0x89u)
+            return false;
+    }
+    uint32_t restoredWord = static_cast<uint32_t>(loadPage[0]) |
+        (static_cast<uint32_t>(loadPage[1]) << 8) |
+        (static_cast<uint32_t>(loadPage[2]) << 16) |
+        (static_cast<uint32_t>(loadPage[3]) << 24);
+    if (restoredWord != beforeWordStore)
+        return false;
+
     return true;
 }
 
@@ -1217,6 +1392,13 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
             continue;
         }
 
+        Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
+        if (Ps2ArmAlu::decodeSingleTransfer(opcode, &singleTransfer))
+        {
+            opcodes[count++] = opcode;
+            continue;
+        }
+
         Ps2ArmAlu::DecodedBranch branch;
         if (!Ps2ArmAlu::decodeBranch(opcode, &branch))
             break;
@@ -1252,11 +1434,20 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
                 if (!applyArmHalfwordTransfer(&expected, opcodes[i]))
                     return 0;
             }
-            else if (!Ps2ArmAlu::executeBranch(opcodes[i],
-                guestPc + static_cast<uint32_t>(i * 4), expected.cpsr,
-                &expected.nextPc))
+            else
             {
-                return -1;
+                Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
+                if (Ps2ArmAlu::decodeSingleTransfer(opcodes[i], &singleTransfer))
+                {
+                    if (!applyArmSingleTransfer(&expected, opcodes[i]))
+                        return 0;
+                }
+                else if (!Ps2ArmAlu::executeBranch(opcodes[i],
+                    guestPc + static_cast<uint32_t>(i * 4), expected.cpsr,
+                    &expected.nextPc))
+                {
+                    return -1;
+                }
             }
         }
     }
@@ -1284,7 +1475,8 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
     {
         if (actual.writes[i].address != expected.writes[i].address ||
             actual.writes[i].before != expected.writes[i].before ||
-            actual.writes[i].after != expected.writes[i].after)
+            actual.writes[i].after != expected.writes[i].after ||
+            actual.writes[i].size != expected.writes[i].size)
             return -1;
     }
 

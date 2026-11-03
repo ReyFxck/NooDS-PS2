@@ -41,6 +41,31 @@ bool writeHalfword(void *context, uint32_t address, uint16_t value)
     return true;
 }
 
+bool readWord(void *context, uint32_t address, uint32_t *value)
+{
+    HalfwordMemory *memory = static_cast<HalfwordMemory*>(context);
+    if (!memory || !value || address + 3 >= sizeof(memory->bytes))
+        return false;
+    *value = static_cast<uint32_t>(memory->bytes[address]) |
+        (static_cast<uint32_t>(memory->bytes[address + 1]) << 8) |
+        (static_cast<uint32_t>(memory->bytes[address + 2]) << 16) |
+        (static_cast<uint32_t>(memory->bytes[address + 3]) << 24);
+    return true;
+}
+
+bool writeWord(void *context, uint32_t address, uint32_t value)
+{
+    HalfwordMemory *memory = static_cast<HalfwordMemory*>(context);
+    if (!memory || address + 3 >= sizeof(memory->bytes))
+        return false;
+    memory->bytes[address] = static_cast<uint8_t>(value);
+    memory->bytes[address + 1] = static_cast<uint8_t>(value >> 8);
+    memory->bytes[address + 2] = static_cast<uint8_t>(value >> 16);
+    memory->bytes[address + 3] = static_cast<uint8_t>(value >> 24);
+    return true;
+}
+
+
 void expectResult(uint32_t opcode, uint8_t rd, uint32_t expected,
     const uint32_t source[16])
 {
@@ -326,6 +351,90 @@ int main()
         assert(Ps2ArmAlu::executeHalfwordTransfer(opcode, state, &cpsr,
             &halfwordMemory, readHalfword, writeHalfword));
         assert(state[2] == static_cast<uint16_t>(test));
+        assert(state[1] == ((writeBack || !preIndex)
+            ? (addOffset ? base + offset : base - offset) : base));
+    }
+
+    Ps2ArmAlu::DecodedSingleTransfer single;
+    assert(Ps2ArmAlu::decodeSingleTransfer(0xE5912004u, &single)); // LDR r2,[r1,#4]
+    assert(single.load && !single.registerOffset && single.preIndex &&
+        single.addOffset && !single.writeBack && single.rn == 1 &&
+        single.rd == 2 && single.immediateOffset == 4);
+    assert(Ps2ArmAlu::decodeSingleTransfer(0xE7A12083u, &single)); // STR r2,[r1,r3,LSL#1]!
+    assert(!single.load && single.registerOffset && single.writeBack &&
+        single.rm == 3 && single.shiftType == 0 && single.shiftAmount == 1);
+    assert(!Ps2ArmAlu::decodeSingleTransfer(0xE5D12000u, &single)); // byte transfer
+    assert(!Ps2ArmAlu::decodeSingleTransfer(0xE591F000u, &single)); // PC destination
+    assert(!Ps2ArmAlu::decodeSingleTransfer(0xE4911004u, &single)); // post-index Rn==Rd
+    assert(Ps2ArmAlu::rejectionReason(0xE5912004u) == Ps2ArmAlu::REJECT_NONE);
+
+    // Word transfer semantics: immediate/register offsets, writeback and
+    // conditional no-op behavior.
+    HalfwordMemory wordMemory = {};
+    wordMemory.bytes[0x104] = 0x78;
+    wordMemory.bytes[0x105] = 0x56;
+    wordMemory.bytes[0x106] = 0x34;
+    wordMemory.bytes[0x107] = 0x12;
+    uint32_t wordRegs[16] = {};
+    wordRegs[1] = 0x100;
+    cpsr = 0;
+    assert(Ps2ArmAlu::executeSingleTransfer(0xE5912004u, wordRegs, &cpsr,
+        &wordMemory, readWord, writeWord));
+    assert(wordRegs[2] == 0x12345678u && wordRegs[1] == 0x100u);
+
+    wordRegs[2] = 0x89ABCDEFu;
+    wordRegs[3] = 2u;
+    assert(Ps2ArmAlu::executeSingleTransfer(0xE7A12083u, wordRegs, &cpsr,
+        &wordMemory, readWord, writeWord));
+    assert(wordRegs[1] == 0x104u);
+    uint32_t storedWord = 0;
+    assert(readWord(&wordMemory, 0x104u, &storedWord));
+    assert(storedWord == 0x89ABCDEFu);
+
+    wordRegs[1] = 0x120u;
+    wordRegs[2] = 0xCAFEBABEu;
+    cpsr = 0;
+    assert(Ps2ArmAlu::executeSingleTransfer(0x05812004u, wordRegs, &cpsr,
+        &wordMemory, readWord, writeWord)); // STR.EQ skipped
+    assert(wordRegs[1] == 0x120u);
+    uint32_t untouched = 0;
+    assert(readWord(&wordMemory, 0x124u, &untouched));
+    assert(untouched == 0);
+
+    // Randomized addressing/writeback sweep for LDR word.
+    for (int test = 0; test < 10000; test++)
+    {
+        bool registerOffset = (nextRandom() & 1u) != 0;
+        bool preIndex = (nextRandom() & 1u) != 0;
+        bool addOffset = (nextRandom() & 1u) != 0;
+        bool writeBack = preIndex && ((nextRandom() & 1u) != 0);
+        uint32_t offset = (nextRandom() & 0x1Cu);
+        uint32_t base = addOffset ? 0x100u : 0x180u;
+        uint32_t opcode = 0xE4000000u | (1u << 20) | (1u << 16) |
+            (2u << 12);
+        if (registerOffset)
+        {
+            opcode |= 1u << 25;
+            opcode |= 3u; // r3, LSL #0
+        }
+        else
+        {
+            opcode |= offset;
+        }
+        if (preIndex) opcode |= 1u << 24;
+        if (addOffset) opcode |= 1u << 23;
+        if (writeBack) opcode |= 1u << 21;
+
+        uint32_t state[16] = {};
+        state[1] = base;
+        state[3] = offset;
+        uint32_t address = preIndex
+            ? (addOffset ? base + offset : base - offset) : base;
+        uint32_t value = nextRandom();
+        assert(writeWord(&wordMemory, address, value));
+        assert(Ps2ArmAlu::executeSingleTransfer(opcode, state, &cpsr,
+            &wordMemory, readWord, writeWord));
+        assert(state[2] == value);
         assert(state[1] == ((writeBack || !preIndex)
             ? (addOffset ? base + offset : base - offset) : base));
     }
