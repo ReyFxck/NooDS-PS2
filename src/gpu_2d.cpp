@@ -644,6 +644,10 @@ void Gpu2D::drawText(int bg, int line)
     if (yOffset >= 256 && (bgCnt[bg] & BIT(15)))
         tileBase += (bgCnt[bg] & BIT(14)) ? 0x1000 : 0x800;
 
+    const bool gba = core->isGbaMode();
+    Gpu2DDirectPageCache tilePageCache;
+    Gpu2DDirectPageCache indexPageCache;
+
     // Draw a line
     if (bgCnt[bg] & BIT(7)) // 8-bit
     {
@@ -657,8 +661,19 @@ void Gpu2D::drawText(int bg, int line)
             if (xOffset >= 256 && (bgCnt[bg] & BIT(14)))
                 tileAddr += 0x800;
 
-            // Get the current tile
-            uint16_t tile = core->memory.read<uint16_t>(core->isGbaMode(), tileAddr);
+            // Get the current tile. Text backgrounds repeatedly touch the
+            // same tile-map page, so retain its direct mapping for this scanline.
+            uint8_t *page = nullptr;
+            uint16_t tile;
+            if (tilePageCache.lookup(tileAddr, page))
+                tile = U8TO16(page, tileAddr & 0xFFFu);
+            else if ((page = core->memory.getDirectReadPage(gba, tileAddr)))
+            {
+                tilePageCache.store(tileAddr, page);
+                tile = U8TO16(page, tileAddr & 0xFFFu);
+            }
+            else
+                tile = core->memory.read<uint16_t>(gba, tileAddr);
 
             // Get the tile's palette
             uint8_t *pal;
@@ -679,8 +694,24 @@ void Gpu2D::drawText(int bg, int line)
 
             // Get the palette indices for the current line of the tile, flipped vertically if enabled
             uint32_t indexAddr = indexBase + (tile & 0x3FF) * 64 + ((tile & BIT(11)) ? (7 - (yOffset & 7)) : (yOffset & 7)) * 8;
-            uint64_t indices = core->memory.read<uint32_t>(core->isGbaMode(), indexAddr) |
-                ((uint64_t)core->memory.read<uint32_t>(core->isGbaMode(), indexAddr + 4) << 32);
+            uint64_t indices;
+            page = nullptr;
+            if (indexPageCache.lookup(indexAddr, page))
+            {
+                indices = U8TO32(page, indexAddr & 0xFFFu) |
+                    (static_cast<uint64_t>(U8TO32(page, (indexAddr & 0xFFFu) + 4)) << 32);
+            }
+            else if ((page = core->memory.getDirectReadPage(gba, indexAddr)))
+            {
+                indexPageCache.store(indexAddr, page);
+                indices = U8TO32(page, indexAddr & 0xFFFu) |
+                    (static_cast<uint64_t>(U8TO32(page, (indexAddr & 0xFFFu) + 4)) << 32);
+            }
+            else
+            {
+                indices = core->memory.read<uint32_t>(gba, indexAddr) |
+                    (static_cast<uint64_t>(core->memory.read<uint32_t>(gba, indexAddr + 4)) << 32);
+            }
 
             // Draw the current line of the tile, flipped horizontally if enabled
             for (int x = i - (xOffset & 7) + ((tile & BIT(10)) ? 7 : 0); indices != 0; ((tile & BIT(10)) ? x-- : x++), indices >>= 8)
@@ -703,8 +734,19 @@ void Gpu2D::drawText(int bg, int line)
             if (xOffset >= 256 && (bgCnt[bg] & BIT(14)))
                 tileAddr += 0x800;
 
-            // Get the current tile
-            uint16_t tile = core->memory.read<uint16_t>(core->isGbaMode(), tileAddr);
+            // Get the current tile. Text backgrounds repeatedly touch the
+            // same tile-map page, so retain its direct mapping for this scanline.
+            uint8_t *page = nullptr;
+            uint16_t tile;
+            if (tilePageCache.lookup(tileAddr, page))
+                tile = U8TO16(page, tileAddr & 0xFFFu);
+            else if ((page = core->memory.getDirectReadPage(gba, tileAddr)))
+            {
+                tilePageCache.store(tileAddr, page);
+                tile = U8TO16(page, tileAddr & 0xFFFu);
+            }
+            else
+                tile = core->memory.read<uint16_t>(gba, tileAddr);
 
             // Get the tile's palette
             // In 4-bit mode, the tile can select from multiple 16-color palettes
@@ -712,7 +754,17 @@ void Gpu2D::drawText(int bg, int line)
 
             // Get the palette indices for the current line of the tile, flipped vertically if enabled
             uint32_t indexAddr = indexBase + (tile & 0x3FF) * 32 + ((tile & BIT(11)) ? (7 - (yOffset & 7)) : (yOffset & 7)) * 4;
-            uint32_t indices = core->memory.read<uint32_t>(core->isGbaMode(), indexAddr);
+            uint32_t indices;
+            page = nullptr;
+            if (indexPageCache.lookup(indexAddr, page))
+                indices = U8TO32(page, indexAddr & 0xFFFu);
+            else if ((page = core->memory.getDirectReadPage(gba, indexAddr)))
+            {
+                indexPageCache.store(indexAddr, page);
+                indices = U8TO32(page, indexAddr & 0xFFFu);
+            }
+            else
+                indices = core->memory.read<uint32_t>(gba, indexAddr);
 
             // Draw the current line of the tile, flipped horizontally if enabled
             for (int x = i - (xOffset & 7) + ((tile & BIT(10)) ? 7 : 0); indices != 0; ((tile & BIT(10)) ? x-- : x++), indices >>= 4)
@@ -745,6 +797,10 @@ void Gpu2D::drawAffine(int bg, int line)
     // validated by the extended-background renderer.
     Gpu2DAffineLineStepper coordinates(internalX[bg - 2], internalY[bg - 2],
         bgPA[bg - 2], bgPC[bg - 2]);
+    const bool gba = core->isGbaMode();
+    Gpu2DLastAddressCache<uint8_t> tileCache;
+    Gpu2DDirectPageCache tilePageCache;
+    Gpu2DDirectPageCache indexPageCache;
 
     // Draw a line
     for (int i = 0; i < 256; i++)
@@ -766,14 +822,40 @@ void Gpu2D::drawAffine(int bg, int line)
             continue;
         }
 
-        // Get the current tile
-        uint8_t tile = core->memory.read<uint8_t>(core->isGbaMode(),
-            tileBase + (rotscaleY >> 3) * tilesPerRow + (rotscaleX >> 3));
+        // Get the current tile. Adjacent affine pixels often remain in the
+        // same tile, and their tile/index bytes usually remain in one VRAM page.
+        uint32_t tileAddr = tileBase +
+            (rotscaleY >> 3) * tilesPerRow + (rotscaleX >> 3);
+        uint8_t tile;
+        if (!tileCache.lookup(tileAddr, tile))
+        {
+            uint8_t *page = nullptr;
+            if (tilePageCache.lookup(tileAddr, page))
+                tile = page[tileAddr & 0xFFFu];
+            else if ((page = core->memory.getDirectReadPage(gba, tileAddr)))
+            {
+                tilePageCache.store(tileAddr, page);
+                tile = page[tileAddr & 0xFFFu];
+            }
+            else
+                tile = core->memory.read<uint8_t>(gba, tileAddr);
+            tileCache.store(tileAddr, tile);
+        }
 
-        // Get the palette index for the current pixel of the tile
+        // Get the palette index for the current pixel of the tile.
         uint32_t indexAddr = indexBase + tile * 64 +
             (rotscaleY & 7) * 8 + (rotscaleX & 7);
-        uint8_t index = core->memory.read<uint8_t>(core->isGbaMode(), indexAddr);
+        uint8_t *page = nullptr;
+        uint8_t index;
+        if (indexPageCache.lookup(indexAddr, page))
+            index = page[indexAddr & 0xFFFu];
+        else if ((page = core->memory.getDirectReadPage(gba, indexAddr)))
+        {
+            indexPageCache.store(indexAddr, page);
+            index = page[indexAddr & 0xFFFu];
+        }
+        else
+            index = core->memory.read<uint8_t>(gba, indexAddr);
 
         // Draw a pixel
         if (index)
