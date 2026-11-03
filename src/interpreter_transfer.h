@@ -893,14 +893,16 @@ FORCE_INLINE int Interpreter::ldmiaW(uint32_t opcode) // LDMIA Rn!, <Rlist>
     int n = bitCount[opcode & 0xFF] + bitCount[(opcode >> 8) & 0xFF];
     uint32_t op0 = *registers[m];
 
-    // Block load, post-increment
-    for (int i = 0; i < 16; i++)
+    // Block load, post-increment. Iterate only the registers present in
+    // Rlist instead of testing all 16 slots. This is especially important for
+    // the very common single-register LDMIA copy loops seen on ARM9.
+    uint32_t registerMask = opcode & 0x0000FFFFu;
+    while (registerMask)
     {
-        if (opcode & BIT(i))
-        {
-            *registers[i] = core->memory.read<uint32_t>(cpu, op0);
-            op0 += 4;
-        }
+        int i = __builtin_ctz(registerMask);
+        *registers[i] = core->memory.read<uint32_t>(cpu, op0);
+        op0 += 4;
+        registerMask &= registerMask - 1;
     }
 
     // Writeback
@@ -928,14 +930,16 @@ FORCE_INLINE int Interpreter::stmiaW(uint32_t opcode) // STMIA Rn!, <Rlist>
     if (cpu == 1 && (opcode & BIT(m)) && (opcode & (BIT(m) - 1)))
         *registers[m] = op0 + n * 4;
 
-    // Block store, post-increment
-    for (int i = 0; i < 16; i++)
+    // Block store, post-increment. ARM block transfers always visit the
+    // register list in ascending register order, which ctz preserves while
+    // avoiding 16 branch/tests for sparse lists.
+    uint32_t registerMask = opcode & 0x0000FFFFu;
+    while (registerMask)
     {
-        if (opcode & BIT(i))
-        {
-            core->memory.write<uint32_t>(cpu, op0, *registers[i]);
-            op0 += 4;
-        }
+        int i = __builtin_ctz(registerMask);
+        core->memory.write<uint32_t>(cpu, op0, *registers[i]);
+        op0 += 4;
+        registerMask &= registerMask - 1;
     }
 
     // Writeback
