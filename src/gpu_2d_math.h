@@ -3,6 +3,29 @@
 
 #include <cstdint>
 
+// Backdrop clear is executed twice per visible scanline. Keep the stores
+// strictly typed as uint32_t (no aliasing tricks), but unroll eight pixels per
+// iteration to reduce loop/index overhead on the R5900.
+inline void gpu2dFill32(uint32_t *destination, int count, uint32_t value)
+{
+    while (count >= 8)
+    {
+        destination[0] = value;
+        destination[1] = value;
+        destination[2] = value;
+        destination[3] = value;
+        destination[4] = value;
+        destination[5] = value;
+        destination[6] = value;
+        destination[7] = value;
+        destination += 8;
+        count -= 8;
+    }
+
+    while (count-- > 0)
+        *destination++ = value;
+}
+
 // Extended tiled backgrounds are always 128, 256, 512, or 1024 pixels wide.
 // Unsigned masking is therefore the exact signed modulo used by wraparound,
 // including for negative affine coordinates, without a division per axis.

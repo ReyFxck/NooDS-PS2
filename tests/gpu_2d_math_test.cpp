@@ -15,6 +15,28 @@ uint32_t nextRandom()
     return randomState;
 }
 
+bool testFill32()
+{
+    uint32_t storage[264];
+    for (int count = 0; count <= 257; count++)
+    {
+        for (int i = 0; i < 264; i++)
+            storage[i] = 0xDEADBEEFu;
+
+        uint32_t value = nextRandom();
+        gpu2dFill32(storage + 3, count, value);
+
+        for (int i = 0; i < 264; i++)
+        {
+            bool inside = i >= 3 && i < 3 + count;
+            uint32_t expected = inside ? value : 0xDEADBEEFu;
+            if (storage[i] != expected)
+                return false;
+        }
+    }
+    return true;
+}
+
 bool testAffineStepper()
 {
     // DS affine reference points are signed 28-bit values. That range plus a
@@ -187,6 +209,11 @@ bool testDirectPageCache()
 
 int main()
 {
+    if (!testFill32())
+    {
+        std::fprintf(stderr, "fill32 mismatch\n");
+        return 1;
+    }
     if (!testAffineStepper())
     {
         std::fprintf(stderr, "affine line stepper mismatch\n");

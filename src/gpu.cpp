@@ -162,9 +162,15 @@ bool Gpu::getFrame(uint32_t *out, bool gbaCrop)
     }
     else
     {
-        // Output the full frame in RGB8 format
-        for (int i = 0; i < 256 * 192 * 2; i++)
-            out[i] = rgb6ToRgb8(source[i]);
+        // Output the full frame in RGB8 format. Manual four-pixel unrolling
+        // trims loop/index overhead on the EE without changing conversion.
+        for (int i = 0; i < 256 * 192 * 2; i += 4)
+        {
+            out[i + 0] = rgb6ToRgb8(source[i + 0]);
+            out[i + 1] = rgb6ToRgb8(source[i + 1]);
+            out[i + 2] = rgb6ToRgb8(source[i + 2]);
+            out[i + 3] = rgb6ToRgb8(source[i + 3]);
+        }
     }
 
     // Recycle the used framebuffer instead of returning ~384 KiB to the

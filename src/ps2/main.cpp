@@ -12,7 +12,7 @@
 #include <ctime>
 #include <cstdio>
 #include <cstring>
-#include <debug.h>
+#include <dirent.h>
 #include <sifrpc.h>
 #include <loadfile.h>
 #include <libpad.h>
@@ -40,7 +40,7 @@
 
 namespace
 {
-#define PS2_LOG(...) do { printf(__VA_ARGS__); scr_printf(__VA_ARGS__); } while (0)
+#define PS2_LOG(...) do { printf(__VA_ARGS__); } while (0)
 
 constexpr const char *BASE_COMMIT = "392d9631c4b2a748b8dd460caa1643f79ffaca7f";
 constexpr const char *BASE_DATE   = "2021-09-29";
@@ -144,20 +144,94 @@ void pollPadIntoNds(Core *core)
     }
 }
 
-std::string chooseReadablePath(const char *preferred, const char *fallback)
+bool pathReadable(const char *path)
 {
-    FILE *file = fopen(preferred, "rb");
-    if (file)
+    FILE *file = fopen(path, "rb");
+    if (!file)
+        return false;
+    fclose(file);
+    return true;
+}
+
+bool hasNdsExtension(const char *name)
+{
+    if (!name)
+        return false;
+    size_t length = std::strlen(name);
+    if (length < 4 || name[length - 4] != '.')
+        return false;
+    return std::tolower(static_cast<unsigned char>(name[length - 3])) == 'n' &&
+        std::tolower(static_cast<unsigned char>(name[length - 2])) == 'd' &&
+        std::tolower(static_cast<unsigned char>(name[length - 1])) == 's';
+}
+
+std::string normalizeRomArgument(const char *argument)
+{
+    if (!argument || !argument[0])
+        return HOST_ROM;
+
+    std::string path(argument);
+    if (path.find(':') == std::string::npos)
+        path = std::string("host:") + path;
+    return path;
+}
+
+std::string findHostRomPath()
+{
+    PS2_LOG("[PS2][HOSTFS] Probing host: root (ELF launch directory when supported).\n");
+
+    if (pathReadable(HOST_ROM))
     {
-        fclose(file);
+        PS2_LOG("[PS2][HOSTFS][OK] Found preferred ROM: %s\n", HOST_ROM);
+        return HOST_ROM;
+    }
+
+    DIR *directory = opendir("host:");
+    if (!directory)
+    {
+        PS2_LOG("[PS2][HOSTFS][MISS] Could not open host: directory.\n");
+        return HOST_ROM;
+    }
+
+    std::string selected;
+    while (dirent *entry = readdir(directory))
+    {
+        if (!hasNdsExtension(entry->d_name))
+            continue;
+
+        std::string candidate = std::string("host:") + entry->d_name;
+        if (!pathReadable(candidate.c_str()))
+            continue;
+
+        PS2_LOG("[PS2][HOSTFS] NDS candidate: %s\n", candidate.c_str());
+        if (selected.empty() || candidate < selected)
+            selected = candidate;
+    }
+    closedir(directory);
+
+    if (!selected.empty())
+    {
+        PS2_LOG("[PS2][HOSTFS][OK] Auto-selected ROM: %s\n", selected.c_str());
+        return selected;
+    }
+
+    PS2_LOG("[PS2][HOSTFS][MISS] No readable .nds file found beside the ELF.\n");
+    return HOST_ROM;
+}
+
+std::string chooseReadablePath(const char *label, const char *preferred, const char *fallback)
+{
+    if (pathReadable(preferred))
+    {
+        PS2_LOG("[PS2][FILE][OK] %s: %s\n", label, preferred);
         return preferred;
     }
 
-    file = fopen(fallback, "rb");
-    if (file)
+    PS2_LOG("[PS2][FILE][MISS] %s: %s\n", label, preferred);
+
+    if (fallback && pathReadable(fallback))
     {
-        fclose(file);
-        PS2_LOG("[PS2] Falling back to disc self-test file: %s\n", fallback);
+        PS2_LOG("[PS2][DISC] Using fallback %s: %s\n", label, fallback);
         return fallback;
     }
 
@@ -225,7 +299,7 @@ bool probeFile(const char *label, const char *path, long minimumSize, bool requi
     {
         PS2_LOG("[PS2][%s] %s: %s\n", required ? "ERROR" : "WARN", label, path);
         if (required)
-            PS2_LOG("[PS2] Could not open the required file through host:.\n");
+            PS2_LOG("[PS2] Could not open the required file.\n");
         return false;
     }
 
@@ -826,9 +900,10 @@ void logRomIoDetail(const char *source, const RomIoProfile &profile)
 
 int main(int argc, char **argv)
 {
-    // Make bring-up results visible in the PCSX2/PS2 video output as well as stdout.
+    // Keep diagnostics on stdout/emulator logs. The old init_scr() bootstrap
+    // held a debug-text framebuffer on screen while slow NDS boot frames ran.
+    // The GS frontend now takes over after the first emulated frame instead.
     sceSifInitRpc(0);
-    init_scr();
     bool padReady = initPs2Pad();
     PS2_LOG("\n");
     PS2_LOG("============================================================\n");
@@ -862,12 +937,25 @@ int main(int argc, char **argv)
     PS2_LOG(" Dynarec: ARM-ALU-v7 shadow-only\n");
     PS2_LOG("============================================================\n");
 
-    std::string romPath = (argc > 1 && argv[1] && argv[1][0])
-        ? std::string(argv[1])
-        : chooseReadablePath(HOST_ROM, DISC_ROM);
-    std::string bios9Path = chooseReadablePath(HOST_BIOS9, DISC_BIOS9);
-    std::string bios7Path = chooseReadablePath(HOST_BIOS7, DISC_BIOS7);
-    std::string firmwarePath = chooseReadablePath(HOST_FIRMWARE, DISC_FIRMWARE);
+    if (argc > 0 && argv[0] && argv[0][0])
+        PS2_LOG("[PS2][HOSTFS] ELF argv[0]: %s\n", argv[0]);
+
+    std::string requestedRom;
+    if (argc > 1 && argv[1] && argv[1][0])
+    {
+        requestedRom = normalizeRomArgument(argv[1]);
+        PS2_LOG("[PS2][HOSTFS] ROM argument: %s -> %s\n",
+            argv[1], requestedRom.c_str());
+    }
+    else
+    {
+        requestedRom = findHostRomPath();
+    }
+
+    std::string romPath = chooseReadablePath("NDS ROM", requestedRom.c_str(), DISC_ROM);
+    std::string bios9Path = chooseReadablePath("ARM9 BIOS", HOST_BIOS9, DISC_BIOS9);
+    std::string bios7Path = chooseReadablePath("ARM7 BIOS", HOST_BIOS7, DISC_BIOS7);
+    std::string firmwarePath = chooseReadablePath("Firmware", HOST_FIRMWARE, DISC_FIRMWARE);
 
     PS2_LOG("[PS2] M0 bootstrap started.\n");
     PS2_LOG("[PS2] ROM path: %s\n", romPath.c_str());
@@ -893,7 +981,7 @@ int main(int argc, char **argv)
     if (!romOk)
     {
         PS2_LOG("\n[PS2] ROM probe FAILED.\n");
-        PS2_LOG("[PS2] Tried HostFS first and the embedded disc self-test as fallback.\n");
+        PS2_LOG("[PS2] Tried the requested/HostFS path first and disc fallback second.\n");
         fflush(stdout);
         return 2;
     }
@@ -1064,14 +1152,13 @@ int main(int argc, char **argv)
         if (firmwareSynthetic)
             PS2_LOG("[PS2][WARN] Continuing with synthetic firmware; real firmware will be required for compatibility validation.\n");
 
-        // M3/M4 progression test. The first NSMB frame was proven to be
-        // completely white (0xFFFFFFFF for all 98,304 pixels), so presenting
-        // only that frame cannot validate visible game output. Run a bounded
-        // number of frames, consuming every queued framebuffer immediately to
-        // avoid queue growth in the PS2's 32MB RAM, and stop at the first frame
-        // that contains any non-white pixel.
+        // Retrieve only the first completed framebuffer before handing video
+        // to gsKit. Older bring-up code waited up to 30 NDS frames for a
+        // non-white image, leaving the debug text visible for many seconds on
+        // slow games. Continuous streaming below will naturally show later
+        // boot/logo frames as soon as the game produces them.
         constexpr size_t FRAME_PIXELS = 256 * 192 * 2;
-        constexpr int MAX_BOOT_FRAMES = 30;
+        constexpr int MAX_BOOT_FRAMES = 1;
         uint32_t *frame = static_cast<uint32_t*>(
             memalign(128, FRAME_PIXELS * sizeof(uint32_t)));
         if (!frame)
@@ -1081,8 +1168,8 @@ int main(int argc, char **argv)
         clock_t m3Start = clock();
 #endif
         uint32_t cyclesBefore = core->getGlobalCycles();
-        PS2_LOG("[PS2] M3: running up to %d NDS frames until output is not all-white... cycles=%lu\n",
-            MAX_BOOT_FRAMES, static_cast<unsigned long>(cyclesBefore));
+        PS2_LOG("[PS2] M3: running first NDS frame before GS streaming... cycles=%lu\n",
+            static_cast<unsigned long>(cyclesBefore));
         fflush(stdout);
 
         bool gotFrame = false;
@@ -1262,9 +1349,8 @@ int main(int argc, char **argv)
             selectedFrame);
         fflush(stdout);
 
-        // Paint both GS screen buffers before streaming. init_scr() owned the
-        // display during bootstrap, so explicitly overwriting both buffers
-        // prevents stale debug text from resurfacing on a later flip.
+        // Paint both GS screen buffers before streaming so the first visible
+        // scanout is deterministic and both buffers contain NDS output.
         for (int prime = 0; prime < 2; prime++)
         {
             queueNdsScreens();

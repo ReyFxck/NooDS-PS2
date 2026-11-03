@@ -143,7 +143,7 @@ void Gpu2D::drawGbaScanline(int line)
         uint16_t backdrop = U8TO16(palette, 0) & ~BIT(15);
         for (int i = 0; i < 2; i++)
         {
-            for (int j = 0; j < 240; j++) layers[i][j] = backdrop;
+            gpu2dFill32(layers[i], 240, backdrop);
             memset(priorities[i], 4, 240 * sizeof(uint8_t));
             memset(blendBits[i],  5, 240 * sizeof(uint8_t));
         }
@@ -289,7 +289,7 @@ void Gpu2D::drawScanline(int line)
         uint16_t backdrop = U8TO16(palette, 0) & ~BIT(15);
         for (int i = 0; i < 2; i++)
         {
-            for (int j = 0; j < 256; j++) layers[i][j] = backdrop;
+            gpu2dFill32(layers[i], 256, backdrop);
             memset(priorities[i], 4, 256 * sizeof(uint8_t));
             memset(blendBits[i],  5, 256 * sizeof(uint8_t));
         }
