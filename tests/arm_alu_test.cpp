@@ -65,6 +65,24 @@ bool writeWord(void *context, uint32_t address, uint32_t value)
     return true;
 }
 
+bool readByte(void *context, uint32_t address, uint8_t *value)
+{
+    HalfwordMemory *memory = static_cast<HalfwordMemory*>(context);
+    if (!memory || !value || address >= sizeof(memory->bytes))
+        return false;
+    *value = memory->bytes[address];
+    return true;
+}
+
+bool writeByte(void *context, uint32_t address, uint8_t value)
+{
+    HalfwordMemory *memory = static_cast<HalfwordMemory*>(context);
+    if (!memory || address >= sizeof(memory->bytes))
+        return false;
+    memory->bytes[address] = value;
+    return true;
+}
+
 
 void expectResult(uint32_t opcode, uint8_t rd, uint32_t expected,
     const uint32_t source[16])
@@ -434,6 +452,34 @@ int main()
         assert(state[1] == ((writeBack || !preIndex)
             ? (addOffset ? base + offset : base - offset) : base));
     }
+
+    Ps2ArmAlu::DecodedByteTransfer byteTransfer;
+    assert(Ps2ArmAlu::decodeByteTransfer(0xE4C14001u, &byteTransfer));
+    assert(!byteTransfer.load && !byteTransfer.preIndex &&
+        byteTransfer.writeBack && byteTransfer.rn == 1 &&
+        byteTransfer.rd == 4 && byteTransfer.immediateOffset == 1);
+    uint32_t byteRegs[16] = {};
+    byteRegs[1] = 0x40u;
+    byteRegs[4] = 0x1234ABCDu;
+    cpsr = 0;
+    assert(Ps2ArmAlu::executeByteTransfer(0xE4C14001u, byteRegs, &cpsr,
+        &halfwordMemory, readByte, writeByte));
+    assert(halfwordMemory.bytes[0x40] == 0xCDu && byteRegs[1] == 0x41u);
+
+    Ps2ArmAlu::DecodedLiteralLoad literalLoad;
+    assert(Ps2ArmAlu::decodeLiteralLoad(0xE59F201Cu, &literalLoad));
+    assert(literalLoad.addOffset && literalLoad.rd == 2 &&
+        literalLoad.immediateOffset == 0x1Cu);
+    HalfwordMemory literalMemory = {};
+    assert(writeWord(&literalMemory, 0x124u, 0x89ABCDEFu));
+    uint32_t literalRegs[16] = {};
+    assert(Ps2ArmAlu::executeLiteralLoad(0xE59F201Cu, 0x100u,
+        literalRegs, &cpsr, &literalMemory, readWord));
+    assert(literalRegs[2] == 0x89ABCDEFu);
+    assert(Ps2ArmAlu::rejectionReason(0xE59F201Cu) ==
+        Ps2ArmAlu::REJECT_NONE);
+    assert(Ps2ArmAlu::rejectionReason(0xE4C14001u) ==
+        Ps2ArmAlu::REJECT_NONE);
 
     Ps2ArmAlu::DecodedSingleTransfer single;
     assert(Ps2ArmAlu::decodeSingleTransfer(0xE5912004u, &single)); // LDR r2,[r1,#4]

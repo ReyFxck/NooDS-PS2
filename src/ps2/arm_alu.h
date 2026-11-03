@@ -119,6 +119,30 @@ namespace Ps2ArmAlu
         uint16_t immediateOffset = 0;
     };
 
+    struct DecodedByteTransfer
+    {
+        uint8_t condition = 0xE;
+        bool load = false;
+        bool registerOffset = false;
+        bool preIndex = true;
+        bool addOffset = true;
+        bool writeBack = false;
+        uint8_t rn = 0;
+        uint8_t rd = 0;
+        uint8_t rm = 0;
+        uint8_t shiftType = 0;
+        uint8_t shiftAmount = 0;
+        uint16_t immediateOffset = 0;
+    };
+
+    struct DecodedLiteralLoad
+    {
+        uint8_t condition = 0xE;
+        bool addOffset = true;
+        uint8_t rd = 0;
+        uint16_t immediateOffset = 0;
+    };
+
     struct DecodedSingleBlockTransfer
     {
         uint8_t condition = 0xE;
@@ -134,6 +158,11 @@ namespace Ps2ArmAlu
         uint16_t *value);
     typedef bool (*WriteHalfword)(void *context, uint32_t address,
         uint16_t value);
+
+    typedef bool (*ReadByte)(void *context, uint32_t address,
+        uint8_t *value);
+    typedef bool (*WriteByte)(void *context, uint32_t address,
+        uint8_t value);
 
     typedef bool (*ReadWord)(void *context, uint32_t address,
         uint32_t *value);
@@ -153,6 +182,9 @@ namespace Ps2ArmAlu
         DecodedHalfwordTransfer *decoded);
     bool decodeSingleTransfer(uint32_t opcode,
         DecodedSingleTransfer *decoded);
+    bool decodeByteTransfer(uint32_t opcode,
+        DecodedByteTransfer *decoded);
+    bool decodeLiteralLoad(uint32_t opcode, DecodedLiteralLoad *decoded);
     bool decodeSingleBlockTransfer(uint32_t opcode,
         DecodedSingleBlockTransfer *decoded);
     bool executeHalfwordTransfer(uint32_t opcode, uint32_t registers[16],
@@ -161,6 +193,12 @@ namespace Ps2ArmAlu
     bool executeSingleTransfer(uint32_t opcode, uint32_t registers[16],
         uint32_t *cpsr, void *context, ReadWord read,
         WriteWord write = nullptr);
+    bool executeByteTransfer(uint32_t opcode, uint32_t registers[16],
+        uint32_t *cpsr, void *context, ReadByte read,
+        WriteByte write = nullptr);
+    bool executeLiteralLoad(uint32_t opcode, uint32_t pc,
+        uint32_t registers[16], uint32_t *cpsr, void *context,
+        ReadWord read);
     bool executeSingleBlockTransfer(uint32_t opcode, uint32_t registers[16],
         uint32_t *cpsr, void *context, ReadWord read,
         WriteWord write = nullptr);

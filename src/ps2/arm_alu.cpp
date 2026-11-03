@@ -470,6 +470,128 @@ bool Ps2ArmAlu::executeSingleTransfer(uint32_t opcode,
     return true;
 }
 
+bool Ps2ArmAlu::decodeByteTransfer(uint32_t opcode,
+    DecodedByteTransfer *decoded)
+{
+    if (!decoded || (opcode & 0x0C000000u) != 0x04000000u ||
+        !(opcode & BIT(22)))
+        return false;
+
+    *decoded = DecodedByteTransfer();
+    decoded->condition = static_cast<uint8_t>(opcode >> 28);
+    decoded->load = (opcode & BIT(20)) != 0;
+    decoded->registerOffset = (opcode & BIT(25)) != 0;
+    decoded->preIndex = (opcode & BIT(24)) != 0;
+    decoded->addOffset = (opcode & BIT(23)) != 0;
+    decoded->writeBack = (opcode & BIT(21)) != 0 || !decoded->preIndex;
+    decoded->rn = static_cast<uint8_t>((opcode >> 16) & 0xFu);
+    decoded->rd = static_cast<uint8_t>((opcode >> 12) & 0xFu);
+
+    if (decoded->condition == 0xFu || decoded->rn == 15 ||
+        decoded->rd == 15 || (!decoded->preIndex && (opcode & BIT(21))) ||
+        (decoded->writeBack && decoded->rn == decoded->rd))
+        return false;
+
+    if (!decoded->registerOffset)
+    {
+        decoded->immediateOffset = static_cast<uint16_t>(opcode & 0x0FFFu);
+        return true;
+    }
+
+    if (opcode & BIT(4))
+        return false;
+    decoded->rm = static_cast<uint8_t>(opcode & 0xFu);
+    decoded->shiftType = static_cast<uint8_t>((opcode >> 5) & 0x3u);
+    decoded->shiftAmount = static_cast<uint8_t>((opcode >> 7) & 0x1Fu);
+    if (decoded->rm == 15 ||
+        (decoded->shiftType == 3 && decoded->shiftAmount == 0))
+        return false;
+    return true;
+}
+
+bool Ps2ArmAlu::executeByteTransfer(uint32_t opcode,
+    uint32_t registers[16], uint32_t *cpsr, void *context,
+    ReadByte read, WriteByte write)
+{
+    if (!registers)
+        return false;
+
+    DecodedByteTransfer decoded;
+    if (!decodeByteTransfer(opcode, &decoded) ||
+        (decoded.condition != 0xEu && !cpsr))
+        return false;
+    if (cpsr && !conditionPassed(decoded.condition, *cpsr))
+        return true;
+
+    uint32_t offset = decoded.immediateOffset;
+    if (decoded.registerOffset &&
+        !applyImmediateShift(registers[decoded.rm], decoded.shiftType,
+            decoded.shiftAmount, &offset))
+        return false;
+
+    uint32_t base = registers[decoded.rn];
+    uint32_t adjusted = decoded.addOffset ? base + offset : base - offset;
+    uint32_t address = decoded.preIndex ? adjusted : base;
+
+    if (decoded.load)
+    {
+        uint8_t value = 0;
+        if (!read || !read(context, address, &value))
+            return false;
+        registers[decoded.rd] = value;
+    }
+    else
+    {
+        if (!write || !write(context, address,
+            static_cast<uint8_t>(registers[decoded.rd])))
+            return false;
+    }
+
+    if (decoded.writeBack)
+        registers[decoded.rn] = adjusted;
+    return true;
+}
+
+bool Ps2ArmAlu::decodeLiteralLoad(uint32_t opcode,
+    DecodedLiteralLoad *decoded)
+{
+    if (!decoded || (opcode & 0x0C000000u) != 0x04000000u ||
+        !(opcode & BIT(20)) || (opcode & BIT(22)) || (opcode & BIT(25)) ||
+        !(opcode & BIT(24)) || (opcode & BIT(21)) ||
+        ((opcode >> 16) & 0xFu) != 15u)
+        return false;
+
+    *decoded = DecodedLiteralLoad();
+    decoded->condition = static_cast<uint8_t>(opcode >> 28);
+    decoded->addOffset = (opcode & BIT(23)) != 0;
+    decoded->rd = static_cast<uint8_t>((opcode >> 12) & 0xFu);
+    decoded->immediateOffset = static_cast<uint16_t>(opcode & 0x0FFFu);
+    return decoded->condition != 0xFu && decoded->rd != 15;
+}
+
+bool Ps2ArmAlu::executeLiteralLoad(uint32_t opcode, uint32_t pc,
+    uint32_t registers[16], uint32_t *cpsr, void *context, ReadWord read)
+{
+    if (!registers)
+        return false;
+
+    DecodedLiteralLoad decoded;
+    if (!decodeLiteralLoad(opcode, &decoded) ||
+        (decoded.condition != 0xEu && !cpsr))
+        return false;
+    if (cpsr && !conditionPassed(decoded.condition, *cpsr))
+        return true;
+
+    uint32_t base = pc + 8u;
+    uint32_t address = decoded.addOffset
+        ? base + decoded.immediateOffset : base - decoded.immediateOffset;
+    uint32_t value = 0;
+    if (!read || !read(context, address, &value))
+        return false;
+    registers[decoded.rd] = value;
+    return true;
+}
+
 bool Ps2ArmAlu::decodeSingleBlockTransfer(uint32_t opcode,
     DecodedSingleBlockTransfer *decoded)
 {
@@ -830,6 +952,12 @@ Ps2ArmAlu::RejectReason Ps2ArmAlu::rejectionReason(uint32_t opcode)
     DecodedSingleTransfer singleTransfer;
     if (decodeSingleTransfer(opcode, &singleTransfer))
         return REJECT_NONE;
+    DecodedByteTransfer byteTransfer;
+    if (decodeByteTransfer(opcode, &byteTransfer))
+        return REJECT_NONE;
+    DecodedLiteralLoad literalLoad;
+    if (decodeLiteralLoad(opcode, &literalLoad))
+        return REJECT_NONE;
     DecodedSingleBlockTransfer blockTransfer;
     if (decodeSingleBlockTransfer(opcode, &blockTransfer))
         return REJECT_NONE;
@@ -929,6 +1057,8 @@ void Ps2ArmAlu::format(uint32_t opcode, uint32_t pc, char *buffer, uint32_t size
     {
         bool extraTransfer = (opcode & 0x0E000090u) == 0x00000090u;
         const char *mnemonic = (opcode & BIT(20)) ? "LDR" : "STR";
+        if (!extraTransfer && (opcode & BIT(22)))
+            mnemonic = (opcode & BIT(20)) ? "LDRB" : "STRB";
         if (extraTransfer)
         {
             uint8_t type = static_cast<uint8_t>((opcode >> 5) & 0x3u);

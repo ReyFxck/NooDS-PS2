@@ -327,7 +327,8 @@ void restoreArmMemoryWrites(ArmAluState *state)
         if (!page || !write.size || offset + write.size > 0x1000u)
             continue;
         page[offset] = static_cast<uint8_t>(write.before);
-        page[offset + 1] = static_cast<uint8_t>(write.before >> 8);
+        if (write.size >= 2)
+            page[offset + 1] = static_cast<uint8_t>(write.before >> 8);
         if (write.size == 4)
         {
             page[offset + 2] = static_cast<uint8_t>(write.before >> 16);
@@ -365,6 +366,39 @@ bool applyArmHalfwordTransfer(ArmAluState *state, uint32_t opcode)
 
     state->memoryFault = 1;
     return false;
+}
+
+bool readDirectArm9Byte(void *context, uint32_t address, uint8_t *value)
+{
+    ArmAluState *state = static_cast<ArmAluState*>(context);
+    Memory *memory = state ? state->memory : nullptr;
+    if (!memory || !value)
+        return false;
+    uint8_t *page = memory->getDirectReadPage(0, address);
+    if (!page)
+        return false;
+    *value = page[address & 0xFFFu];
+    return true;
+}
+
+bool writeDirectArm9Byte(void *context, uint32_t address, uint8_t value)
+{
+    ArmAluState *state = static_cast<ArmAluState*>(context);
+    Memory *memory = state ? state->memory : nullptr;
+    if (!memory || state->writeCount >= 16)
+        return false;
+    uint8_t *page = memory->getDirectWritePage(0, address);
+    if (!page)
+        return false;
+
+    uint32_t offset = address & 0xFFFu;
+    ArmMemoryWrite &entry = state->writes[state->writeCount++];
+    entry.address = address;
+    entry.before = page[offset];
+    entry.after = value;
+    entry.size = 1;
+    page[offset] = value;
+    return true;
 }
 
 bool readDirectArm9Word(void *context, uint32_t address, uint32_t *value)
@@ -411,6 +445,28 @@ bool writeDirectArm9Word(void *context, uint32_t address, uint32_t value)
     page[offset + 2] = static_cast<uint8_t>(value >> 16);
     page[offset + 3] = static_cast<uint8_t>(value >> 24);
     return true;
+}
+
+bool applyArmByteTransfer(ArmAluState *state, uint32_t opcode)
+{
+    if (!state || !state->memory)
+        return false;
+    if (Ps2ArmAlu::executeByteTransfer(opcode, state->r, &state->cpsr,
+        state, readDirectArm9Byte, writeDirectArm9Byte))
+        return true;
+    state->memoryFault = 1;
+    return false;
+}
+
+bool applyArmLiteralLoad(ArmAluState *state, uint32_t opcode, uint32_t pc)
+{
+    if (!state || !state->memory)
+        return false;
+    if (Ps2ArmAlu::executeLiteralLoad(opcode, pc, state->r, &state->cpsr,
+        state, readDirectArm9Word))
+        return true;
+    state->memoryFault = 1;
+    return false;
 }
 
 bool applyArmSingleTransfer(ArmAluState *state, uint32_t opcode)
@@ -862,6 +918,55 @@ size_t emitArmHalfwordTransferInstruction(uint32_t opcode, uint32_t *code)
     return words;
 }
 
+size_t emitArmByteTransferInstruction(uint32_t opcode, uint32_t *code)
+{
+    Ps2ArmAlu::DecodedByteTransfer decoded;
+    if (!code || !Ps2ArmAlu::decodeByteTransfer(opcode, &decoded))
+        return 0;
+
+    uintptr_t helper = reinterpret_cast<uintptr_t>(&applyArmByteTransfer);
+    size_t words = 0;
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, -32);
+    code[words++] = R5900::sw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::sw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lui(R5900::R_A1, static_cast<uint16_t>(opcode >> 16));
+    code[words++] = R5900::ori(R5900::R_A1, R5900::R_A1, static_cast<uint16_t>(opcode));
+    code[words++] = R5900::lui(R5900::R_T9, static_cast<uint16_t>(helper >> 16));
+    code[words++] = R5900::ori(R5900::R_T9, R5900::R_T9, static_cast<uint16_t>(helper));
+    code[words++] = R5900::jalr(R5900::R_RA, R5900::R_T9);
+    code[words++] = R5900::nop();
+    code[words++] = R5900::lw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
+    return words;
+}
+
+size_t emitArmLiteralLoadInstruction(uint32_t opcode, uint32_t pc,
+    uint32_t *code)
+{
+    Ps2ArmAlu::DecodedLiteralLoad decoded;
+    if (!code || !Ps2ArmAlu::decodeLiteralLoad(opcode, &decoded))
+        return 0;
+
+    uintptr_t helper = reinterpret_cast<uintptr_t>(&applyArmLiteralLoad);
+    size_t words = 0;
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, -32);
+    code[words++] = R5900::sw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::sw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lui(R5900::R_A1, static_cast<uint16_t>(opcode >> 16));
+    code[words++] = R5900::ori(R5900::R_A1, R5900::R_A1, static_cast<uint16_t>(opcode));
+    code[words++] = R5900::lui(R5900::R_A2, static_cast<uint16_t>(pc >> 16));
+    code[words++] = R5900::ori(R5900::R_A2, R5900::R_A2, static_cast<uint16_t>(pc));
+    code[words++] = R5900::lui(R5900::R_T9, static_cast<uint16_t>(helper >> 16));
+    code[words++] = R5900::ori(R5900::R_T9, R5900::R_T9, static_cast<uint16_t>(helper));
+    code[words++] = R5900::jalr(R5900::R_RA, R5900::R_T9);
+    code[words++] = R5900::nop();
+    code[words++] = R5900::lw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
+    return words;
+}
+
 size_t emitArmSingleTransferInstruction(uint32_t opcode, uint32_t *code)
 {
     Ps2ArmAlu::DecodedSingleTransfer decoded;
@@ -952,6 +1057,12 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code)
     Ps2ArmAlu::DecodedHalfwordTransfer transfer;
     if (Ps2ArmAlu::decodeHalfwordTransfer(opcode, &transfer))
         return emitArmHalfwordTransferInstruction(opcode, code);
+    Ps2ArmAlu::DecodedByteTransfer byteTransfer;
+    if (Ps2ArmAlu::decodeByteTransfer(opcode, &byteTransfer))
+        return emitArmByteTransferInstruction(opcode, code);
+    Ps2ArmAlu::DecodedLiteralLoad literalLoad;
+    if (Ps2ArmAlu::decodeLiteralLoad(opcode, &literalLoad))
+        return emitArmLiteralLoadInstruction(opcode, pc, code);
     Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
     if (Ps2ArmAlu::decodeSingleTransfer(opcode, &singleTransfer))
         return emitArmSingleTransferInstruction(opcode, code);
@@ -1066,6 +1177,33 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             if (transfer.writeBack)
                 block.writeMask |= static_cast<uint16_t>(1u << transfer.rn);
             block.readsFlags |= transfer.condition != 0xEu;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedByteTransfer byteTransfer;
+        if (Ps2ArmAlu::decodeByteTransfer(opcodes[i], &byteTransfer))
+        {
+            block.readMask |= static_cast<uint16_t>(1u << byteTransfer.rn);
+            if (byteTransfer.registerOffset)
+                block.readMask |= static_cast<uint16_t>(1u << byteTransfer.rm);
+            if (byteTransfer.load)
+                block.writeMask |= static_cast<uint16_t>(1u << byteTransfer.rd);
+            else
+            {
+                block.readMask |= static_cast<uint16_t>(1u << byteTransfer.rd);
+                block.writesMemory = true;
+            }
+            if (byteTransfer.writeBack)
+                block.writeMask |= static_cast<uint16_t>(1u << byteTransfer.rn);
+            block.readsFlags |= byteTransfer.condition != 0xEu;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedLiteralLoad literalLoad;
+        if (Ps2ArmAlu::decodeLiteralLoad(opcodes[i], &literalLoad))
+        {
+            block.writeMask |= static_cast<uint16_t>(1u << literalLoad.rd);
+            block.readsFlags |= literalLoad.condition != 0xEu;
             continue;
         }
 
@@ -1276,6 +1414,71 @@ bool DynarecR5900::runArmAluSelfTest()
         if (std::memcmp(&actual, &expected, sizeof(actual)) != 0)
             return false;
     }
+
+    // Gate direct STRB post-index with transactional rollback.
+    const uint32_t byteAddress = 0x02000010u;
+    uint8_t *bytePage = memory->getDirectWritePage(0, byteAddress);
+    if (!bytePage)
+        return false;
+    uint8_t byteBefore = bytePage[byteAddress & 0xFFFu];
+    uint32_t *byteCode = cache.reserveWords(32);
+    if (!byteCode)
+        return false;
+    size_t byteWords = emitArmByteTransferInstruction(0xE4C01001u,
+        byteCode); // STRB r1,[r0],#1
+    if (!byteWords)
+        return false;
+    byteCode[byteWords++] = R5900::jr(R5900::R_RA);
+    byteCode[byteWords++] = R5900::nop();
+    cache.commitWords(byteWords);
+    cache.syncExecutable(byteCode, byteCode + byteWords);
+    {
+        ArmAluState byteState = {};
+        byteState.r[0] = byteAddress;
+        byteState.r[1] = 0xABu;
+        byteState.memory = memory;
+        ArmMemoryWriteGuard byteWrites(&byteState);
+        typedef void (*ArmByteFunction)(ArmAluState *);
+        ArmByteFunction byteFunction = reinterpret_cast<ArmByteFunction>(byteCode);
+        byteFunction(&byteState);
+        if (byteState.memoryFault || byteState.writeCount != 1 ||
+            byteState.r[0] != byteAddress + 1u ||
+            bytePage[byteAddress & 0xFFFu] != 0xABu)
+            return false;
+    }
+    if (bytePage[byteAddress & 0xFFFu] != byteBefore)
+        return false;
+
+    // Gate LDR literal with an explicit guest PC+8 base.
+    const uint32_t literalPc = 0x02000000u;
+    uint8_t *literalPage = memory->getDirectReadPage(0, literalPc + 8u);
+    if (!literalPage)
+        return false;
+    uint32_t literalOffset = (literalPc + 8u) & 0xFFFu;
+    uint32_t literalExpected = static_cast<uint32_t>(literalPage[literalOffset]) |
+        (static_cast<uint32_t>(literalPage[literalOffset + 1]) << 8) |
+        (static_cast<uint32_t>(literalPage[literalOffset + 2]) << 16) |
+        (static_cast<uint32_t>(literalPage[literalOffset + 3]) << 24);
+    uint32_t *literalCode = cache.reserveWords(32);
+    if (!literalCode)
+        return false;
+    size_t literalWords = emitArmLiteralLoadInstruction(0xE59F1000u,
+        literalPc, literalCode);
+    if (!literalWords)
+        return false;
+    literalCode[literalWords++] = R5900::jr(R5900::R_RA);
+    literalCode[literalWords++] = R5900::nop();
+    cache.commitWords(literalWords);
+    cache.syncExecutable(literalCode, literalCode + literalWords);
+    ArmAluState literalState = {};
+    literalState.r[1] = 0xFFFFFFFFu;
+    literalState.memory = memory;
+    typedef void (*ArmLiteralFunction)(ArmAluState *);
+    ArmLiteralFunction literalFunction =
+        reinterpret_cast<ArmLiteralFunction>(literalCode);
+    literalFunction(&literalState);
+    if (literalState.memoryFault || literalState.r[1] != literalExpected)
+        return false;
 
     // Gate the hot single-register LDMIA/STMIA form on a direct ARM9 page.
     uint32_t *blockLoadCode = cache.reserveWords(32);
@@ -1616,6 +1819,20 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
             continue;
         }
 
+        Ps2ArmAlu::DecodedByteTransfer byteTransfer;
+        if (Ps2ArmAlu::decodeByteTransfer(opcode, &byteTransfer))
+        {
+            opcodes[count++] = opcode;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedLiteralLoad literalLoad;
+        if (Ps2ArmAlu::decodeLiteralLoad(opcode, &literalLoad))
+        {
+            opcodes[count++] = opcode;
+            continue;
+        }
+
         Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
         if (Ps2ArmAlu::decodeSingleTransfer(opcode, &singleTransfer))
         {
@@ -1674,36 +1891,56 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
             }
             else
             {
-                Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
-                if (Ps2ArmAlu::decodeSingleTransfer(opcodes[i], &singleTransfer))
+                Ps2ArmAlu::DecodedByteTransfer byteTransfer;
+                if (Ps2ArmAlu::decodeByteTransfer(opcodes[i], &byteTransfer))
                 {
-                    if (!applyArmSingleTransfer(&expected, opcodes[i]))
+                    if (!applyArmByteTransfer(&expected, opcodes[i]))
                         return 0;
                 }
                 else
                 {
-                    Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
-                    if (Ps2ArmAlu::decodeSingleBlockTransfer(opcodes[i],
-                        &blockTransfer))
+                    Ps2ArmAlu::DecodedLiteralLoad literalLoad;
+                    if (Ps2ArmAlu::decodeLiteralLoad(opcodes[i], &literalLoad))
                     {
-                        if (!applyArmSingleBlockTransfer(&expected, opcodes[i]))
+                        if (!Ps2ArmAlu::executeLiteralLoad(opcodes[i],
+                            guestPc + static_cast<uint32_t>(i * 4), expected.r,
+                            &expected.cpsr, &expected, readDirectArm9Word))
                             return 0;
                     }
                     else
                     {
-                        Ps2ArmAlu::DecodedBranchExchange branchExchange;
-                        if (Ps2ArmAlu::decodeBranchExchange(opcodes[i],
-                            &branchExchange))
+                        Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
+                        if (Ps2ArmAlu::decodeSingleTransfer(opcodes[i], &singleTransfer))
                         {
-                        if (!Ps2ArmAlu::executeBranchExchange(opcodes[i],
-                            expected.r, &expected.cpsr, &expected.nextPc))
-                            return -1;
-                    }
-                        else if (!Ps2ArmAlu::executeBranch(opcodes[i],
-                            guestPc + static_cast<uint32_t>(i * 4), expected.cpsr,
-                            &expected.nextPc))
+                            if (!applyArmSingleTransfer(&expected, opcodes[i]))
+                                return 0;
+                        }
+                        else
                         {
-                            return -1;
+                            Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
+                            if (Ps2ArmAlu::decodeSingleBlockTransfer(opcodes[i],
+                                &blockTransfer))
+                            {
+                                if (!applyArmSingleBlockTransfer(&expected, opcodes[i]))
+                                    return 0;
+                            }
+                            else
+                            {
+                                Ps2ArmAlu::DecodedBranchExchange branchExchange;
+                                if (Ps2ArmAlu::decodeBranchExchange(opcodes[i],
+                                    &branchExchange))
+                                {
+                                    if (!Ps2ArmAlu::executeBranchExchange(opcodes[i],
+                                        expected.r, &expected.cpsr, &expected.nextPc))
+                                        return -1;
+                                }
+                                else if (!Ps2ArmAlu::executeBranch(opcodes[i],
+                                    guestPc + static_cast<uint32_t>(i * 4), expected.cpsr,
+                                    &expected.nextPc))
+                                {
+                                    return -1;
+                                }
+                            }
                         }
                     }
                 }
