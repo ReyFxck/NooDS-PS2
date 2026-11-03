@@ -153,6 +153,81 @@ bool pathReadable(const char *path)
     return true;
 }
 
+std::string hostSafDirectoryPrefix;
+
+bool isHexDigitSafe(char value)
+{
+    return (value >= '0' && value <= '9') ||
+        (value >= 'a' && value <= 'f') ||
+        (value >= 'A' && value <= 'F');
+}
+
+std::string encodeSafLeaf(const char *leaf)
+{
+    static const char hex[] = "0123456789ABCDEF";
+    std::string encoded;
+    if (!leaf)
+        return encoded;
+
+    for (const unsigned char *p =
+            reinterpret_cast<const unsigned char*>(leaf); *p; p++)
+    {
+        unsigned char ch = *p;
+        if ((ch >= 'a' && ch <= 'z') ||
+            (ch >= 'A' && ch <= 'Z') ||
+            (ch >= '0' && ch <= '9') ||
+            ch == '.' || ch == '-' || ch == '_' || ch == '~')
+        {
+            encoded += static_cast<char>(ch);
+        }
+        else
+        {
+            encoded += '%';
+            encoded += hex[(ch >> 4) & 0x0F];
+            encoded += hex[ch & 0x0F];
+        }
+    }
+    return encoded;
+}
+
+void configureHostSafDirectory(const char *argv0)
+{
+    hostSafDirectoryPrefix.clear();
+    if (!argv0)
+        return;
+
+    std::string path(argv0);
+    if (path.compare(0, 15, "host:content://") != 0)
+        return;
+
+    // Android document URIs encode the slash between the tree document ID and
+    // the filename as %2F. NetherSX2 accepts the full URI used to launch the
+    // ELF, but its host:/file shortcut appends a literal slash and then rejects
+    // that sibling as outside the SAF tree. Retain the launch URI up to the
+    // final encoded slash and build sibling document URIs from it.
+    size_t separator = std::string::npos;
+    for (size_t i = 0; i + 2 < path.size(); i++)
+    {
+        if (path[i] == '%' && path[i + 1] == '2' &&
+            (path[i + 2] == 'F' || path[i + 2] == 'f'))
+            separator = i;
+    }
+
+    if (separator == std::string::npos)
+        return;
+
+    hostSafDirectoryPrefix = path.substr(0, separator + 3);
+    PS2_LOG("[PS2][HOSTFS] SAF sibling prefix: %s<file>\n",
+        hostSafDirectoryPrefix.c_str());
+}
+
+std::string makeHostFilePath(const char *leaf)
+{
+    if (!hostSafDirectoryPrefix.empty())
+        return hostSafDirectoryPrefix + encodeSafLeaf(leaf);
+    return std::string("host:") + (leaf ? leaf : "");
+}
+
 bool equalsIgnoreCase(const char *left, const char *right)
 {
     if (!left || !right)
@@ -202,13 +277,13 @@ std::string normalizeRomArgument(const char *argument)
 
     std::string path(argument);
     if (path.find(':') == std::string::npos)
-        path = std::string("host:") + path;
+        return makeHostFilePath(argument);
     return path;
 }
 
 std::string findHostFile(const char *preferredLeaf, bool allowAnyNds)
 {
-    std::string exact = std::string("host:") + preferredLeaf;
+    std::string exact = makeHostFilePath(preferredLeaf);
     if (pathReadable(exact.c_str()))
     {
         PS2_LOG("[PS2][HOSTFS][OK] Found exact file: %s\n", exact.c_str());
@@ -237,7 +312,7 @@ std::string findHostFile(const char *preferredLeaf, bool allowAnyNds)
         if (!preferred && !(allowAnyNds && hasNdsExtension(leaf)))
             continue;
 
-        std::string candidate = std::string("host:") + leaf;
+        std::string candidate = makeHostFilePath(leaf);
         PS2_LOG("[PS2][HOSTFS] Candidate raw='%s' leaf='%s' -> %s\n",
             entry->d_name, leaf, candidate.c_str());
 
@@ -996,7 +1071,10 @@ int main(int argc, char **argv)
     PS2_LOG("============================================================\n");
 
     if (argc > 0 && argv[0] && argv[0][0])
+    {
         PS2_LOG("[PS2][HOSTFS] ELF argv[0]: %s\n", argv[0]);
+        configureHostSafDirectory(argv[0]);
+    }
 
     std::string requestedRom;
     if (argc > 1 && argv[1] && argv[1][0])
