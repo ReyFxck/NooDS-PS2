@@ -336,5 +336,24 @@ int main()
     Ps2ArmAlu::format(0xE11190B8u, 0x020672F0u, text, sizeof(text));
     assert(std::strstr(text, "LDRH.AL") && std::strstr(text, "[r1,-r8]"));
 
+    // Hot ARM9 copy loop: LDMIA r0!,{r2} / STMIA r1!,{r2}. The profiler
+    // must report block-transfer semantics and include base writeback in the
+    // dependency masks instead of formatting these as bogus r255 LDR/STR.
+    Ps2ArmAlu::inspect(0xB8B00004u, 0x0210F490u, &info);
+    assert(info.kind == Ps2ArmAlu::KIND_MULTI_MEMORY);
+    assert(info.rn == 0 && info.readMask == (1u << 0));
+    assert(info.writeMask == ((1u << 0) | (1u << 2)));
+    Ps2ArmAlu::format(0xB8B00004u, 0x0210F490u, text, sizeof(text));
+    assert(std::strstr(text, "LDMIA.LT") && std::strstr(text, "r0!") &&
+        std::strstr(text, "{r2}"));
+
+    Ps2ArmAlu::inspect(0xB8A10004u, 0x0210F494u, &info);
+    assert(info.kind == Ps2ArmAlu::KIND_MULTI_MEMORY);
+    assert(info.readMask == ((1u << 1) | (1u << 2)));
+    assert(info.writeMask == (1u << 1));
+    Ps2ArmAlu::format(0xB8A10004u, 0x0210F494u, text, sizeof(text));
+    assert(std::strstr(text, "STMIA.LT") && std::strstr(text, "r1!") &&
+        std::strstr(text, "{r2}"));
+
     return 0;
 }
