@@ -51,6 +51,7 @@ bool DynarecR5900::init(size_t cacheBytes)
 void DynarecR5900::shutdown()
 {
     blocks.clear();
+    activeRejectedPcs.clear();
     cache.shutdown();
     mappedGeneration = 0;
     probeCode = nullptr;
@@ -59,6 +60,7 @@ void DynarecR5900::shutdown()
 void DynarecR5900::reset()
 {
     blocks.clear();
+    activeRejectedPcs.clear();
     cache.reset();
     mappedGeneration = memory ? memory->getMapGeneration() : 0;
     probeCode = nullptr;
@@ -80,6 +82,18 @@ bool DynarecR5900::synchronizeMemoryMap()
 }
 
 const R5900CompiledBlock *DynarecR5900::findBlock(uint32_t pc, bool thumb) const
+{
+    for (size_t i = 0; i < blocks.size(); i++)
+    {
+        if (blocks[i].guestPc == pc && blocks[i].thumb == thumb &&
+            blocks[i].mapGeneration == mappedGeneration)
+            return &blocks[i];
+    }
+
+    return nullptr;
+}
+
+R5900CompiledBlock *DynarecR5900::findMutableBlock(uint32_t pc, bool thumb)
 {
     for (size_t i = 0; i < blocks.size(); i++)
     {
@@ -1847,7 +1861,8 @@ int DynarecR5900::runArm9PipelineSelfTest(const Interpreter &cpu,
 
 
 int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
-    uint32_t *guestPcOut, uint32_t *instructionCount, uint32_t *stateHash)
+    uint32_t *guestPcOut, uint32_t *instructionCount, uint32_t *stateHash,
+    size_t maxInstructions)
 {
     if (!CpuBackendAccess::isArm9(cpu) || CpuBackendAccess::isThumb(cpu))
         return 0;
@@ -1855,6 +1870,10 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
     synchronizeMemoryMap();
 
     constexpr size_t MAX_BLOCK_INSTRUCTIONS = 16;
+    if (!maxInstructions)
+        return 0;
+    maxInstructions = std::min(maxInstructions, MAX_BLOCK_INSTRUCTIONS);
+
     uint32_t opcodes[MAX_BLOCK_INSTRUCTIONS] = {};
     size_t count = 0;
 
@@ -1864,7 +1883,7 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
     // authoritative for the following instruction; later words can be fetched
     // directly because this gate accepts only straight-line ALU instructions,
     // side-effect-free halfword loads and an optional terminal branch.
-    for (size_t i = 0; i < MAX_BLOCK_INSTRUCTIONS; i++)
+    for (size_t i = 0; i < maxInstructions; i++)
     {
         uint32_t opcode;
         if (i == 0)
@@ -2087,7 +2106,7 @@ int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
         return 0;
 
     uint32_t guestPc = CpuBackendAccess::nextInstructionAddress(cpu);
-    const R5900CompiledBlock *block = findBlock(guestPc, false);
+    R5900CompiledBlock *block = findMutableBlock(guestPc, false);
     if (!block || !block->hostCode || block->guestInstructions == 0)
         return 0;
     if (block->writesMemory)
@@ -2167,5 +2186,143 @@ int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
     if (stateHash)
         *stateHash = hash;
 
+    block->differentialVerified = match;
     return match ? 1 : -1;
+}
+
+
+int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
+    uint32_t *guestInstructions)
+{
+    if (guestInstructions)
+        *guestInstructions = 0;
+
+    profile.activeAttempts++;
+    if (!cycleBudget || !CpuBackendAccess::isArm9(cpu) ||
+        CpuBackendAccess::isThumb(cpu))
+    {
+        profile.activeStateFallbacks++;
+        return 0;
+    }
+
+    synchronizeMemoryMap();
+
+    uint32_t guestPc = CpuBackendAccess::nextInstructionAddress(cpu);
+    R5900CompiledBlock *block = findMutableBlock(guestPc, false);
+
+    if (!block)
+    {
+        if (std::find(activeRejectedPcs.begin(), activeRejectedPcs.end(),
+            guestPc) != activeRejectedPcs.end())
+        {
+            profile.activeVerifyFallbacks++;
+            return 0;
+        }
+
+        // Bound first-use validation work and generated-code memory. One
+        // instruction costs at least one ARM9 cycle, so a block longer than
+        // cycleBudget could never commit in this scheduler slot.
+        if (blocks.size() >= 256)
+        {
+            profile.activeVerifyFallbacks++;
+            return 0;
+        }
+
+        profile.activeCompileMisses++;
+        size_t maxInstructions = std::min<size_t>(16,
+            static_cast<size_t>(cycleBudget));
+        int shadow = runArm9BlockShadowSelfTest(cpu, nullptr, nullptr, nullptr,
+            maxInstructions);
+        if (shadow <= 0)
+        {
+            activeRejectedPcs.push_back(guestPc);
+            profile.activeVerifyFallbacks++;
+            return 0;
+        }
+
+        block = findMutableBlock(guestPc, false);
+        if (!block)
+        {
+            activeRejectedPcs.push_back(guestPc);
+            profile.activeVerifyFallbacks++;
+            return 0;
+        }
+    }
+
+    // The first active milestone is intentionally transactional/read-only.
+    // Direct stores already pass the shadow gate, but stay on the interpreter
+    // until live write journaling and rollback are proven in scheduler use.
+    if (block->writesMemory)
+    {
+        profile.activeWriteFallbacks++;
+        return 0;
+    }
+
+    // Generated blocks that explicitly read/write architectural R15 are kept
+    // out of live execution. Literal LDR has its own PC+8 helper and therefore
+    // does not set this mask bit.
+    if ((block->readMask | block->writeMask) & 0x8000u)
+    {
+        profile.activeStateFallbacks++;
+        return 0;
+    }
+
+    if (!block->differentialVerified)
+    {
+        int differential = runArm9InterpreterDifferentialSelfTest(cpu);
+        if (differential <= 0)
+        {
+            profile.activeVerifyFallbacks++;
+            return 0;
+        }
+
+        block = findMutableBlock(guestPc, false);
+        if (!block || !block->differentialVerified)
+        {
+            profile.activeVerifyFallbacks++;
+            return 0;
+        }
+    }
+
+    ArmAluState state = {};
+    for (int i = 0; i < 16; i++)
+        state.r[i] = CpuBackendAccess::readReg(cpu, i);
+    state.cpsr = CpuBackendAccess::readCpsr(cpu);
+    state.nextPc = block->guestEndPc;
+    state.memory = memory;
+
+    typedef void (*ArmAluBlockFunction)(ArmAluState *);
+    ArmAluBlockFunction function =
+        reinterpret_cast<ArmAluBlockFunction>(block->hostCode);
+    function(&state);
+
+    // No guest state has been committed yet, so every failure below is a
+    // lossless interpreter fallback.
+    if (state.memoryFault || state.writeCount ||
+        ((state.cpsr ^ CpuBackendAccess::readCpsr(cpu)) & 0x1Fu))
+    {
+        profile.activeStateFallbacks++;
+        return 0;
+    }
+
+    if (!state.cycles || state.cycles > cycleBudget)
+    {
+        profile.activeBudgetFallbacks++;
+        return 0;
+    }
+
+    if (!CpuBackendAccess::commitBlockState(cpu, state.r, state.cpsr,
+        state.nextPc))
+    {
+        profile.activeStateFallbacks++;
+        return 0;
+    }
+
+    profile.activeExecutions++;
+    profile.activeGuestInstructions += block->guestInstructions;
+    profile.activeCycles += state.cycles;
+    if (guestInstructions)
+        *guestInstructions = block->guestInstructions;
+
+    return static_cast<int>(state.cycles);
 }

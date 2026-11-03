@@ -226,14 +226,53 @@ void Core::runNdsFrame()
         // Run the CPUs until the next scheduled task
         while (tasks.front().cycles > globalCycles)
         {
-            // Run the ARM9
+            // Run the ARM9. A block backend may execute only while the whole
+            // block fits before the next scheduler task and before the ARM7's
+            // next execution slot. Otherwise preserve the original one-opcode
+            // interpreter ordering exactly.
             if (interpreter[0].shouldRun() && globalCycles >= arm9Cycles)
             {
+                int arm9StepCycles = 0;
+                uint32_t arm9StepInstructions = 0;
+
+                if (arm9BlockRunner)
+                {
+                    uint32_t cycleBudget = tasks.front().cycles - globalCycles;
+                    if (interpreter[1].shouldRun())
+                    {
+                        if (arm7Cycles <= globalCycles)
+                            cycleBudget = 0;
+                        else
+                            cycleBudget = std::min(cycleBudget,
+                                arm7Cycles - globalCycles);
+                    }
+
+                    if (cycleBudget)
+                    {
+                        arm9StepCycles = arm9BlockRunner(interpreter[0],
+                            cycleBudget, &arm9StepInstructions);
+                    }
+                }
+
+                if (arm9StepCycles > 0)
+                {
+                    if (!arm9StepInstructions)
+                        arm9StepInstructions = 1;
 #ifdef NOODS_PROFILE
-                if (profileEnabled)
-                    runProfile.arm9Opcodes++;
+                    if (profileEnabled)
+                        runProfile.arm9Opcodes += arm9StepInstructions;
 #endif
-                arm9Cycles = globalCycles + interpreter[0].runOpcode();
+                    arm9Cycles = globalCycles +
+                        static_cast<uint32_t>(arm9StepCycles);
+                }
+                else
+                {
+#ifdef NOODS_PROFILE
+                    if (profileEnabled)
+                        runProfile.arm9Opcodes++;
+#endif
+                    arm9Cycles = globalCycles + interpreter[0].runOpcode();
+                }
             }
 
             // Run the ARM7 at half the speed of the ARM9

@@ -898,6 +898,16 @@ void logDynarecHotBlocks(DynarecR5900 &dynarec,
         static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_PC]),
         static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_SYSTEM]),
         static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_OTHER]));
+    PS2_LOG("[PS2][JIT] active attempts=%llu exec=%llu guest=%llu cycles=%llu compileMiss=%llu budgetFallback=%llu writeFallback=%llu verifyFallback=%llu stateFallback=%llu\n",
+        static_cast<unsigned long long>(profile.activeAttempts),
+        static_cast<unsigned long long>(profile.activeExecutions),
+        static_cast<unsigned long long>(profile.activeGuestInstructions),
+        static_cast<unsigned long long>(profile.activeCycles),
+        static_cast<unsigned long long>(profile.activeCompileMisses),
+        static_cast<unsigned long long>(profile.activeBudgetFallbacks),
+        static_cast<unsigned long long>(profile.activeWriteFallbacks),
+        static_cast<unsigned long long>(profile.activeVerifyFallbacks),
+        static_cast<unsigned long long>(profile.activeStateFallbacks));
 
     uint8_t fallbackOrder[16] = {};
     for (uint8_t i = 0; i < 16; i++)
@@ -1116,7 +1126,7 @@ int main(int argc, char **argv)
 #else
     PS2_LOG(" Instrumentation: disabled\n");
 #endif
-    PS2_LOG(" Dynarec: ARM-ALU-v7 shadow-only\n");
+    PS2_LOG(" Dynarec: ARM-ALU-v8 guarded-active\n");
     PS2_LOG("============================================================\n");
 
     if (argc > 0 && argv[0] && argv[0][0])
@@ -1341,6 +1351,29 @@ int main(int argc, char **argv)
         else
             PS2_LOG("[PS2][WARN] R5900 dynarec infrastructure unavailable; interpreter remains active.\n");
 
+        bool arm9ActiveExecutorEnabled = false;
+        auto enableArm9ActiveExecutor = [&]()
+        {
+            if (arm9ActiveExecutorEnabled || !arm9DeferredGateEligible ||
+                !arm9RealBlockGatePassed || !arm9DifferentialGatePassed ||
+                arm9GateHardFailure)
+                return;
+
+            core->setArm9BlockRunner(
+                [&dynarec](Interpreter &cpu, uint32_t cycleBudget,
+                    uint32_t *guestInstructions) -> int
+                {
+                    return dynarec.runArm9ActiveBlock(cpu, cycleBudget,
+                        guestInstructions);
+                });
+            arm9ActiveExecutorEnabled = true;
+            PS2_LOG("[PS2][OK] ARM9 guarded active dynarec enabled: per-block shadow+differential, read-only commit, scheduler-budgeted.\n");
+        };
+
+        // If boot happened to land on a fully differential-safe block, the
+        // initial gates may already be sufficient to enable live execution.
+        enableArm9ActiveExecutor();
+
         auto runDeferredArm9Gate = [&]()
         {
             if (!arm9DeferredGateEligible ||
@@ -1396,6 +1429,7 @@ int main(int argc, char **argv)
                     static_cast<unsigned long>(diffPc),
                     static_cast<unsigned long>(diffInstructions),
                     static_cast<unsigned long>(diffHash));
+                enableArm9ActiveExecutor();
             }
             else if (diffGate == 0)
             {
@@ -1894,12 +1928,12 @@ int main(int argc, char **argv)
                     static_cast<double>(runProfile.taskClassCount[TASK_PROFILE_SPU]) /
                     1000.0 / profFrameDiv;
 
-                PS2_LOG("[PS2][SUMMARY] fps=%.2f coreMs=%.2f coreExIoMs=%.2f romIoMs=%.2f arm9Instr=%llu arm7Instr=%llu gpu2dAMs=%.2f gpu2dBMs=%.2f gpu3dMs=%.2f spuMs=%.2f schedulerMs=%.3f getFrameMs=%.2f gsUploadMs=%.2f presentMs=%.2f hotPc=%08lX hotOpcode=%08lX dynarecCoveragePct=%.2f\n",
+                PS2_LOG("[PS2][SUMMARY] fps=%.2f coreMs=%.2f coreExIoMs=%.2f romIoMs=%.2f arm9Instr=%llu arm7Instr=%llu gpu2dAMs=%.2f gpu2dBMs=%.2f gpu3dMs=%.2f spuMs=%.2f schedulerMs=%.3f getFrameMs=%.2f gsUploadMs=%.2f presentMs=%.2f hotPc=%08lX hotOpcode=%08lX dynarecCoveragePct=%.2f dynarecActiveGuest=%llu\n",
                     profWindowFps,
                     profCoreMs / profFrameDiv,
                     coreExIoMs / profFrameDiv,
                     romIoMs / profFrameDiv,
-                    static_cast<unsigned long long>(arm9Profile.instructions),
+                    static_cast<unsigned long long>(runProfile.arm9Opcodes),
                     static_cast<unsigned long long>(arm7Profile.instructions),
                     gpu2dAMs,
                     gpu2dBMs,
@@ -1911,7 +1945,9 @@ int main(int argc, char **argv)
                     profPresentMs / profFrameDiv,
                     static_cast<unsigned long>(summaryHot[0].pc),
                     static_cast<unsigned long>(summaryHot[0].opcode),
-                    jitCoverage);
+                    jitCoverage,
+                    static_cast<unsigned long long>(
+                        jitProfile.activeGuestInstructions));
 
                 // Retry the correctness gate only after a complete profile window.
                 // Its temporary interpreter execution is then discarded by the

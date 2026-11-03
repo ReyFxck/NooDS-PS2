@@ -64,6 +64,26 @@ class CpuBackendAccess
             cpu.pipeline[1] = pipeline1;
         }
 
+        // Commit a generated block without replaying Interpreter::runOpcode().
+        // The current R5900 backend may update NZCV/T, but it must not change
+        // the privileged CPU mode or banked-register selection.
+        static bool commitBlockState(Interpreter &cpu, const uint32_t regs[16],
+            uint32_t cpsr, uint32_t nextPc)
+        {
+            if (!regs || ((cpsr ^ cpu.cpsr) & 0x1Fu))
+                return false;
+
+            for (int i = 0; i < 15; i++)
+                *cpu.registers[i] = regs[i];
+
+            // Avoid setCpsr() here: committing ordinary ALU flags must not
+            // enqueue a duplicate interrupt check at every generated block.
+            cpu.cpsr = cpsr;
+            *cpu.registers[15] = nextPc;
+            cpu.flushPipeline();
+            return true;
+        }
+
         static void writeCpsr(Interpreter &cpu, uint32_t value, bool save = false)
         {
             cpu.setCpsr(value, save);

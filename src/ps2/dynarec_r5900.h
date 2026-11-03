@@ -50,6 +50,20 @@ struct R5900DynarecProfile
     uint64_t supportedInstructions = 0;
     uint64_t fallbackCount = 0;
     uint64_t mapInvalidations = 0;
+
+    // Guarded live-execution counters. These are separate from shadow compile
+    // coverage so PROFILE builds can show whether the JIT actually replaced
+    // interpreter work in the scheduler.
+    uint64_t activeAttempts = 0;
+    uint64_t activeExecutions = 0;
+    uint64_t activeGuestInstructions = 0;
+    uint64_t activeCycles = 0;
+    uint64_t activeCompileMisses = 0;
+    uint64_t activeBudgetFallbacks = 0;
+    uint64_t activeWriteFallbacks = 0;
+    uint64_t activeVerifyFallbacks = 0;
+    uint64_t activeStateFallbacks = 0;
+
     uint64_t rejectReason[Ps2ArmAlu::REJECT_REASON_COUNT] = {};
     uint32_t largestBlock = 0;
     R5900FallbackProfile topFallback[16] = {};
@@ -71,6 +85,7 @@ struct R5900CompiledBlock
     bool writesFlags = false;
     bool writesMemory = false;
     bool thumb = false;
+    bool differentialVerified = false;
 
     uint32_t *hostCode = nullptr;
     uint32_t hostWords = 0;
@@ -116,7 +131,7 @@ class DynarecR5900
         // software shadow result. The live emulated CPU remains untouched.
         int runArm9BlockShadowSelfTest(const Interpreter &cpu,
             uint32_t *guestPc = nullptr, uint32_t *instructionCount = nullptr,
-            uint32_t *stateHash = nullptr);
+            uint32_t *stateHash = nullptr, size_t maxInstructions = 16);
 
         // Differential gate against NooDS' own interpreter. ALU/read-only
         // blocks with an optional terminating B are eligible; store blocks are
@@ -125,6 +140,13 @@ class DynarecR5900
         int runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
             uint32_t *guestPc = nullptr, uint32_t *instructionCount = nullptr,
             uint32_t *stateHash = nullptr);
+
+        // Execute one already-safe ARM9 block against live state. On a cache
+        // miss the candidate is shadow-validated and differentially checked
+        // once before it can commit. Store blocks and blocks that do not fit
+        // entirely inside cycleBudget fall back to the interpreter.
+        int runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
+            uint32_t *guestInstructions = nullptr);
 
         // PROFILE/shadow analysis only. Reads opcodes exclusively through the
         // ARM9 direct map and never executes or mutates guest state.
@@ -143,10 +165,12 @@ class DynarecR5900
         Memory *memory;
         R5900CodeCache cache;
         std::vector<R5900CompiledBlock> blocks;
+        std::vector<uint32_t> activeRejectedPcs;
         uint32_t mappedGeneration = 0;
         uint32_t *probeCode = nullptr;
         R5900DynarecProfile profile;
 
+        R5900CompiledBlock *findMutableBlock(uint32_t pc, bool thumb);
         bool emitArmAluBlock(uint32_t opcode, uint32_t **entry, uint8_t *rd);
         bool emitArmAluSequence(const uint32_t *opcodes, size_t count,
             uint32_t guestPc, uint32_t **entry, uint32_t *hostWords);

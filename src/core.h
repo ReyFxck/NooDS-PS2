@@ -113,6 +113,16 @@ class Core
 
         uint32_t getGlobalCycles() { return globalCycles; }
 
+        // Optional architecture-neutral ARM9 block runner. A platform backend
+        // returns zero to fall back to the interpreter, or the exact emulated
+        // cycles consumed by a committed block.
+        using Arm9BlockRunner =
+            std::function<int(Interpreter&, uint32_t, uint32_t*)>;
+        void setArm9BlockRunner(const Arm9BlockRunner &runner)
+        {
+            arm9BlockRunner = runner;
+        }
+
 #ifdef NOODS_PROFILE
         uint32_t getCyclesUntilNextEvent() const
         {
@@ -180,6 +190,7 @@ class Core
         SchedulerQueue<Task> tasks;
         bool profileEnabled = false;
         CoreRunProfile runProfile;
+        Arm9BlockRunner arm9BlockRunner;
 
         uint32_t frameCycles = 0, globalCycles = 0;
         uint32_t arm9Cycles = 0, arm7Cycles = 0;
