@@ -569,7 +569,7 @@ void CartridgeNds::loadRom(std::string path)
 void CartridgeNds::directBoot()
 {
     // Load the ROM header from file if needed
-    if (romFile)
+    if (isRomFileBacked())
         loadRomSection(0, 0x170, true, ROM_IO_HEADER);
 
     // Extract some information about the initial ARM9 code from the header
@@ -599,7 +599,7 @@ void CartridgeNds::directBoot()
     uint32_t offset;
 
     // Load the initial ARM9 code from file if needed
-    if (romFile)
+    if (isRomFileBacked())
     {
         loadRomSection(offset9, size9, false, ROM_IO_DIRECT_ARM9);
         offset = 0;
@@ -634,7 +634,7 @@ void CartridgeNds::directBoot()
     }
 
     // Load the initial ARM7 code from file if needed
-    if (romFile)
+    if (isRomFileBacked())
     {
         loadRomSection(offset7, size7, false, ROM_IO_DIRECT_ARM7);
         offset = 0;
@@ -1125,7 +1125,7 @@ void CartridgeNds::writeRomCtrl(bool cpu, uint32_t mask, uint32_t value)
             cmdMode = CMD_HEADER;
 
             // Load the header from file if needed
-            if (romFile)
+            if (isRomFileBacked())
                 loadRomSection(0, blockSize[cpu]);
         }
         else if (command == 0x9000000000000000 || (command >> 60) == 0x1 || command == 0xB800000000000000) // Get chip ID
@@ -1143,7 +1143,7 @@ void CartridgeNds::writeRomCtrl(bool cpu, uint32_t mask, uint32_t value)
             romAddrReal[cpu] = ((command & 0x0FFFF00000000000) >> 44) * 0x1000;
 
             // Load the secure area block from file if needed
-            if (romFile)
+            if (isRomFileBacked())
             {
                 loadRomSection(romAddrReal[cpu], blockSize[cpu]);
                 romAddrVirt[cpu] = 0;
@@ -1165,7 +1165,7 @@ void CartridgeNds::writeRomCtrl(bool cpu, uint32_t mask, uint32_t value)
             romAddrReal[cpu] = (command & 0x00FFFFFFFF000000) >> 24;
 
             // Load the ROM data from file if needed
-            if (romFile)
+            if (isRomFileBacked())
             {
                 if (romAddrReal[cpu] < 0x8000)
                 {

@@ -124,6 +124,15 @@ class Cartridge
         int romCapacity = 0;
         bool saveDirty = false;
 
+        bool isRomFileBacked() const
+        {
+#ifdef NOODS_PS2
+            return romFile != nullptr || romFileFd >= 0;
+#else
+            return romFile != nullptr;
+#endif
+        }
+
         struct RomCacheEntry
         {
             uint32_t tag = 0;
