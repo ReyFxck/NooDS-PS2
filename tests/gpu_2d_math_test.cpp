@@ -57,6 +57,39 @@ bool testFill32()
     return true;
 }
 
+bool testRgb5ToRgb6()
+{
+    for (uint32_t color = 0; color < 0x8000u; color++)
+    {
+        for (uint32_t metadata : { 0u, 1u << 18, 1u << 24, 1u << 25,
+                                   1u << 26, 0xFFFC0000u })
+        {
+            uint32_t source = color | metadata;
+            uint32_t r = ((source >> 0) & 0x1Fu) * 2u;
+            uint32_t g = ((source >> 5) & 0x1Fu) * 2u;
+            uint32_t b = ((source >> 10) & 0x1Fu) * 2u;
+            uint32_t expected = (source & 0xFFFC0000u) |
+                (b << 12) | (g << 6) | r;
+            if (gpu2dRgb5ToRgb6(source) != expected)
+                return false;
+        }
+    }
+
+    for (int i = 0; i < 200000; i++)
+    {
+        uint32_t lo = nextRandom();
+        uint32_t hi = nextRandom();
+        uint64_t pair = static_cast<uint64_t>(lo) |
+            (static_cast<uint64_t>(hi) << 32);
+        uint64_t expected = static_cast<uint64_t>(gpu2dRgb5ToRgb6(lo)) |
+            (static_cast<uint64_t>(gpu2dRgb5ToRgb6(hi)) << 32);
+        if (gpu2dRgb5PairToRgb6(pair) != expected)
+            return false;
+    }
+
+    return true;
+}
+
 bool testAffineStepper()
 {
     // DS affine reference points are signed 28-bit values. That range plus a
@@ -237,6 +270,11 @@ int main()
     if (!testFill32())
     {
         std::fprintf(stderr, "fill32 mismatch\n");
+        return 1;
+    }
+    if (!testRgb5ToRgb6())
+    {
+        std::fprintf(stderr, "rgb5ToRgb6 mismatch\n");
         return 1;
     }
     if (!testAffineStepper())

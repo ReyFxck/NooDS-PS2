@@ -64,6 +64,26 @@ inline void gpu2dFill32(uint32_t *destination, int count, uint32_t value)
         *destination++ = value;
 }
 
+inline uint32_t gpu2dRgb5ToRgb6(uint32_t color)
+{
+    // Preserve renderer metadata in bits 18..31 while expanding each RGB5
+    // channel into the even RGB6 values used by the original 2D engine.
+    return (color & 0xFFFC0000u) |
+        ((color & 0x001Fu) << 1) |
+        ((color & 0x03E0u) << 2) |
+        ((color & 0x7C00u) << 3);
+}
+
+inline uint64_t gpu2dRgb5PairToRgb6(uint64_t colors)
+{
+    // Same transform for two independent 32-bit lanes. Masks prevent shifts
+    // from carrying bits across the lane boundary.
+    return (colors & 0xFFFC0000FFFC0000ull) |
+        ((colors & 0x0000001F0000001Full) << 1) |
+        ((colors & 0x000003E0000003E0ull) << 2) |
+        ((colors & 0x00007C0000007C00ull) << 3);
+}
+
 // Extended tiled backgrounds are always 128, 256, 512, or 1024 pixels wide.
 // Unsigned masking is therefore the exact signed modulo used by wraparound,
 // including for negative affine coordinates, without a division per axis.
