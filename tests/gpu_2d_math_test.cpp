@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <initializer_list>
 #include <cstdio>
 
 #include "../src/gpu_2d_math.h"
