@@ -352,37 +352,52 @@ void Gpu2D::drawScanline(int line)
             break;
     }
 
+    const uint32_t displayMode = (dispCnt >> 16) & 0x3;
+    bool directLayerOutput = false;
+
     {
 #ifdef NOODS_PROFILE
         ProfileScope profile(this, GPU2D_PROFILE_COMPOSE);
 #endif
-        // Blend the layers to form the final image.
+        // With blending disabled and normal layer output selected, conversion
+        // can go straight to the framebuffer. This avoids writing converted
+        // pixels back to layers[0] only to memcpy them immediately afterwards.
         if (bldCnt == 0)
         {
-            const uint64_t threeDMask =
-                static_cast<uint64_t>(BIT(26)) |
-                (static_cast<uint64_t>(BIT(26)) << 32);
-
-            for (int i = 0; i < 256; i += 2)
+            if (displayMode == 1)
             {
-                uint64_t pair;
-                std::memcpy(&pair, &layers[0][i], sizeof(pair));
+                directLayerOutput = true;
+                const uint64_t threeDMask =
+                    static_cast<uint64_t>(BIT(26)) |
+                    (static_cast<uint64_t>(BIT(26)) << 32);
+                uint32_t *output = &framebuffer[line * 256];
 
-                if ((pair & threeDMask) == 0)
+                for (int i = 0; i < 256; i += 2)
                 {
-                    pair = gpu2dRgb5PairToRgb6(pair);
-                    std::memcpy(&layers[0][i], &pair, sizeof(pair));
-                }
-                else
-                {
-                    if (!(layers[0][i] & BIT(26)))
-                        layers[0][i] = gpu2dRgb5ToRgb6(layers[0][i]);
-                    if (!(layers[0][i + 1] & BIT(26)))
-                        layers[0][i + 1] = gpu2dRgb5ToRgb6(layers[0][i + 1]);
+                    uint64_t pair;
+                    std::memcpy(&pair, &layers[0][i], sizeof(pair));
+
+                    if ((pair & threeDMask) == 0)
+                    {
+                        pair = gpu2dRgb5PairToRgb6(pair);
+                    }
+                    else
+                    {
+                        uint32_t low = static_cast<uint32_t>(pair);
+                        uint32_t high = static_cast<uint32_t>(pair >> 32);
+                        if (!(low & BIT(26)))
+                            low = gpu2dRgb5ToRgb6(low);
+                        if (!(high & BIT(26)))
+                            high = gpu2dRgb5ToRgb6(high);
+                        pair = static_cast<uint64_t>(low) |
+                            (static_cast<uint64_t>(high) << 32);
+                    }
+
+                    std::memcpy(&output[i], &pair, sizeof(pair));
                 }
             }
         }
-        else
+        else if (displayMode == 1)
         {
             const uint8_t mode = (bldCnt >> 6) & 0x3;
             const uint8_t eva = std::min((bldAlpha >> 0) & 0x1F, 16);
@@ -487,7 +502,7 @@ void Gpu2D::drawScanline(int line)
         ProfileScope profile(this, GPU2D_PROFILE_OUTPUT);
 #endif
         // Copy the final image to the framebuffer
-        switch ((dispCnt >> 16) & 0x3) // Display mode
+        switch (displayMode) // Display mode
         {
             case 0: // Display off
             {
@@ -498,7 +513,9 @@ void Gpu2D::drawScanline(int line)
 
             case 1: // Layers
             {
-                memcpy(&framebuffer[line * 256], layers[0], 256 * sizeof(uint32_t));
+                if (!directLayerOutput)
+                    memcpy(&framebuffer[line * 256], layers[0],
+                        256 * sizeof(uint32_t));
                 break;
             }
 
