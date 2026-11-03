@@ -129,7 +129,14 @@ class Cartridge
 
         uint8_t *romCache = nullptr;
         RomCacheEntry *romCacheEntries = nullptr;
+#ifdef NOODS_PS2
+        // CD/DVD-backed NDS ROM reads have high per-read latency on PS2.
+        // 64 KiB pages amortize that cost across the long sequential streams
+        // used by games while keeping the total cache budget unchanged.
+        uint32_t romCachePageSize = 0x10000;
+#else
         uint32_t romCachePageSize = 0x4000;
+#endif
         uint32_t romCachePageCount = 0;
         uint32_t romCacheClock = 0;
         uint32_t romCacheHits = 0;
