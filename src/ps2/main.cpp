@@ -1343,7 +1343,8 @@ int main(int argc, char **argv)
 
         auto runDeferredArm9Gate = [&]()
         {
-            if (!arm9DeferredGateEligible || arm9DifferentialGatePassed ||
+            if (!arm9DeferredGateEligible ||
+                (arm9RealBlockGatePassed && arm9DifferentialGatePassed) ||
                 arm9GateHardFailure || arm9DeferredGateAttempts >= 16)
                 return;
 
@@ -1926,6 +1927,11 @@ int main(int argc, char **argv)
                 profPresentTicks = 0;
                 profWindowStart = clock();
                 profFrames = 0;
+#endif
+#ifndef NOODS_PROFILE
+                // RELEASE/DEBUG have no profile-window reset, so retry the
+                // gate at the same 60-frame cadence without enabling execution.
+                runDeferredArm9Gate();
 #endif
 
                 uint32_t topHash = 2166136261u;
