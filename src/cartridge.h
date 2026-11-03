@@ -100,6 +100,7 @@ class Cartridge
         uint32_t getRomCacheHits() const   { return romCacheHits;   }
         uint32_t getRomCacheMisses() const { return romCacheMisses; }
         uint32_t getRomCacheBytes() const  { return romCacheBytes;  }
+        uint32_t getRomCachePageSize() const { return romCachePageSize; }
         uint64_t getRomCacheReadBytes() const { return romCacheReadBytes; }
         uint32_t getRomCacheSeekCount() const { return romCacheSeekCount; }
         uint32_t getRomCacheSequentialMisses() const { return romCacheSequentialMisses; }
