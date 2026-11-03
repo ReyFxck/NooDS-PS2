@@ -1239,6 +1239,11 @@ int main(int argc, char **argv)
         // remains the only CPU execution path until compiled blocks are
         // validated against deterministic CPU tests.
         DynarecR5900 dynarec(&core->memory);
+        bool arm9DeferredGateEligible = false;
+        bool arm9RealBlockGatePassed = false;
+        bool arm9DifferentialGatePassed = false;
+        bool arm9GateHardFailure = false;
+        uint32_t arm9DeferredGateAttempts = 0;
         if (dynarec.init())
         {
             uint32_t probeValue = 0;
@@ -1264,6 +1269,7 @@ int main(int argc, char **argv)
                             core->interpreter[0], &livePc, &liveOpcode);
                         if (pipelineGate > 0)
                         {
+                            arm9DeferredGateEligible = true;
                             PS2_LOG("[PS2][OK] ARM9 next-opcode shadow gate passed: pc=%08lX opcode=%08lX.\n",
                                 static_cast<unsigned long>(livePc),
                                 static_cast<unsigned long>(liveOpcode));
@@ -1275,6 +1281,7 @@ int main(int argc, char **argv)
                                 core->interpreter[0], &blockPc, &blockInstructions, &blockHash);
                             if (blockGate > 0)
                             {
+                                arm9RealBlockGatePassed = true;
                                 const R5900CompiledBlock *compiledBlock =
                                     dynarec.findBlock(blockPc, false);
                                 PS2_LOG("[PS2][OK] ARM9 real-block shadow gate passed: pc=%08lX instructions=%lu blocks=%u cache=%u read=%04X write=%04X hash=%08lX.\n",
@@ -1292,19 +1299,28 @@ int main(int argc, char **argv)
                                 int diffGate = dynarec.runArm9InterpreterDifferentialSelfTest(
                                     core->interpreter[0], &diffPc, &diffInstructions, &diffHash);
                                 if (diffGate > 0)
+                                {
+                                    arm9DifferentialGatePassed = true;
                                     PS2_LOG("[PS2][OK] ARM9 interpreter<->dynarec differential gate passed: pc=%08lX instructions=%lu hash=%08lX.\n",
                                         static_cast<unsigned long>(diffPc),
                                         static_cast<unsigned long>(diffInstructions),
                                         static_cast<unsigned long>(diffHash));
+                                }
                                 else if (diffGate == 0)
-                                    PS2_LOG("[PS2] ARM9 interpreter<->dynarec differential gate skipped: no cached block.\n");
+                                    PS2_LOG("[PS2] ARM9 interpreter<->dynarec differential gate skipped: current cached block is not differential-safe.\n");
                                 else
+                                {
+                                    arm9GateHardFailure = true;
                                     PS2_LOG("[PS2][WARN] ARM9 interpreter<->dynarec differential mismatch; scheduler remains interpreter-only.\n");
+                                }
                             }
                             else if (blockGate == 0)
                                 PS2_LOG("[PS2] ARM9 real-block shadow gate: no straight-line ALU block available at current PC.\n");
                             else
+                            {
+                                arm9GateHardFailure = true;
                                 PS2_LOG("[PS2][WARN] ARM9 real-block shadow gate mismatch; scheduler remains interpreter-only.\n");
+                            }
                         }
                         else if (pipelineGate == 0)
                             PS2_LOG("[PS2] ARM9 next-opcode shadow gate: opcode is outside current ALU subset.\n");
@@ -1324,6 +1340,74 @@ int main(int argc, char **argv)
         }
         else
             PS2_LOG("[PS2][WARN] R5900 dynarec infrastructure unavailable; interpreter remains active.\n");
+
+        auto runDeferredArm9Gate = [&]()
+        {
+            if (!arm9DeferredGateEligible || arm9DifferentialGatePassed ||
+                arm9GateHardFailure || arm9DeferredGateAttempts >= 16)
+                return;
+
+            arm9DeferredGateAttempts++;
+
+            uint32_t blockPc = 0;
+            uint32_t blockInstructions = 0;
+            uint32_t blockHash = 0;
+            int blockGate = dynarec.runArm9BlockShadowSelfTest(
+                core->interpreter[0], &blockPc, &blockInstructions, &blockHash);
+            if (blockGate == 0)
+            {
+                if (arm9DeferredGateAttempts == 1 || arm9DeferredGateAttempts == 4 ||
+                    arm9DeferredGateAttempts == 8 || arm9DeferredGateAttempts == 16)
+                {
+                    PS2_LOG("[PS2] ARM9 deferred gate sample %lu/16: current frame-boundary PC has no differential-safe block yet.\n",
+                        static_cast<unsigned long>(arm9DeferredGateAttempts));
+                }
+                return;
+            }
+            if (blockGate < 0)
+            {
+                arm9GateHardFailure = true;
+                PS2_LOG("[PS2][WARN] ARM9 real-block shadow gate mismatch during deferred sample %lu; scheduler remains interpreter-only.\n",
+                    static_cast<unsigned long>(arm9DeferredGateAttempts));
+                return;
+            }
+
+            arm9RealBlockGatePassed = true;
+            const R5900CompiledBlock *compiledBlock = dynarec.findBlock(blockPc, false);
+            PS2_LOG("[PS2][OK] ARM9 real-block shadow gate passed: pc=%08lX instructions=%lu blocks=%u cache=%u read=%04X write=%04X hash=%08lX source=deferred.\n",
+                static_cast<unsigned long>(blockPc),
+                static_cast<unsigned long>(blockInstructions),
+                static_cast<unsigned int>(dynarec.blockCount()),
+                static_cast<unsigned int>(dynarec.codeCacheUsed()),
+                compiledBlock ? compiledBlock->readMask : 0,
+                compiledBlock ? compiledBlock->writeMask : 0,
+                static_cast<unsigned long>(blockHash));
+
+            uint32_t diffPc = 0;
+            uint32_t diffInstructions = 0;
+            uint32_t diffHash = 0;
+            int diffGate = dynarec.runArm9InterpreterDifferentialSelfTest(
+                core->interpreter[0], &diffPc, &diffInstructions, &diffHash);
+            if (diffGate > 0)
+            {
+                arm9DifferentialGatePassed = true;
+                PS2_LOG("[PS2][OK] ARM9 interpreter<->dynarec differential gate passed: pc=%08lX instructions=%lu hash=%08lX source=deferred.\n",
+                    static_cast<unsigned long>(diffPc),
+                    static_cast<unsigned long>(diffInstructions),
+                    static_cast<unsigned long>(diffHash));
+            }
+            else if (diffGate == 0)
+            {
+                PS2_LOG("[PS2] ARM9 interpreter<->dynarec differential gate skipped: deferred block has memory-write/direct-access constraints; retrying a later frame boundary.\n");
+            }
+            else
+            {
+                arm9GateHardFailure = true;
+                PS2_LOG("[PS2][WARN] ARM9 interpreter<->dynarec differential mismatch during deferred sample %lu; scheduler remains interpreter-only.\n",
+                    static_cast<unsigned long>(arm9DeferredGateAttempts));
+            }
+        };
+
         PS2_LOG("[PS2][OK] M2: Core constructed, BIOS/firmware/ROM paths were accepted.\n");
 
         if (bios9Synthetic)
@@ -1827,6 +1911,11 @@ int main(int argc, char **argv)
                     static_cast<unsigned long>(summaryHot[0].pc),
                     static_cast<unsigned long>(summaryHot[0].opcode),
                     jitCoverage);
+
+                // Retry the correctness gate only after a complete profile window.
+                // Its temporary interpreter execution is then discarded by the
+                // profile reset below and cannot distort the measured window.
+                runDeferredArm9Gate();
 
                 core->resetProfile();
                 dynarec.resetProfile();
