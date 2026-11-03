@@ -153,10 +153,40 @@ bool pathReadable(const char *path)
     return true;
 }
 
+bool equalsIgnoreCase(const char *left, const char *right)
+{
+    if (!left || !right)
+        return false;
+
+    while (*left && *right)
+    {
+        if (std::tolower(static_cast<unsigned char>(*left)) !=
+            std::tolower(static_cast<unsigned char>(*right)))
+            return false;
+        left++;
+        right++;
+    }
+    return *left == '\0' && *right == '\0';
+}
+
+const char *hostEntryLeaf(const char *name)
+{
+    if (!name)
+        return "";
+
+    const char *leaf = name;
+    for (const char *cursor = name; *cursor; cursor++)
+        if (*cursor == '/' || *cursor == '\\')
+            leaf = cursor + 1;
+    return leaf;
+}
+
 bool hasNdsExtension(const char *name)
 {
     if (!name)
         return false;
+
+    name = hostEntryLeaf(name);
     size_t length = std::strlen(name);
     if (length < 4 || name[length - 4] != '.')
         return false;
@@ -176,34 +206,56 @@ std::string normalizeRomArgument(const char *argument)
     return path;
 }
 
-std::string findHostRomPath()
+std::string findHostFile(const char *preferredLeaf, bool allowAnyNds)
 {
-    PS2_LOG("[PS2][HOSTFS] Probing host: root (ELF launch directory when supported).\n");
-
-    if (pathReadable(HOST_ROM))
+    std::string exact = std::string("host:") + preferredLeaf;
+    if (pathReadable(exact.c_str()))
     {
-        PS2_LOG("[PS2][HOSTFS][OK] Found preferred ROM: %s\n", HOST_ROM);
-        return HOST_ROM;
+        PS2_LOG("[PS2][HOSTFS][OK] Found exact file: %s\n", exact.c_str());
+        return exact;
     }
 
     DIR *directory = opendir("host:");
     if (!directory)
     {
-        PS2_LOG("[PS2][HOSTFS][MISS] Could not open host: directory.\n");
-        return HOST_ROM;
+        PS2_LOG("[PS2][HOSTFS][MISS] Could not open host: directory while looking for %s.\n",
+            preferredLeaf);
+        return exact;
     }
 
     std::string selected;
     while (dirent *entry = readdir(directory))
     {
-        if (!hasNdsExtension(entry->d_name))
+        // NetherSX2's SAF-backed hostfs can return d_name values such as
+        // "primary:PS2/GAME.NDS". Reusing that whole string would duplicate
+        // the tree path and make IopHLE reject it as outside the ELF folder.
+        const char *leaf = hostEntryLeaf(entry->d_name);
+        if (!leaf[0] || !std::strcmp(leaf, ".") || !std::strcmp(leaf, ".."))
             continue;
 
-        std::string candidate = std::string("host:") + entry->d_name;
+        const bool preferred = equalsIgnoreCase(leaf, preferredLeaf);
+        if (!preferred && !(allowAnyNds && hasNdsExtension(leaf)))
+            continue;
+
+        std::string candidate = std::string("host:") + leaf;
+        PS2_LOG("[PS2][HOSTFS] Candidate raw='%s' leaf='%s' -> %s\n",
+            entry->d_name, leaf, candidate.c_str());
+
         if (!pathReadable(candidate.c_str()))
+        {
+            PS2_LOG("[PS2][HOSTFS][MISS] Candidate was listed but could not be opened: %s\n",
+                candidate.c_str());
             continue;
+        }
 
-        PS2_LOG("[PS2][HOSTFS] NDS candidate: %s\n", candidate.c_str());
+        if (preferred)
+        {
+            closedir(directory);
+            PS2_LOG("[PS2][HOSTFS][OK] Resolved %s case-insensitively: %s\n",
+                preferredLeaf, candidate.c_str());
+            return candidate;
+        }
+
         if (selected.empty() || candidate < selected)
             selected = candidate;
     }
@@ -211,12 +263,18 @@ std::string findHostRomPath()
 
     if (!selected.empty())
     {
-        PS2_LOG("[PS2][HOSTFS][OK] Auto-selected ROM: %s\n", selected.c_str());
+        PS2_LOG("[PS2][HOSTFS][OK] Auto-selected NDS ROM: %s\n", selected.c_str());
         return selected;
     }
 
-    PS2_LOG("[PS2][HOSTFS][MISS] No readable .nds file found beside the ELF.\n");
-    return HOST_ROM;
+    PS2_LOG("[PS2][HOSTFS][MISS] No readable match for %s.\n", preferredLeaf);
+    return exact;
+}
+
+std::string findHostRomPath()
+{
+    PS2_LOG("[PS2][HOSTFS] Probing host: root (ELF launch directory when supported).\n");
+    return findHostFile("game.nds", true);
 }
 
 std::string chooseReadablePath(const char *label, const char *preferred, const char *fallback)
@@ -952,10 +1010,14 @@ int main(int argc, char **argv)
         requestedRom = findHostRomPath();
     }
 
+    std::string resolvedBios9 = findHostFile("bios9.bin", false);
+    std::string resolvedBios7 = findHostFile("bios7.bin", false);
+    std::string resolvedFirmware = findHostFile("firmware.bin", false);
+
     std::string romPath = chooseReadablePath("NDS ROM", requestedRom.c_str(), DISC_ROM);
-    std::string bios9Path = chooseReadablePath("ARM9 BIOS", HOST_BIOS9, DISC_BIOS9);
-    std::string bios7Path = chooseReadablePath("ARM7 BIOS", HOST_BIOS7, DISC_BIOS7);
-    std::string firmwarePath = chooseReadablePath("Firmware", HOST_FIRMWARE, DISC_FIRMWARE);
+    std::string bios9Path = chooseReadablePath("ARM9 BIOS", resolvedBios9.c_str(), DISC_BIOS9);
+    std::string bios7Path = chooseReadablePath("ARM7 BIOS", resolvedBios7.c_str(), DISC_BIOS7);
+    std::string firmwarePath = chooseReadablePath("Firmware", resolvedFirmware.c_str(), DISC_FIRMWARE);
 
     PS2_LOG("[PS2] M0 bootstrap started.\n");
     PS2_LOG("[PS2] ROM path: %s\n", romPath.c_str());
