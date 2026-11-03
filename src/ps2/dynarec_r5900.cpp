@@ -270,6 +270,11 @@ bool applyArmAlu(uint32_t opcode, ArmAluState *state)
     return state && Ps2ArmAlu::execute(opcode, state->r, &state->cpsr);
 }
 
+bool applyArmAluHelper(ArmAluState *state, uint32_t opcode)
+{
+    return applyArmAlu(opcode, state);
+}
+
 bool readDirectArm9Halfword(void *context, uint32_t address, uint16_t *value)
 {
     ArmAluState *state = static_cast<ArmAluState*>(context);
@@ -664,7 +669,7 @@ size_t emitArmAluHelperInstruction(uint32_t opcode, uint32_t *code)
 {
     if (!code)
         return 0;
-    uintptr_t helper = reinterpret_cast<uintptr_t>(&applyArmAlu);
+    uintptr_t helper = reinterpret_cast<uintptr_t>(&applyArmAluHelper);
     size_t words = 0;
     code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, -32);
     code[words++] = R5900::sw(R5900::R_RA, 28, R5900::R_SP);
