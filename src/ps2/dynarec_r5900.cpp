@@ -258,16 +258,22 @@ struct ArmAluState
     Memory *memory;
     uint32_t memoryFault;
     uint32_t writeCount;
+    uint32_t cycles;
     ArmMemoryWrite writes[16];
 };
 static_assert(offsetof(ArmAluState, cpsr) == 64,
     "R5900 ARM-state CPSR ABI offset");
 static_assert(offsetof(ArmAluState, nextPc) == 68,
     "R5900 ARM-state next-PC ABI offset");
+static_assert(offsetof(ArmAluState, cycles) == 84,
+    "R5900 ARM-state cycle ABI offset");
 
 bool applyArmAlu(uint32_t opcode, ArmAluState *state)
 {
-    return state && Ps2ArmAlu::execute(opcode, state->r, &state->cpsr);
+    if (!state || !Ps2ArmAlu::execute(opcode, state->r, &state->cpsr))
+        return false;
+    state->cycles++;
+    return true;
 }
 
 bool applyArmAluHelper(ArmAluState *state, uint32_t opcode)
@@ -362,7 +368,10 @@ bool applyArmHalfwordTransfer(ArmAluState *state, uint32_t opcode)
         return false;
     if (Ps2ArmAlu::executeHalfwordTransfer(opcode, state->r, &state->cpsr,
         state, readDirectArm9Halfword, writeDirectArm9Halfword))
+    {
+        state->cycles++;
         return true;
+    }
 
     state->memoryFault = 1;
     return false;
@@ -453,7 +462,10 @@ bool applyArmByteTransfer(ArmAluState *state, uint32_t opcode)
         return false;
     if (Ps2ArmAlu::executeByteTransfer(opcode, state->r, &state->cpsr,
         state, readDirectArm9Byte, writeDirectArm9Byte))
+    {
+        state->cycles++;
         return true;
+    }
     state->memoryFault = 1;
     return false;
 }
@@ -464,7 +476,10 @@ bool applyArmLiteralLoad(ArmAluState *state, uint32_t opcode, uint32_t pc)
         return false;
     if (Ps2ArmAlu::executeLiteralLoad(opcode, pc, state->r, &state->cpsr,
         state, readDirectArm9Word))
+    {
+        state->cycles++;
         return true;
+    }
     state->memoryFault = 1;
     return false;
 }
@@ -475,7 +490,10 @@ bool applyArmSingleTransfer(ArmAluState *state, uint32_t opcode)
         return false;
     if (Ps2ArmAlu::executeSingleTransfer(opcode, state->r, &state->cpsr,
         state, readDirectArm9Word, writeDirectArm9Word))
+    {
+        state->cycles++;
         return true;
+    }
 
     state->memoryFault = 1;
     return false;
@@ -483,20 +501,62 @@ bool applyArmSingleTransfer(ArmAluState *state, uint32_t opcode)
 
 bool applyArmBranchExchange(ArmAluState *state, uint32_t opcode)
 {
-    return state && Ps2ArmAlu::executeBranchExchange(opcode, state->r,
-        &state->cpsr, &state->nextPc);
+    if (!state)
+        return false;
+    Ps2ArmAlu::DecodedBranchExchange decoded;
+    if (!Ps2ArmAlu::decodeBranchExchange(opcode, &decoded))
+        return false;
+    bool taken = Ps2ArmAlu::conditionPassed(decoded.condition, state->cpsr);
+    if (!Ps2ArmAlu::executeBranchExchange(opcode, state->r,
+        &state->cpsr, &state->nextPc))
+        return false;
+    state->cycles += taken ? 3u : 1u;
+    return true;
+}
+
+bool applyArmBranch(ArmAluState *state, uint32_t opcode, uint32_t pc)
+{
+    if (!state)
+        return false;
+    Ps2ArmAlu::DecodedBranch decoded;
+    if (!Ps2ArmAlu::decodeBranch(opcode, &decoded))
+        return false;
+    bool taken = Ps2ArmAlu::conditionPassed(decoded.condition, state->cpsr);
+    if (!Ps2ArmAlu::executeBranch(opcode, pc, state->cpsr, &state->nextPc))
+        return false;
+    state->cycles += taken ? 3u : 1u;
+    return true;
 }
 
 bool applyArmSingleBlockTransfer(ArmAluState *state, uint32_t opcode)
 {
     if (!state || !state->memory)
         return false;
+    Ps2ArmAlu::DecodedSingleBlockTransfer decoded;
+    if (!Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &decoded))
+        return false;
+    bool taken = Ps2ArmAlu::conditionPassed(decoded.condition, state->cpsr);
     if (Ps2ArmAlu::executeSingleBlockTransfer(opcode, state->r, &state->cpsr,
         state, readDirectArm9Word, writeDirectArm9Word))
+    {
+        state->cycles += taken ? 2u : 1u;
         return true;
+    }
 
     state->memoryFault = 1;
     return false;
+}
+
+size_t emitArmCycleAdd(uint32_t amount, uint32_t *code)
+{
+    if (!code || !amount || amount > 0x7FFFu)
+        return 0;
+    size_t words = 0;
+    code[words++] = R5900::lw(R5900::R_T6, 84, R5900::R_A0);
+    code[words++] = R5900::addiu(R5900::R_T6, R5900::R_T6,
+        static_cast<int16_t>(amount));
+    code[words++] = R5900::sw(R5900::R_T6, 84, R5900::R_A0);
+    return words;
 }
 
 size_t emitArmCondition(uint8_t condition, uint32_t *code)
@@ -608,6 +668,9 @@ size_t emitArmBranchInstruction(uint32_t opcode, uint32_t pc, uint32_t *code)
     uint32_t target = pc + 8u + static_cast<uint32_t>(decoded.offset);
     size_t words = 0;
 
+    // Every ARM instruction consumes one cycle even when its condition fails.
+    words += emitArmCycleAdd(1, code + words);
+
     if (decoded.condition != 0xEu)
     {
         code[words++] = R5900::lui(R5900::R_T2,
@@ -616,11 +679,16 @@ size_t emitArmBranchInstruction(uint32_t opcode, uint32_t pc, uint32_t *code)
             static_cast<uint16_t>(fallthrough));
         words += emitArmCondition(decoded.condition, code + words);
 
-        // A failed guest condition skips the two target-load instructions and
-        // stores the already loaded fallthrough address. The MIPS delay slot
-        // remains an explicit NOP.
-        code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 3);
+        // Failed condition skips the taken-branch +2 cycle charge and target
+        // load, then stores the fallthrough PC.
+        code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 6);
         code[words++] = R5900::nop();
+        words += emitArmCycleAdd(2, code + words);
+    }
+    else
+    {
+        // Taken B costs three ARM9 cycles total.
+        words += emitArmCycleAdd(2, code + words);
     }
 
     code[words++] = R5900::lui(R5900::R_T2,
@@ -758,6 +826,7 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code)
         return emitArmAluHelperInstruction(opcode, code);
 
     size_t words = 0;
+    words += emitArmCycleAdd(1, code + words);
     size_t conditionBranch = static_cast<size_t>(-1);
     if (decoded.condition != 0xEu)
     {
@@ -1138,7 +1207,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     block.guestEndPc = guestPc + static_cast<uint32_t>(count * 4);
     block.mapGeneration = mappedGeneration;
     block.guestInstructions = static_cast<uint32_t>(count);
-    block.cycles = static_cast<uint32_t>(count);
+    block.cycles = 0; // Runtime state records exact condition-dependent cycles.
     block.thumb = false;
     block.hostCode = code;
     block.hostWords = static_cast<uint32_t>(words);
@@ -1389,8 +1458,8 @@ bool DynarecR5900::runArmAluSelfTest()
         ArmAluState expected = {};
         expected.cpsr = branchTests[i].cpsr;
         expected.nextPc = branchTests[i].pc + 4u;
-        if (!Ps2ArmAlu::executeBranch(branchTests[i].opcode,
-            branchTests[i].pc, expected.cpsr, &expected.nextPc))
+        if (!applyArmBranch(&expected, branchTests[i].opcode,
+            branchTests[i].pc))
             return false;
 
         uint32_t *code = cache.reserveWords(32);
@@ -1934,9 +2003,8 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
                                         expected.r, &expected.cpsr, &expected.nextPc))
                                         return -1;
                                 }
-                                else if (!Ps2ArmAlu::executeBranch(opcodes[i],
-                                    guestPc + static_cast<uint32_t>(i * 4), expected.cpsr,
-                                    &expected.nextPc))
+                                else if (!applyArmBranch(&expected, opcodes[i],
+                                    guestPc + static_cast<uint32_t>(i * 4)))
                                 {
                                     return -1;
                                 }
@@ -1993,6 +2061,10 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
         return -1;
     hash ^= actual.nextPc;
     hash *= 16777619u;
+    if (actual.cycles != expected.cycles)
+        return -1;
+    hash ^= actual.cycles;
+    hash *= 16777619u;
 
     hash ^= static_cast<uint32_t>(count);
     hash *= 16777619u;
@@ -2046,22 +2118,23 @@ int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
         return 0;
 
     bool interpreterOk = true;
+    uint32_t interpreterCycles = 0;
     for (uint32_t i = 0; i < block->guestInstructions; i++)
     {
-        // Every admitted opcode is a straight-line ALU/load operation with no
-        // memory write side effects. Conditions and NZCV are modeled exactly.
         int cycles = cpu.runOpcode();
         if (cycles <= 0)
         {
             interpreterOk = false;
             break;
         }
+        interpreterCycles += static_cast<uint32_t>(cycles);
     }
 
     uint32_t hash = 2166136261u;
     bool match = interpreterOk &&
         CpuBackendAccess::readCpsr(cpu) == dynarecState.cpsr &&
-        CpuBackendAccess::nextInstructionAddress(cpu) == dynarecState.nextPc;
+        CpuBackendAccess::nextInstructionAddress(cpu) == dynarecState.nextPc &&
+        interpreterCycles == dynarecState.cycles;
 
     // r15/pipeline naturally advance in the interpreter while the current
     // dynarec block ABI only models architectural GPR results. Compare r0-r14.
@@ -2080,6 +2153,8 @@ int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
     hash ^= CpuBackendAccess::nextInstructionAddress(cpu);
     hash *= 16777619u;
     hash ^= block->guestInstructions;
+    hash *= 16777619u;
+    hash ^= interpreterCycles;
     hash *= 16777619u;
 
     // Restore before returning on every path. The tested subset cannot change
