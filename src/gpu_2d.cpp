@@ -588,6 +588,27 @@ void Gpu2D::drawScanline(int line)
     }
 }
 
+FORCE_INLINE void Gpu2D::drawBgPixelNoWindow(int bg, int x,
+    uint32_t pixel, int8_t priority)
+{
+    if (priority <= priorities[0][x])
+    {
+        layers[1][x] = layers[0][x];
+        priorities[1][x] = priorities[0][x];
+        blendBits[1][x] = blendBits[0][x];
+
+        layers[0][x] = pixel;
+        priorities[0][x] = priority;
+        blendBits[0][x] = bg;
+    }
+    else if (priority <= priorities[1][x])
+    {
+        layers[1][x] = pixel;
+        priorities[1][x] = priority;
+        blendBits[1][x] = bg;
+    }
+}
+
 void Gpu2D::drawBgPixel(int bg, int line, int x, uint32_t pixel)
 {
     // Skip the pixel if it's in the bounds of a window that has its layer disabled
@@ -624,6 +645,17 @@ void Gpu2D::drawBgPixel(int bg, int line, int x, uint32_t pixel)
         layers[1][x] = pixel;
         priorities[1][x] = bgCnt[bg] & 0x3;
         blendBits[1][x] = bg;
+    }
+}
+
+FORCE_INLINE void Gpu2D::drawObjPixelNoWindow(int x,
+    uint32_t pixel, int8_t priority)
+{
+    if (!(layers[0][x] & BIT(15)) || priority < priorities[0][x])
+    {
+        layers[0][x] = pixel;
+        priorities[0][x] = priority;
+        blendBits[0][x] = 4;
     }
 }
 
@@ -686,6 +718,15 @@ void Gpu2D::drawText(int bg, int line)
         tileBase += (bgCnt[bg] & BIT(14)) ? 0x1000 : 0x800;
 
     const bool gba = core->isGbaMode();
+    const bool noWindows = (dispCnt & 0x0000E000u) == 0;
+    const int8_t bgPriority = bgCnt[bg] & 0x3;
+    auto putBgPixel = [&](int x, uint32_t pixel)
+    {
+        if (noWindows)
+            drawBgPixelNoWindow(bg, x, pixel, bgPriority);
+        else
+            putBgPixel(x, pixel);
+    };
     Gpu2DDirectPageCache tilePageCache;
     Gpu2DDirectPageCache indexPageCache;
 
@@ -759,7 +800,7 @@ void Gpu2D::drawText(int bg, int line)
             {
                 // Draw a pixel if it's visible
                 if (x >= 0 && x < 256 && (indices & 0xFF))
-                    drawBgPixel(bg, line, x, U8TO16(pal, (indices & 0xFF) * 2) | BIT(15));
+                    putBgPixel(x, U8TO16(pal, (indices & 0xFF) * 2) | BIT(15));
             }
         }
     }
@@ -812,7 +853,7 @@ void Gpu2D::drawText(int bg, int line)
             {
                 // Draw a pixel if it's visible
                 if (x >= 0 && x < 256 && (indices & 0xF))
-                    drawBgPixel(bg, line, x, U8TO16(pal, (indices & 0xF) * 2) | BIT(15));
+                    putBgPixel(x, U8TO16(pal, (indices & 0xF) * 2) | BIT(15));
             }
         }
     }
@@ -839,6 +880,15 @@ void Gpu2D::drawAffine(int bg, int line)
     Gpu2DAffineLineStepper coordinates(internalX[bg - 2], internalY[bg - 2],
         bgPA[bg - 2], bgPC[bg - 2]);
     const bool gba = core->isGbaMode();
+    const bool noWindows = (dispCnt & 0x0000E000u) == 0;
+    const int8_t bgPriority = bgCnt[bg] & 0x3;
+    auto putBgPixel = [&](int x, uint32_t pixel)
+    {
+        if (noWindows)
+            drawBgPixelNoWindow(bg, x, pixel, bgPriority);
+        else
+            drawBgPixel(bg, line, x, pixel);
+    };
     Gpu2DLastAddressCache<uint8_t> tileCache;
     Gpu2DDirectPageCache tilePageCache;
     Gpu2DDirectPageCache indexPageCache;
@@ -900,7 +950,7 @@ void Gpu2D::drawAffine(int bg, int line)
 
         // Draw a pixel
         if (index)
-            drawBgPixel(bg, line, i, U8TO16(palette, index * 2) | BIT(15));
+            putBgPixel(i, U8TO16(palette, index * 2) | BIT(15));
     }
 
     // Increment the internal registers at the end of the scanline
@@ -1262,7 +1312,15 @@ void Gpu2D::drawObjects(int line, bool window)
     ProfileScope profile(this, GPU2D_PROFILE_OBJECTS);
 #endif
 
-    const bool gba = core->isGbaMode();
+    const bool gba = gba;
+    const bool noWindows = (dispCnt & 0x0000E000u) == 0;
+    auto putObjPixel = [&](int x, uint32_t pixel, int8_t priority)
+    {
+        if (noWindows)
+            drawObjPixelNoWindow(x, pixel, priority);
+        else
+            putObjPixel(x, pixel, priority);
+    };
     Gpu2DDirectPageCache objectPageCache;
 
     auto readObject8 = [&](uint32_t address) -> uint8_t
@@ -1357,7 +1415,7 @@ void Gpu2D::drawObjects(int line, bool window)
         int8_t priority = ((object[2] >> 10) & 0x3) - 1;
 
         // Draw bitmap objects
-        if (!core->isGbaMode() && type == 3)
+        if (!gba && type == 3)
         {
             uint32_t dataBase;
             int bitmapWidth;
@@ -1408,7 +1466,7 @@ void Gpu2D::drawObjects(int line, bool window)
                     uint16_t pixel = readObject16(
                         dataBase + (rotscaleY * bitmapWidth + rotscaleX) * 2);
                     if (pixel & BIT(15))
-                        drawObjPixel(line, offset, pixel, priority);
+                        putObjPixel(offset, pixel, priority);
                 }
             }
             else
@@ -1423,7 +1481,7 @@ void Gpu2D::drawObjects(int line, bool window)
                     uint16_t pixel = readObject16(
                         dataBase + (spriteY * bitmapWidth + j) * 2);
                     if (pixel & BIT(15))
-                        drawObjPixel(line, offset, pixel, priority);
+                        putObjPixel(offset, pixel, priority);
                 }
             }
 
@@ -1432,7 +1490,7 @@ void Gpu2D::drawObjects(int line, bool window)
 
         // Get the base tile address
         uint32_t tileBase;
-        if (core->isGbaMode())
+        if (gba)
         {
             tileBase = 0x6010000 + (object[2] & 0x3FF) * 32;
         }
@@ -1456,7 +1514,7 @@ void Gpu2D::drawObjects(int line, bool window)
 
             if (object[0] & BIT(13)) // 8-bit
             {
-                int mapWidth = (dispCnt & BIT(core->isGbaMode() ? 6 : 4)) ? width : 128;
+                int mapWidth = (dispCnt & BIT(gba ? 6 : 4)) ? width : 128;
 
                 // Get the object's palette
                 uint8_t *pal;
@@ -1507,14 +1565,14 @@ void Gpu2D::drawObjects(int line, bool window)
 
                         // Update the priority even if the pixel is transparent
                         // This is a quirky behavior of the GBA, but it seems to have been fixed on the DS
-                        if (core->isGbaMode() && priority < priorities[0][offset] && blendBits[0][offset] == 4)
+                        if (gba && priority < priorities[0][offset] && blendBits[0][offset] == 4)
                             priorities[0][offset] = priority;
                     }
                 }
             }
             else // 4-bit
             {
-                int mapWidth = (dispCnt & BIT(core->isGbaMode() ? 6 : 4)) ? width : 256;
+                int mapWidth = (dispCnt & BIT(gba ? 6 : 4)) ? width : 256;
 
                 // Get the object's palette
                 // In 4-bit mode, the object can select from multiple 16-color palettes
@@ -1557,7 +1615,7 @@ void Gpu2D::drawObjects(int line, bool window)
 
                         // Update the priority even if the pixel is transparent
                         // This is a quirky behavior of the GBA, but it seems to have been fixed on the DS
-                        if (core->isGbaMode() && priority < priorities[0][offset] && blendBits[0][offset] == 4)
+                        if (gba && priority < priorities[0][offset] && blendBits[0][offset] == 4)
                             priorities[0][offset] = priority;
                     }
                 }
@@ -1566,7 +1624,7 @@ void Gpu2D::drawObjects(int line, bool window)
         else if (object[0] & BIT(13)) // 8-bit
         {
             // Adjust the current tile to align with the current Y coordinate relative to the object
-            int mapWidth = (dispCnt & BIT(core->isGbaMode() ? 6 : 4)) ? width : 128;
+            int mapWidth = (dispCnt & BIT(gba ? 6 : 4)) ? width : 128;
             if (object[1] & BIT(13)) // Vertical flip
                 tileBase += (7 - (spriteY % 8) + ((height - 1 - spriteY) / 8) * mapWidth) * 8;
             else
@@ -1609,7 +1667,7 @@ void Gpu2D::drawObjects(int line, bool window)
 
                     // Update the priority even if the pixel is transparent
                     // This is a quirky behavior of the GBA, but it seems to have been fixed on the DS
-                    if (core->isGbaMode() && priority < priorities[0][offset] && blendBits[0][offset] == 4)
+                    if (gba && priority < priorities[0][offset] && blendBits[0][offset] == 4)
                         priorities[0][offset] = priority;
                 }
             }
@@ -1617,7 +1675,7 @@ void Gpu2D::drawObjects(int line, bool window)
         else // 4-bit
         {
             // Adjust the current tile to align with the current Y coordinate relative to the object
-            int mapWidth = (dispCnt & BIT(core->isGbaMode() ? 6 : 4)) ? width : 256;
+            int mapWidth = (dispCnt & BIT(gba ? 6 : 4)) ? width : 256;
             if (object[1] & BIT(13)) // Vertical flip
                 tileBase += (7 - (spriteY % 8) + ((height - 1 - spriteY) / 8) * mapWidth) * 4;
             else
@@ -1652,7 +1710,7 @@ void Gpu2D::drawObjects(int line, bool window)
 
                     // Update the priority even if the pixel is transparent
                     // This is a quirky behavior of the GBA, but it seems to have been fixed on the DS
-                    if (core->isGbaMode() && priority < priorities[0][offset] && blendBits[0][offset] == 4)
+                    if (gba && priority < priorities[0][offset] && blendBits[0][offset] == 4)
                         priorities[0][offset] = priority;
                 }
             }
@@ -1665,13 +1723,13 @@ void Gpu2D::writeDispCnt(uint32_t mask, uint32_t value)
     // Write to the DISPCNT register
     mask &= ((engine == 0) ? 0xFFFFFFFF : 0xC0B1FFF7);
     dispCnt = (dispCnt & ~mask) | (value & mask);
-    if (core->isGbaMode()) dispCnt &= 0xFFFF;
+    if (gba) dispCnt &= 0xFFFF;
 }
 
 void Gpu2D::writeBgCnt(int bg, uint16_t mask, uint16_t value)
 {
     // Write to one of the BGCNT registers
-    if (core->isGbaMode() && bg < 2) mask &= 0xDFFF;
+    if (gba && bg < 2) mask &= 0xDFFF;
     bgCnt[bg] = (bgCnt[bg] & ~mask) | (value & mask);
 }
 
