@@ -12,6 +12,24 @@
 
 namespace Ps2File
 {
+#ifdef NOODS_PS2_PORTABLE_TEST
+    // Host CI defines NOODS_PS2 to exercise PS2-specific cache/memory paths,
+    // but it does not link the EE/IOP fileXio stack. Keep those tests portable
+    // while making every HostFS operation explicitly unavailable.
+    inline bool init(const char *) { return false; }
+    inline bool isReady() { return false; }
+    inline bool isHostPath(const char *) { return false; }
+    inline int openRead(const char *) { return -1; }
+    inline int openWrite(const char *) { return -1; }
+    inline int close(int) { return -1; }
+    inline int read(int, void *, size_t) { return -1; }
+    inline int write(int, const void *, size_t) { return -1; }
+    inline long seek(int, long, int) { return -1; }
+    inline long tell(int) { return -1; }
+    inline long size(int) { return -1; }
+    inline bool canRead(const char *) { return false; }
+    inline bool readExact(const char *, void *, size_t) { return false; }
+#else
     // Initializes the PS2 fileXio stack only for host:-launched ELFs and
     // remembers argv[0] so Android SAF HostFS can retry sibling document URIs.
     bool init(const char *launchPath);
@@ -29,6 +47,7 @@ namespace Ps2File
 
     bool canRead(const char *path);
     bool readExact(const char *path, void *buffer, size_t size);
+#endif
 }
 
 #endif
