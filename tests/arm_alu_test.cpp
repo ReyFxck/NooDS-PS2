@@ -129,6 +129,16 @@ int main()
     assert(Ps2ArmAlu::execute(0xE2322008u, registers, &cpsr)); // EORS r2,r2,#8
     assert(registers[2] == 0 && cpsr == 0x70000013u);
 
+    // Logical S operations take carry from the ARM barrel shifter.
+    registers[1] = 0x00018000u;
+    cpsr = 0x10000013u;
+    assert(Ps2ArmAlu::execute(0xE1B01821u, registers, &cpsr)); // MOVS r1,r1,LSR #16
+    assert(registers[1] == 1u && cpsr == 0x30000013u);
+    registers[2] = 0x80000000u;
+    cpsr = 0x10000013u;
+    assert(Ps2ArmAlu::execute(0xE2121102u, registers, &cpsr)); // ANDS r1,r2,#0x80000000
+    assert(registers[1] == 0x80000000u && cpsr == 0xB0000013u);
+
     // Arithmetic S operations calculate all four flags, including borrow and overflow.
     registers[5] = 0;
     cpsr = 0xF0000013u;
@@ -234,7 +244,7 @@ int main()
     assert(decoded.condition == 1);
     assert(Ps2ArmAlu::decode(0xE1B02001u, &decoded));  // MOVS, carry preserved
     assert(decoded.setFlags);
-    assert(!Ps2ArmAlu::decode(0xE1B02181u, &decoded)); // shifted MOVS changes carry
+    assert(Ps2ArmAlu::decode(0xE1B02181u, &decoded)); // shifted MOVS carries shifter C
     assert(!Ps2ArmAlu::decode(0xE1A02061u, &decoded)); // RRX needs carry
     assert(Ps2ArmAlu::decode(0xE1A02111u, &decoded));  // register-controlled LSL
     assert(decoded.registerShift && decoded.rs == 1);

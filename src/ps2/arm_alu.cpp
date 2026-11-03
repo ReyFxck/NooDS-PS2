@@ -91,6 +91,73 @@ bool Ps2ArmAlu::applyRegisterShift(uint32_t value, uint8_t type,
     return false;
 }
 
+namespace
+{
+bool immediateShiftCarry(uint32_t value, uint8_t type, uint8_t amount,
+    bool oldCarry, bool *carry)
+{
+    if (!carry)
+        return false;
+    switch (type)
+    {
+        case 0: // LSL #0 preserves carry.
+            *carry = amount ? ((value >> (32u - amount)) & 1u) : oldCarry;
+            return true;
+        case 1: // LSR #0 encodes #32.
+            *carry = amount ? ((value >> (amount - 1u)) & 1u)
+                            : ((value >> 31) & 1u);
+            return true;
+        case 2: // ASR #0 encodes #32.
+            *carry = amount ? ((value >> (amount - 1u)) & 1u)
+                            : ((value >> 31) & 1u);
+            return true;
+        case 3:
+            if (!amount)
+                return false; // RRX remains outside the admitted subset.
+            *carry = (value >> (amount - 1u)) & 1u;
+            return true;
+    }
+    return false;
+}
+
+bool registerShiftCarry(uint32_t value, uint8_t type, uint32_t amountValue,
+    bool oldCarry, bool *carry)
+{
+    if (!carry)
+        return false;
+    uint32_t amount = amountValue & 0xFFu;
+    if (!amount)
+    {
+        *carry = oldCarry;
+        return true;
+    }
+
+    switch (type)
+    {
+        case 0: // LSL Rs
+            *carry = (amount < 32) ? ((value >> (32u - amount)) & 1u)
+                : (amount == 32 ? (value & 1u) : false);
+            return true;
+        case 1: // LSR Rs
+            *carry = (amount < 32) ? ((value >> (amount - 1u)) & 1u)
+                : (amount == 32 ? ((value >> 31) & 1u) : false);
+            return true;
+        case 2: // ASR Rs
+            *carry = (amount < 32) ? ((value >> (amount - 1u)) & 1u)
+                : ((value >> 31) & 1u);
+            return true;
+        case 3: // ROR Rs
+        {
+            uint32_t rotate = amount & 31u;
+            *carry = rotate ? ((value >> (rotate - 1u)) & 1u)
+                            : ((value >> 31) & 1u);
+            return true;
+        }
+    }
+    return false;
+}
+}
+
 bool Ps2ArmAlu::conditionPassed(uint8_t condition, uint32_t cpsr)
 {
     bool n = (cpsr & BIT(31)) != 0;
@@ -196,23 +263,6 @@ bool Ps2ArmAlu::decode(uint32_t opcode, Decoded *decoded)
         if (rotate)
             value = (value >> rotate) | (value << (32u - rotate));
         decoded->immediateValue = value;
-    }
-
-    // The emitted flags path currently admits logical operations only when
-    // Operand2 preserves CPSR.C. Arithmetic operations calculate C/V from the
-    // result and may use any otherwise supported shifter form.
-    if (decoded->setFlags &&
-        (decoded->operation == 0 || decoded->operation == 1 ||
-         decoded->operation == 8 || decoded->operation == 9 ||
-         decoded->operation == 12 || decoded->operation == 13 ||
-         decoded->operation == 14 || decoded->operation == 15))
-    {
-        bool preservesCarry = decoded->immediate
-            ? decoded->immediateRotate == 0
-            : (!decoded->registerShift && decoded->shiftType == 0 &&
-                decoded->shiftAmount == 0);
-        if (!preservesCarry)
-            return false;
     }
 
     return true;
@@ -530,15 +580,27 @@ bool Ps2ArmAlu::execute(uint32_t opcode, uint32_t registers[16], uint32_t *cpsr)
     if (cpsr && !conditionPassed(decoded.condition, *cpsr))
         return true;
 
+    bool shifterCarry = cpsr ? ((*cpsr & BIT(29)) != 0) : false;
     uint32_t operand2 = decoded.immediateValue;
-    if (!decoded.immediate)
+    if (decoded.immediate)
     {
+        if (decoded.immediateRotate)
+            shifterCarry = (operand2 & BIT(31)) != 0;
+    }
+    else
+    {
+        uint32_t source = registers[decoded.rm];
         bool shifted = decoded.registerShift
-            ? applyRegisterShift(registers[decoded.rm], decoded.shiftType,
+            ? applyRegisterShift(source, decoded.shiftType,
                 registers[decoded.rs], &operand2)
-            : applyImmediateShift(registers[decoded.rm], decoded.shiftType,
+            : applyImmediateShift(source, decoded.shiftType,
                 decoded.shiftAmount, &operand2);
-        if (!shifted)
+        bool carryOk = decoded.registerShift
+            ? registerShiftCarry(source, decoded.shiftType,
+                registers[decoded.rs], shifterCarry, &shifterCarry)
+            : immediateShiftCarry(source, decoded.shiftType,
+                decoded.shiftAmount, shifterCarry, &shifterCarry);
+        if (!shifted || !carryOk)
             return false;
     }
 
@@ -590,9 +652,10 @@ bool Ps2ArmAlu::execute(uint32_t opcode, uint32_t registers[16], uint32_t *cpsr)
             if ((~(left ^ operand2) & (left ^ result)) & BIT(31))
                 flags |= BIT(28);
         }
-        else // Logical operations preserve C/V in the admitted subset.
+        else // Logical operations take C from the shifter and preserve V.
         {
-            flags |= *cpsr & (BIT(29) | BIT(28));
+            if (shifterCarry) flags |= BIT(29);
+            flags |= *cpsr & BIT(28);
         }
         *cpsr = (*cpsr & 0x0FFFFFFFu) | flags;
     }

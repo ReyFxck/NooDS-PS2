@@ -644,6 +644,47 @@ size_t emitArmFlags(const Ps2ArmAlu::Decoded &decoded, uint32_t *code)
     return words;
 }
 
+bool logicalShiftNeedsHelper(const Ps2ArmAlu::Decoded &decoded)
+{
+    if (!decoded.setFlags)
+        return false;
+    bool logical = decoded.operation == 0 || decoded.operation == 1 ||
+        decoded.operation == 8 || decoded.operation == 9 ||
+        decoded.operation == 12 || decoded.operation == 13 ||
+        decoded.operation == 14 || decoded.operation == 15;
+    if (!logical)
+        return false;
+    return decoded.immediate
+        ? decoded.immediateRotate != 0
+        : (decoded.registerShift || decoded.shiftType != 0 ||
+            decoded.shiftAmount != 0);
+}
+
+size_t emitArmAluHelperInstruction(uint32_t opcode, uint32_t *code)
+{
+    if (!code)
+        return 0;
+    uintptr_t helper = reinterpret_cast<uintptr_t>(&applyArmAlu);
+    size_t words = 0;
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, -32);
+    code[words++] = R5900::sw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::sw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lui(R5900::R_A1,
+        static_cast<uint16_t>(opcode >> 16));
+    code[words++] = R5900::ori(R5900::R_A1, R5900::R_A1,
+        static_cast<uint16_t>(opcode));
+    code[words++] = R5900::lui(R5900::R_T9,
+        static_cast<uint16_t>(helper >> 16));
+    code[words++] = R5900::ori(R5900::R_T9, R5900::R_T9,
+        static_cast<uint16_t>(helper));
+    code[words++] = R5900::jalr(R5900::R_RA, R5900::R_T9);
+    code[words++] = R5900::nop();
+    code[words++] = R5900::lw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
+    return words;
+}
+
 size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code)
 {
     if (!code)
@@ -652,6 +693,8 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code)
     Ps2ArmAlu::Decoded decoded;
     if (!Ps2ArmAlu::decode(opcode, &decoded))
         return 0;
+    if (logicalShiftNeedsHelper(decoded))
+        return emitArmAluHelperInstruction(opcode, code);
 
     size_t words = 0;
     size_t conditionBranch = static_cast<size_t>(-1);
@@ -1157,6 +1200,8 @@ bool DynarecR5900::runArmAluSelfTest()
         { 0xE1100001u, 0x30000013u, 0, 0xFFFFFFFFu }, // TST preserves registers
         { 0xE1300001u, 0x30000013u, 0, 0x01020304u }, // TEQ preserves registers
         { 0xE15C0002u, 0xF0000013u, 12, 0x00000010u }, // hot CMP r12,r2
+        { 0xE2121102u, 0x30000013u, 2, 0x80000000u }, // hot ANDS rotated immediate
+        { 0xE1B01821u, 0x30000013u, 1, 0x00018000u }, // hot MOVS LSR #16
         { 0xE1700001u, 0xF0000013u, 0, 0xFEFDFCFCu }  // CMN preserves registers
     };
 
