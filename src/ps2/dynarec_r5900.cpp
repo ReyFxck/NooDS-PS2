@@ -4699,6 +4699,114 @@ bool DynarecR5900::runArmAluSelfTest()
         blockLoadState.r[0] != 0x02000004u)
         return false;
 
+    // Gate the real hot copy-loop pair seen in PROFILE logs:
+    //   LDMIA.LT r0!,{r2}
+    //   STMIA.LT r1!,{r2}
+    // The second instruction reuses both the first instruction's LT result in
+    // t7 and its loaded value in t2. Test taken and not-taken paths, including
+    // transactional rollback of the destination word.
+    const uint32_t conditionalLoadAddress = 0x02000000u;
+    const uint32_t conditionalStoreAddress = 0x02000020u;
+    uint8_t *conditionalPage =
+        memory->getDirectWritePage(0, conditionalStoreAddress);
+    if (!conditionalPage ||
+        memory->getDirectReadPage(0, conditionalLoadAddress) != conditionalPage)
+        return false;
+
+    uint32_t conditionalLoadOffset = conditionalLoadAddress & 0xFFFu;
+    uint32_t conditionalStoreOffset = conditionalStoreAddress & 0xFFFu;
+    uint32_t conditionalExpected =
+        static_cast<uint32_t>(conditionalPage[conditionalLoadOffset]) |
+        (static_cast<uint32_t>(conditionalPage[conditionalLoadOffset + 1]) << 8) |
+        (static_cast<uint32_t>(conditionalPage[conditionalLoadOffset + 2]) << 16) |
+        (static_cast<uint32_t>(conditionalPage[conditionalLoadOffset + 3]) << 24);
+    uint32_t conditionalBefore =
+        static_cast<uint32_t>(conditionalPage[conditionalStoreOffset]) |
+        (static_cast<uint32_t>(conditionalPage[conditionalStoreOffset + 1]) << 8) |
+        (static_cast<uint32_t>(conditionalPage[conditionalStoreOffset + 2]) << 16) |
+        (static_cast<uint32_t>(conditionalPage[conditionalStoreOffset + 3]) << 24);
+
+    uint32_t *conditionalBlockCode = cache.reserveWords(320);
+    if (!conditionalBlockCode)
+        return false;
+    size_t conditionalBlockWords = emitArmSingleBlockTransferFastInstruction(
+        0xB8B00004u, conditionalBlockCode, false, false);
+    if (!conditionalBlockWords)
+        return false;
+    size_t conditionalStoreWords = emitArmSingleBlockTransferFastInstruction(
+        0xB8A10004u, conditionalBlockCode + conditionalBlockWords,
+        false, false, 2, 0xBu, true);
+    if (!conditionalStoreWords)
+        return false;
+    conditionalBlockWords += conditionalStoreWords;
+    conditionalBlockCode[conditionalBlockWords++] = R5900::jr(R5900::R_RA);
+    conditionalBlockCode[conditionalBlockWords++] = R5900::nop();
+    cache.commitWords(conditionalBlockWords);
+    cache.syncExecutable(conditionalBlockCode,
+        conditionalBlockCode + conditionalBlockWords);
+
+    typedef void (*ArmConditionalBlockFunction)(ArmAluState *);
+    ArmConditionalBlockFunction conditionalBlockFunction =
+        reinterpret_cast<ArmConditionalBlockFunction>(conditionalBlockCode);
+
+    {
+        ArmAluState conditionalState = {};
+        conditionalState.r[0] = conditionalLoadAddress;
+        conditionalState.r[1] = conditionalStoreAddress;
+        conditionalState.r[2] = 0xDEADBEEFu;
+        conditionalState.cpsr = 0x80000013u; // LT: N != V
+        conditionalState.memory = memory;
+        conditionalState.readCacheTag = (conditionalLoadAddress >> 12) + 1u;
+        conditionalState.readCachePage = conditionalPage;
+        conditionalState.writeCacheTag = (conditionalStoreAddress >> 12) + 1u;
+        conditionalState.writeCachePage = conditionalPage;
+
+        ArmMemoryWriteGuard conditionalWrites(&conditionalState);
+        conditionalBlockFunction(&conditionalState);
+
+        uint32_t stored =
+            static_cast<uint32_t>(conditionalPage[conditionalStoreOffset]) |
+            (static_cast<uint32_t>(conditionalPage[conditionalStoreOffset + 1]) << 8) |
+            (static_cast<uint32_t>(conditionalPage[conditionalStoreOffset + 2]) << 16) |
+            (static_cast<uint32_t>(conditionalPage[conditionalStoreOffset + 3]) << 24);
+        if (conditionalState.memoryFault || conditionalState.writeCount != 1 ||
+            conditionalState.cycles != 4u ||
+            conditionalState.r[0] != conditionalLoadAddress + 4u ||
+            conditionalState.r[1] != conditionalStoreAddress + 4u ||
+            conditionalState.r[2] != conditionalExpected ||
+            stored != conditionalExpected)
+            return false;
+    }
+
+    uint32_t conditionalRestored =
+        static_cast<uint32_t>(conditionalPage[conditionalStoreOffset]) |
+        (static_cast<uint32_t>(conditionalPage[conditionalStoreOffset + 1]) << 8) |
+        (static_cast<uint32_t>(conditionalPage[conditionalStoreOffset + 2]) << 16) |
+        (static_cast<uint32_t>(conditionalPage[conditionalStoreOffset + 3]) << 24);
+    if (conditionalRestored != conditionalBefore)
+        return false;
+
+    {
+        ArmAluState conditionalState = {};
+        conditionalState.r[0] = conditionalLoadAddress;
+        conditionalState.r[1] = conditionalStoreAddress;
+        conditionalState.r[2] = 0xCAFEBABEu;
+        conditionalState.cpsr = 0x00000013u; // GE: LT condition fails
+        conditionalState.memory = memory;
+        conditionalState.readCacheTag = (conditionalLoadAddress >> 12) + 1u;
+        conditionalState.readCachePage = conditionalPage;
+        conditionalState.writeCacheTag = (conditionalStoreAddress >> 12) + 1u;
+        conditionalState.writeCachePage = conditionalPage;
+
+        conditionalBlockFunction(&conditionalState);
+        if (conditionalState.memoryFault || conditionalState.writeCount != 0 ||
+            conditionalState.cycles != 2u ||
+            conditionalState.r[0] != conditionalLoadAddress ||
+            conditionalState.r[1] != conditionalStoreAddress ||
+            conditionalState.r[2] != 0xCAFEBABEu)
+            return false;
+    }
+
     // Gate BX, including ARM<->THUMB state selection, through generated code.
     uint32_t *bxCode = cache.reserveWords(32);
     if (!bxCode)
