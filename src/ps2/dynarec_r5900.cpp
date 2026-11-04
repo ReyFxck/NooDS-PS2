@@ -538,6 +538,52 @@ class ArmMemoryWriteGuard
         bool active = true;
 };
 
+bool applyArmImmediateStoreFast(ArmAluState *state, uint32_t packed)
+{
+    if (!state || !state->memory)
+        return false;
+
+    uint8_t rn = static_cast<uint8_t>(packed & 0xFu);
+    uint8_t rd = static_cast<uint8_t>((packed >> 4) & 0xFu);
+    uint32_t offset = (packed >> 8) & 0xFFFu;
+    bool addOffset = (packed & BIT(20)) != 0;
+    bool preIndex = (packed & BIT(21)) != 0;
+    bool writeBack = (packed & BIT(22)) != 0;
+    uint8_t sizeCode = static_cast<uint8_t>((packed >> 23) & 3u);
+
+    uint32_t base = state->r[rn];
+    uint32_t adjusted = addOffset ? base + offset : base - offset;
+    uint32_t address = preIndex ? adjusted : base;
+    bool ok = false;
+
+    switch (sizeCode)
+    {
+        case 0:
+            ok = writeDirectArm9Byte(state, address,
+                static_cast<uint8_t>(state->r[rd]));
+            break;
+        case 1:
+            ok = writeDirectArm9Halfword(state, address,
+                static_cast<uint16_t>(state->r[rd]));
+            break;
+        case 2:
+            ok = writeDirectArm9Word(state, address, state->r[rd]);
+            break;
+        default:
+            break;
+    }
+
+    if (!ok)
+    {
+        state->memoryFault = 1;
+        return false;
+    }
+
+    if (writeBack)
+        state->r[rn] = adjusted;
+    return true;
+}
+
 bool applyArmHalfwordTransfer(ArmAluState *state, uint32_t opcode)
 {
     if (!state || !state->memory)
@@ -1320,6 +1366,115 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
     return words;
 }
 
+size_t emitArmImmediateStoreFastInstruction(uint32_t opcode,
+    uint32_t *code, bool registerCycles, bool registerCpsr)
+{
+    if (!code)
+        return 0;
+
+    uint8_t rn = 0, rd = 0, condition = 0;
+    uint32_t offset = 0;
+    bool addOffset = false, preIndex = false, writeBack = false;
+    uint8_t sizeCode = 3;
+
+    Ps2ArmAlu::DecodedHalfwordTransfer half;
+    Ps2ArmAlu::DecodedByteTransfer byte;
+    Ps2ArmAlu::DecodedSingleTransfer word;
+    if (Ps2ArmAlu::decodeHalfwordTransfer(opcode, &half) &&
+        !half.load && half.immediate)
+    {
+        rn = half.rn; rd = half.rd; condition = half.condition;
+        offset = half.immediateOffset;
+        addOffset = half.addOffset;
+        preIndex = half.preIndex;
+        writeBack = half.writeBack;
+        sizeCode = 1;
+    }
+    else if (Ps2ArmAlu::decodeByteTransfer(opcode, &byte) &&
+        !byte.load && !byte.registerOffset)
+    {
+        rn = byte.rn; rd = byte.rd; condition = byte.condition;
+        offset = byte.immediateOffset;
+        addOffset = byte.addOffset;
+        preIndex = byte.preIndex;
+        writeBack = byte.writeBack;
+        sizeCode = 0;
+    }
+    else if (Ps2ArmAlu::decodeSingleTransfer(opcode, &word) &&
+        !word.load && !word.registerOffset)
+    {
+        rn = word.rn; rd = word.rd; condition = word.condition;
+        offset = word.immediateOffset;
+        addOffset = word.addOffset;
+        preIndex = word.preIndex;
+        writeBack = word.writeBack;
+        sizeCode = 2;
+    }
+    else
+    {
+        return 0;
+    }
+
+    uint32_t packed = static_cast<uint32_t>(rn) |
+        (static_cast<uint32_t>(rd) << 4) |
+        ((offset & 0xFFFu) << 8) |
+        (addOffset ? BIT(20) : 0u) |
+        (preIndex ? BIT(21) : 0u) |
+        (writeBack ? BIT(22) : 0u) |
+        (static_cast<uint32_t>(sizeCode) << 23);
+
+    size_t words = 0;
+    words += emitArmCycleAdd(1, code + words, registerCycles);
+
+    size_t conditionBranch = static_cast<size_t>(-1);
+    if (condition != 0xEu)
+    {
+        words += emitArmCondition(condition, code + words, registerCpsr);
+        conditionBranch = words;
+        code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+    }
+
+    if (registerCpsr)
+        code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
+    if (registerCycles)
+        code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
+
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, -32);
+    code[words++] = R5900::sw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::sw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lui(R5900::R_A1,
+        static_cast<uint16_t>(packed >> 16));
+    code[words++] = R5900::ori(R5900::R_A1, R5900::R_A1,
+        static_cast<uint16_t>(packed));
+    uintptr_t helper = reinterpret_cast<uintptr_t>(&applyArmImmediateStoreFast);
+    code[words++] = R5900::lui(R5900::R_T9,
+        static_cast<uint16_t>(helper >> 16));
+    code[words++] = R5900::ori(R5900::R_T9, R5900::R_T9,
+        static_cast<uint16_t>(helper));
+    code[words++] = R5900::jalr(R5900::R_RA, R5900::R_T9);
+    code[words++] = R5900::nop();
+    code[words++] = R5900::lw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
+
+    if (registerCycles)
+        code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
+    if (registerCpsr)
+        code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
+
+    if (conditionBranch != static_cast<size_t>(-1))
+    {
+        size_t distance = words - (conditionBranch + 1);
+        if (distance > 0x7FFFu)
+            return 0;
+        code[conditionBranch] = R5900::beq(R5900::R_T7,
+            R5900::R_ZERO, static_cast<int16_t>(distance));
+    }
+
+    return words;
+}
+
 size_t emitArmHalfwordTransferInstruction(uint32_t opcode, uint32_t *code)
 {
     Ps2ArmAlu::DecodedHalfwordTransfer decoded;
@@ -1819,6 +1974,9 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
         if (transfer.load && transfer.preIndex && !transfer.writeBack)
             return emitArmHalfwordLoadCachedInstruction(opcode, code,
                 registerCycles, registerCpsr);
+        if (!transfer.load && transfer.immediate)
+            return emitArmImmediateStoreFastInstruction(opcode, code,
+                registerCycles, registerCpsr);
 
         helperNeedsCpsr = transfer.condition != 0xEu;
         if (registerCpsr && helperNeedsCpsr)
@@ -1835,6 +1993,9 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
             if (byteTransfer.load && !byteTransfer.registerOffset &&
                 byteTransfer.preIndex && !byteTransfer.writeBack)
                 return emitArmByteLoadCachedInstruction(opcode, code,
+                    registerCycles, registerCpsr);
+            if (!byteTransfer.load && !byteTransfer.registerOffset)
+                return emitArmImmediateStoreFastInstruction(opcode, code,
                     registerCycles, registerCpsr);
 
             helperNeedsCpsr = byteTransfer.condition != 0xEu;
@@ -1872,6 +2033,9 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
                     if (singleTransfer.load && !singleTransfer.registerOffset &&
                         singleTransfer.preIndex && !singleTransfer.writeBack)
                         return emitArmWordLoadCachedInstruction(opcode, code,
+                            registerCycles, registerCpsr);
+                    if (!singleTransfer.load && !singleTransfer.registerOffset)
+                        return emitArmImmediateStoreFastInstruction(opcode, code,
                             registerCycles, registerCpsr);
 
                     helperNeedsCpsr = singleTransfer.condition != 0xEu;
