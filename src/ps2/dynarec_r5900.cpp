@@ -4462,6 +4462,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     uint8_t unionCommitRegs[15] = {};
     uint8_t unionCommitRegCount = 0;
     bool buildingUnionCommit = false;
+    R5900CompiledBlock *pipelineHint = nullptr;
     constexpr uint32_t MAX_INTERNAL_CHAIN_BLOCKS = 8;
     R5900CompiledBlock *current = block;
 
@@ -4545,10 +4546,14 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
 
         uint32_t remaining = cycleBudget - totalCycles;
         R5900CompiledBlock *next = findMutableBlock(state.nextPc, false);
+        if (next && next->guestInstructions >= 2)
+            pipelineHint = next;
         if (!next || !next->activeReady || next->writesMemory ||
             next->guestInstructions < MIN_ACTIVE_GUEST_INSTRUCTIONS ||
             !next->cycles || next->cycles > remaining)
             break;
+
+        pipelineHint = nullptr;
 
         uint16_t nextInputMask = next->inputMask;
         for (uint8_t i = 0; i < next->inputRegCount; i++)
@@ -4591,9 +4596,13 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     R5900CompiledBlock *pipelineBlock = nullptr;
     if (!(state.cpsr & BIT(5)))
     {
-        R5900CompiledBlock *next = findMutableBlock(state.nextPc, false);
-        if (next && next->guestInstructions >= 2)
-            pipelineBlock = next;
+        pipelineBlock = pipelineHint;
+        if (!pipelineBlock)
+        {
+            R5900CompiledBlock *next = findMutableBlock(state.nextPc, false);
+            if (next && next->guestInstructions >= 2)
+                pipelineBlock = next;
+        }
     }
 
     if (pipelineBlock)
