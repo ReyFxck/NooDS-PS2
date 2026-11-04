@@ -6552,10 +6552,12 @@ bool DynarecR5900::runArmAluSelfTest()
                 state.cycles != 1u)
                 return false;
         }
-        if (static_cast<uint32_t>(page[offset]) |
+        uint32_t untouched =
+            static_cast<uint32_t>(page[offset]) |
             (static_cast<uint32_t>(page[offset + 1]) << 8) |
             (static_cast<uint32_t>(page[offset + 2]) << 16) |
-            (static_cast<uint32_t>(page[offset + 3]) << 24) != before)
+            (static_cast<uint32_t>(page[offset + 3]) << 24);
+        if (untouched != before)
             return false;
 
         {
