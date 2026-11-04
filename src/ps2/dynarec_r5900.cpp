@@ -591,6 +591,33 @@ bool applyArmMultiply(uint32_t opcode, ArmAluState *state)
     return true;
 }
 
+bool applyArmLongMultiply(uint32_t opcode, ArmAluState *state)
+{
+    Ps2ArmAlu::DecodedLongMultiply decoded;
+    if (!state || !Ps2ArmAlu::decodeLongMultiply(opcode, &decoded))
+        return false;
+
+    bool passed = Ps2ArmAlu::conditionPassed(decoded.condition, state->cpsr);
+    int32_t multiplier = static_cast<int32_t>(state->r[decoded.rs]);
+    if (!Ps2ArmAlu::executeLongMultiply(opcode, state->r, &state->cpsr))
+        return false;
+
+    if (!passed)
+    {
+        state->cycles += 1u;
+    }
+    else if (state->cpuId)
+    {
+        uint32_t m = arm7MultiplyM(multiplier);
+        state->cycles += m + 2u + (decoded.accumulate ? 1u : 0u);
+    }
+    else
+    {
+        state->cycles += decoded.setFlags ? 5u : 3u;
+    }
+    return true;
+}
+
 uint8_t *getArm9CachedReadPage(ArmAluState *state, uint32_t address)
 {
     if (!state || !state->memory)
