@@ -464,14 +464,136 @@ void Core::runNdsFrame()
                 }
             }
 
-            // Run the ARM7 at half the speed of the ARM9
+            // Run the ARM7 at half the speed of the ARM9. The optional
+            // block backend receives ARM7-native cycles; its budget is the
+            // remaining global scheduler room divided by two.
             if (interpreter[1].shouldRun() && globalCycles >= arm7Cycles)
             {
+                int arm7StepCycles = 0;
+                uint32_t arm7StepInstructions = 0;
+
+                if (arm7BlockRunner && arm7BlockHotCount)
+                {
+                    uint32_t guestPc =
+                        CpuBackendAccess::nextInstructionAddress(interpreter[1]);
+                    size_t hotSlot = arm7BlockFilterSlot(guestPc);
+                    if (arm7BlockHotPc[hotSlot] == guestPc)
+                    {
 #ifdef NOODS_PROFILE
-                if (profileEnabled)
-                    runProfile.arm7Opcodes++;
+                        if (profileEnabled)
+                            runProfile.arm7BlockFilterHits++;
 #endif
-                arm7Cycles = globalCycles + (interpreter[1].runOpcode() << 1);
+                        uint32_t globalBudget =
+                            tasks.front().cycles - globalCycles;
+                        if (interpreter[0].shouldRun())
+                        {
+                            if (arm9Cycles <= globalCycles)
+                                globalBudget = 0;
+                            else
+                                globalBudget = std::min(globalBudget,
+                                    arm9Cycles - globalCycles);
+                        }
+
+                        uint32_t cycleBudget = globalBudget >> 1;
+                        uint32_t minCycles = arm7BlockMinCycles[hotSlot];
+                        if (!minCycles)
+                            minCycles = 1;
+
+                        if (!cycleBudget || cycleBudget < minCycles)
+                        {
+#ifdef NOODS_PROFILE
+                            if (profileEnabled)
+                                runProfile.arm7BlockBudgetSkips++;
+#endif
+                        }
+                        else
+                        {
+                            arm7StepCycles = arm7BlockRunner(
+                                arm7BlockRunnerContext, interpreter[1],
+                                cycleBudget, &arm7StepInstructions);
+
+                            if (arm7StepCycles > 0)
+                            {
+                                arm7BlockHotFailures[hotSlot] = 0;
+#ifdef NOODS_PROFILE
+                                if (profileEnabled)
+                                    runProfile.arm7BlockExecutions++;
+#endif
+                            }
+                            else if (arm7StepCycles ==
+                                ARM9_BLOCK_RUNNER_PERMANENT_REJECT)
+                            {
+                                arm7BlockHotPc[hotSlot] = 0;
+                                arm7BlockMinCycles[hotSlot] = 0;
+                                arm7BlockHotFailures[hotSlot] = 0;
+                                if (arm7BlockHotCount)
+                                    arm7BlockHotCount--;
+                                arm7StepCycles = 0;
+#ifdef NOODS_PROFILE
+                                if (profileEnabled)
+                                    runProfile.arm7BlockFilterDrops++;
+#endif
+                            }
+                            else if (arm7StepCycles < 0)
+                            {
+                                uint32_t required =
+                                    static_cast<uint32_t>(-arm7StepCycles);
+                                if (required > 0xFFu)
+                                    required = 0xFFu;
+                                if (required > arm7BlockMinCycles[hotSlot])
+                                    arm7BlockMinCycles[hotSlot] =
+                                        static_cast<uint8_t>(required);
+                                arm7StepCycles = 0;
+#ifdef NOODS_PROFILE
+                                if (profileEnabled)
+                                    runProfile.arm7BlockBudgetSkips++;
+#endif
+                            }
+                            else
+                            {
+                                uint8_t &failures =
+                                    arm7BlockHotFailures[hotSlot];
+                                if (failures < 0xFFu)
+                                    failures++;
+                                if (failures >= 8)
+                                {
+                                    arm7BlockHotPc[hotSlot] = 0;
+                                    arm7BlockMinCycles[hotSlot] = 0;
+                                    failures = 0;
+                                    if (arm7BlockHotCount)
+                                        arm7BlockHotCount--;
+#ifdef NOODS_PROFILE
+                                    if (profileEnabled)
+                                        runProfile.arm7BlockFilterDrops++;
+#endif
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (arm7StepCycles > 0)
+                {
+                    if (!arm7StepInstructions)
+                        arm7StepInstructions = 1;
+#ifdef NOODS_PROFILE
+                    if (profileEnabled)
+                        runProfile.arm7Opcodes += arm7StepInstructions;
+#endif
+                    arm7Cycles = globalCycles +
+                        (static_cast<uint32_t>(arm7StepCycles) << 1);
+                }
+                else
+                {
+                    sampleArm7HotPc(
+                        CpuBackendAccess::nextInstructionAddress(interpreter[1]));
+#ifdef NOODS_PROFILE
+                    if (profileEnabled)
+                        runProfile.arm7Opcodes++;
+#endif
+                    arm7Cycles = globalCycles +
+                        (static_cast<uint32_t>(interpreter[1].runOpcode()) << 1);
+                }
             }
 
             // Count cycles up to the next soonest event
@@ -609,6 +731,72 @@ void Core::addArm9BlockHotPcs(const uint32_t *pcs, size_t count)
         }
 
         arm9BlockHotPc[slot] = pc;
+    }
+}
+
+
+void Core::sampleArm7HotPc(uint32_t pc)
+{
+    if (!pc || ++arm7HotSampleDivider != 64)
+        return;
+    arm7HotSampleDivider = 0;
+
+    size_t sampleSlot = arm7HotSampleSlot(pc);
+    uint32_t &samplePc = arm7HotSamplePc[sampleSlot];
+    uint8_t &score = arm7HotSampleScore[sampleSlot];
+
+    if (samplePc == pc)
+    {
+        if (score < 0xFFu)
+            score++;
+    }
+    else if (score)
+    {
+        score--;
+        return;
+    }
+    else
+    {
+        samplePc = pc;
+        score = 1;
+    }
+
+    if (score < 8)
+        return;
+
+    size_t hotSlot = arm7BlockFilterSlot(pc);
+    if (arm7BlockHotPc[hotSlot] != pc)
+    {
+        addArm7BlockHotPcs(&pc, 1);
+#ifdef NOODS_PROFILE
+        if (profileEnabled)
+            runProfile.arm7AutoHotPromotions++;
+#endif
+    }
+    score = 0;
+}
+
+void Core::addArm7BlockHotPcs(const uint32_t *pcs, size_t count)
+{
+    if (!pcs)
+        return;
+
+    for (size_t i = 0; i < count; i++)
+    {
+        uint32_t pc = pcs[i];
+        if (!pc)
+            continue;
+
+        size_t slot = arm7BlockFilterSlot(pc);
+        if (!arm7BlockHotPc[slot])
+            arm7BlockHotCount++;
+
+        if (arm7BlockHotPc[slot] != pc)
+        {
+            arm7BlockHotFailures[slot] = 0;
+            arm7BlockMinCycles[slot] = 1;
+        }
+        arm7BlockHotPc[slot] = pc;
     }
 }
 

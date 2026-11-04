@@ -103,6 +103,7 @@ struct R5900CompiledBlock
     bool writesMemory = false;
     bool thumb = false;
     bool internalSelfLoop = false;
+    bool arm7TimingSafe = false;
     bool differentialVerified = false;
     bool activeReady = false;
 
@@ -162,6 +163,8 @@ class DynarecR5900
         int runArm7AluBranchDifferentialSelfTest(Interpreter &cpu,
             uint32_t *guestPc = nullptr, uint32_t *instructionCount = nullptr,
             uint32_t *stateHash = nullptr);
+        int runArm7ActiveAluBranchBlock(Interpreter &cpu,
+            uint32_t cycleBudget, uint32_t *guestInstructions = nullptr);
 
         // Differential gate against NooDS' own interpreter. Direct-memory
         // store blocks are transactionally journaled on both paths, compared,

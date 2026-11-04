@@ -5523,6 +5523,11 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
     if (!emitArmAluSequence(opcodes, count, guestPc, &entry, &hostWords))
         return -1;
 
+    R5900CompiledBlock *compiled = findMutableBlock(guestPc, false);
+    if (!compiled)
+        return -1;
+    compiled->arm7TimingSafe = true;
+
     ArmAluState actual = source;
     typedef void (*Arm7ShadowFunction)(ArmAluState *);
     Arm7ShadowFunction function =
@@ -5648,6 +5653,167 @@ int DynarecR5900::runArm7AluBranchDifferentialSelfTest(Interpreter &cpu,
 
     block->differentialVerified = match;
     return match ? 1 : -1;
+}
+
+
+
+int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
+    uint32_t cycleBudget, uint32_t *guestInstructions)
+{
+    if (guestInstructions)
+        *guestInstructions = 0;
+
+    DYNAREC_PROFILE(profile.activeAttempts++);
+    if (!cycleBudget || CpuBackendAccess::isArm9(cpu) ||
+        CpuBackendAccess::isThumb(cpu))
+    {
+        DYNAREC_PROFILE(profile.activeStateFallbacks++);
+        return 0;
+    }
+
+    synchronizeMemoryMap();
+    uint32_t guestPc = CpuBackendAccess::nextInstructionAddress(cpu);
+    constexpr uint32_t MIN_ARM7_ACTIVE_INSTRUCTIONS = 2;
+
+    R5900CompiledBlock *block = findMutableBlock(guestPc, false);
+    if (!block || !block->arm7TimingSafe ||
+        block->guestInstructions < MIN_ARM7_ACTIVE_INSTRUCTIONS)
+    {
+        ActiveRejectKind rejected = findActiveReject(guestPc);
+        if (rejected != ACTIVE_REJECT_NONE)
+        {
+            DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
+            return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
+        }
+
+        if (blocks.size() >= 2048)
+        {
+            cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
+            DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
+            return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
+        }
+
+        DYNAREC_PROFILE(profile.activeCompileMisses++);
+        int shadow = runArm7AluBranchShadowSelfTest(cpu, nullptr, nullptr,
+            nullptr, 16);
+        if (shadow <= 0)
+        {
+            cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
+            DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
+            return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
+        }
+
+        block = findMutableBlock(guestPc, false);
+        if (!block || !block->arm7TimingSafe ||
+            block->guestInstructions < MIN_ARM7_ACTIVE_INSTRUCTIONS)
+        {
+            cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
+            DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
+            return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
+        }
+    }
+
+    uint32_t minimumCycles = block->minCycles
+        ? block->minCycles
+        : block->guestInstructions;
+    if (minimumCycles > cycleBudget)
+    {
+        DYNAREC_PROFILE(profile.activeBudgetFallbacks++);
+        return -static_cast<int>(minimumCycles);
+    }
+
+    if (!block->activeReady)
+    {
+        if (!block->arm7TimingSafe || block->writesMemory ||
+            ((block->readMask | block->writeMask) & 0x8000u))
+        {
+            cacheActiveReject(guestPc, ACTIVE_REJECT_STATE);
+            DYNAREC_PROFILE(profile.activeStateFallbacks++);
+            return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
+        }
+
+        if (!block->differentialVerified)
+        {
+            int differential =
+                runArm7AluBranchDifferentialSelfTest(cpu);
+            if (differential <= 0)
+            {
+                cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
+                DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
+                return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
+            }
+
+            block = findMutableBlock(guestPc, false);
+            if (!block || !block->differentialVerified ||
+                !block->arm7TimingSafe)
+            {
+                cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
+                DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
+                return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
+            }
+        }
+
+        block->activeReady = true;
+    }
+
+    ArmAluState state;
+    for (uint8_t i = 0; i < block->inputRegCount; i++)
+    {
+        uint8_t reg = block->inputRegs[i];
+        state.r[reg] = CpuBackendAccess::readReg(cpu, reg);
+    }
+
+    uint32_t liveCpsr = CpuBackendAccess::readCpsr(cpu);
+    state.cpsr = liveCpsr;
+    state.nextPc = block->guestEndPc;
+    state.memory = memory;
+    state.memoryFault = 0;
+    state.writeCount = 0;
+    state.cycles = 0;
+    state.readCacheTag = 0;
+    state.readCachePage = nullptr;
+    state.writeCacheTag = 0;
+    state.writeCachePage = nullptr;
+    state.cycleLimit = cycleBudget;
+    state.guestExecuted = 0;
+    state.cpuId = 1;
+
+    typedef void (*Arm7ActiveFunction)(ArmAluState *);
+    Arm7ActiveFunction function =
+        reinterpret_cast<Arm7ActiveFunction>(block->hostCode);
+    function(&state);
+
+    if (state.memoryFault || state.writeCount ||
+        ((state.cpsr ^ liveCpsr) & 0x1Fu) ||
+        !state.cycles || state.cycles > cycleBudget)
+    {
+        if (state.cycles > cycleBudget)
+        {
+            DYNAREC_PROFILE(profile.activeBudgetFallbacks++);
+            return -static_cast<int>(minimumCycles);
+        }
+
+        DYNAREC_PROFILE(profile.activeStateFallbacks++);
+        return 0;
+    }
+
+    if (!CpuBackendAccess::commitBlockStateSparse(cpu, state.r,
+        block->writeRegs, block->writeRegCount, state.cpsr, state.nextPc))
+    {
+        DYNAREC_PROFILE(profile.activeStateFallbacks++);
+        return 0;
+    }
+
+    uint32_t executedGuest = state.guestExecuted
+        ? state.guestExecuted
+        : block->guestInstructions;
+    DYNAREC_PROFILE(profile.activeExecutions++);
+    DYNAREC_PROFILE(profile.activeGuestInstructions += executedGuest);
+    DYNAREC_PROFILE(profile.activeCycles += state.cycles);
+    if (guestInstructions)
+        *guestInstructions = executedGuest;
+
+    return static_cast<int>(state.cycles);
 }
 
 

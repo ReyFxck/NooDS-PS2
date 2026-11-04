@@ -1379,6 +1379,7 @@ int main(int argc, char **argv)
             new (std::nothrow) DynarecR5900(&core->memory);
         bool arm7ShadowReady = false;
         bool arm7ShadowGatePassed = false;
+        bool arm7ActiveExecutorEnabled = false;
         bool arm7ShadowHardFailure = false;
         uint32_t arm7ShadowAttempts = 0;
         if (arm7ShadowDynarec && arm7ShadowDynarec->init(256 * 1024))
@@ -1545,7 +1546,17 @@ int main(int argc, char **argv)
             if (differential > 0)
             {
                 arm7ShadowGatePassed = true;
-                PS2_LOG("[PS2][OK] ARM7 ALU/branch shadow+differential gate passed: pc=%08lX instructions=%lu shadowHash=%08lX diffHash=%08lX; execution remains disabled.\n",
+                core->setArm7BlockRunner(arm7ShadowDynarec,
+                    [](void *context, Interpreter &cpu,
+                        uint32_t cycleBudget,
+                        uint32_t *guestInstructions) -> int
+                    {
+                        return static_cast<DynarecR5900*>(context)
+                            ->runArm7ActiveAluBranchBlock(cpu, cycleBudget,
+                                guestInstructions);
+                    });
+                arm7ActiveExecutorEnabled = true;
+                PS2_LOG("[PS2][OK] ARM7 ALU/branch shadow+differential gate passed: pc=%08lX instructions=%lu shadowHash=%08lX diffHash=%08lX; selective ALU/branch executor armed.\n",
                     static_cast<unsigned long>(blockPc),
                     static_cast<unsigned long>(blockInstructions),
                     static_cast<unsigned long>(blockHash),
@@ -2101,6 +2112,8 @@ int main(int argc, char **argv)
 
                 core->resetProfile();
                 dynarec.resetProfile();
+                if (arm7ShadowDynarec)
+                    arm7ShadowDynarec->resetProfile();
                 core->cartridgeNds.resetRomIoProfile();
                 profCoreTicks = 0;
                 profGetFrameTicks = 0;

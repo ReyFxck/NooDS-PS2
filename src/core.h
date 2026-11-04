@@ -85,6 +85,11 @@ struct CoreRunProfile
     uint64_t arm9BlockFilterDrops = 0;
     uint64_t arm9BlockBudgetSkips = 0;
     uint64_t arm9AutoHotPromotions = 0;
+    uint64_t arm7BlockFilterHits = 0;
+    uint64_t arm7BlockExecutions = 0;
+    uint64_t arm7BlockFilterDrops = 0;
+    uint64_t arm7BlockBudgetSkips = 0;
+    uint64_t arm7AutoHotPromotions = 0;
     uint64_t taskExecutions = 0;
     uint64_t scheduleCalls = 0;
     uint64_t estimatedLegacyFrontMoves = 0;
@@ -138,6 +143,14 @@ class Core
         // this tiny direct-mapped filter before calling a platform backend, so
         // a dynarec cannot impose a function-call/lookup tax on every opcode.
         void addArm9BlockHotPcs(const uint32_t *pcs, size_t count);
+
+        using Arm7BlockRunner = Arm9BlockRunner;
+        void setArm7BlockRunner(void *context, Arm7BlockRunner runner)
+        {
+            arm7BlockRunnerContext = context;
+            arm7BlockRunner = runner;
+        }
+        void addArm7BlockHotPcs(const uint32_t *pcs, size_t count);
 
 #ifdef NOODS_PROFILE
         uint32_t getCyclesUntilNextEvent() const
@@ -235,6 +248,30 @@ class Core
         }
 
         void sampleArm9HotPc(uint32_t pc);
+
+        void *arm7BlockRunnerContext = nullptr;
+        Arm7BlockRunner arm7BlockRunner = nullptr;
+        static constexpr size_t ARM7_BLOCK_FILTER_SLOTS = 128;
+        uint32_t arm7BlockHotPc[ARM7_BLOCK_FILTER_SLOTS] = {};
+        uint8_t arm7BlockHotFailures[ARM7_BLOCK_FILTER_SLOTS] = {};
+        uint8_t arm7BlockMinCycles[ARM7_BLOCK_FILTER_SLOTS] = {};
+        uint8_t arm7BlockHotCount = 0;
+
+        static constexpr size_t ARM7_HOT_SAMPLE_SLOTS = 128;
+        uint32_t arm7HotSamplePc[ARM7_HOT_SAMPLE_SLOTS] = {};
+        uint8_t arm7HotSampleScore[ARM7_HOT_SAMPLE_SLOTS] = {};
+        uint8_t arm7HotSampleDivider = 0;
+
+        size_t arm7BlockFilterSlot(uint32_t pc) const
+        {
+            return ((pc >> 2) ^ (pc >> 11)) & (ARM7_BLOCK_FILTER_SLOTS - 1);
+        }
+        size_t arm7HotSampleSlot(uint32_t pc) const
+        {
+            return ((pc >> 2) ^ (pc >> 10) ^ (pc >> 18)) &
+                (ARM7_HOT_SAMPLE_SLOTS - 1);
+        }
+        void sampleArm7HotPc(uint32_t pc);
 
         uint32_t frameCycles = 0, globalCycles = 0;
         uint32_t arm9Cycles = 0, arm7Cycles = 0;
