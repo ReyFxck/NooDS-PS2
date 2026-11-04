@@ -912,6 +912,9 @@ size_t logDynarecHotBlocks(DynarecR5900 &dynarec,
         static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_PC]),
         static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_SYSTEM]),
         static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_OTHER]));
+    PS2_LOG("[PS2][JIT] unsupported-detail: longMul=%llu signedLoad=%llu\n",
+        static_cast<unsigned long long>(profile.longMultiplyRejects),
+        static_cast<unsigned long long>(profile.signedLoadRejects));
     PS2_LOG("[PS2][JIT] active attempts=%llu exec=%llu guest=%llu cycles=%llu chain=%llu storeChain=%llu pipeReuse=%llu codeInv=%llu compileMiss=%llu budgetFallback=%llu writeFallback=%llu verifyFallback=%llu stateFallback=%llu\n",
         static_cast<unsigned long long>(profile.activeAttempts),
         static_cast<unsigned long long>(profile.activeExecutions),

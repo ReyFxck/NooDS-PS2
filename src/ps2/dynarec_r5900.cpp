@@ -387,6 +387,21 @@ bool DynarecR5900::analyzeArmBlock(uint32_t pc, R5900BlockAnalysis *analysis,
                 analysis->instructions[analysis->firstUnsupported];
             reason = unsupported.reason;
             recordFallback(profile, unsupported.pc, unsupported.opcode);
+
+            uint32_t rejectedOpcode = unsupported.opcode;
+            bool longMultiply =
+                (rejectedOpcode & 0x0F8000F0u) == 0x00800090u;
+            bool extraTransfer =
+                (rejectedOpcode & 0x0E000090u) == 0x00000090u;
+            uint8_t extraType =
+                static_cast<uint8_t>((rejectedOpcode >> 5) & 0x3u);
+            bool signedLoad = extraTransfer &&
+                (rejectedOpcode & BIT(20)) &&
+                (extraType == 2u || extraType == 3u);
+            if (longMultiply)
+                profile.longMultiplyRejects++;
+            if (signedLoad)
+                profile.signedLoadRejects++;
         }
         profile.rejectReason[reason]++;
     }

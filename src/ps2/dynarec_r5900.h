@@ -51,6 +51,8 @@ struct R5900DynarecProfile
     uint64_t supportedInstructions = 0;
     uint64_t fallbackCount = 0;
     uint64_t mapInvalidations = 0;
+    uint64_t longMultiplyRejects = 0;
+    uint64_t signedLoadRejects = 0;
 
     // Guarded live-execution counters. These are separate from shadow compile
     // coverage so PROFILE builds can show whether the JIT actually replaced
