@@ -3289,6 +3289,8 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
     words += emitted;
     if (registerCycles)
         code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
+    if (registerCpsr && helperNeedsCpsr)
+        code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
     return words;
 }
 }
