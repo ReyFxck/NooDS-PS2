@@ -23,6 +23,9 @@
 #include <cstdint>
 #include <cstddef>
 #include <cstring>
+#ifdef NOODS_PROFILE
+#include <ctime>
+#endif
 
 #include "defines.h"
 
@@ -58,6 +61,10 @@ struct MemoryCpuProfile
     uint64_t unalignedWrites = 0;
     uint64_t crossPageReads = 0;
     uint64_t crossPageWrites = 0;
+    uint64_t mmioReadTimingSamples = 0;
+    uint64_t mmioWriteTimingSamples = 0;
+    uint64_t mmioReadTicks = 0;
+    uint64_t mmioWriteTicks = 0;
     MemoryHotMmio hotMmio[8] = {};
 };
 
@@ -299,6 +306,9 @@ class Memory
         {
             profile = MemoryProfile();
             profileSampleCounter[0] = profileSampleCounter[1] = 0;
+#if NOODS_PROFILE_LEVEL >= 2
+            profileMmioTimingCounter[0] = profileMmioTimingCounter[1] = 0;
+#endif
         }
         const MemoryProfile &getProfile() const { return profile; }
 #endif
@@ -341,7 +351,46 @@ class Memory
         bool profileEnabled = false;
         int8_t profileCpuContext = -1;
         uint32_t profileSampleCounter[2] = {};
+#if NOODS_PROFILE_LEVEL >= 2
+        uint32_t profileMmioTimingCounter[2] = {};
+#endif
         MemoryProfile profile;
+
+#if NOODS_PROFILE_LEVEL >= 2
+        FORCE_INLINE bool beginMmioTiming(clock_t &start)
+        {
+            if (!profileEnabled || profileCpuContext < 0)
+                return false;
+            const uint8_t cpuIndex =
+                static_cast<uint8_t>(profileCpuContext);
+            if ((++profileMmioTimingCounter[cpuIndex] & 63u) != 0)
+                return false;
+            start = clock();
+            return true;
+        }
+
+        FORCE_INLINE void endMmioTiming(bool write, clock_t start,
+            bool sampled)
+        {
+            if (!sampled || profileCpuContext < 0)
+                return;
+            const uint8_t cpuIndex =
+                static_cast<uint8_t>(profileCpuContext);
+            MemoryCpuProfile &entry = profile.cpu[cpuIndex];
+            const uint64_t ticks =
+                static_cast<uint64_t>(clock() - start);
+            if (write)
+            {
+                entry.mmioWriteTimingSamples++;
+                entry.mmioWriteTicks += ticks;
+            }
+            else
+            {
+                entry.mmioReadTimingSamples++;
+                entry.mmioReadTicks += ticks;
+            }
+        }
+#endif
 
         FORCE_INLINE void profileAccess(bool cpu, uint32_t rawAddress,
             size_t size, bool write, bool direct, bool pageCacheHit)
