@@ -1703,16 +1703,10 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
             static_cast<int16_t>(decoded.rd * 4), R5900::R_A0);
     code[words++] = R5900::or_(R5900::R_T2,
         R5900::R_V0, R5900::R_ZERO);
-    if (decoded.load)
-        code[words++] = R5900::lw(R5900::R_T2,
-            static_cast<int16_t>(decoded.reg * 4), R5900::R_A0);
     if (registerCycles)
         code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
     if (registerCpsr)
         code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
-    if (decoded.condition != 0xEu)
-        words += emitArmCondition(decoded.condition, code + words,
-            registerCpsr);
 
     size_t done = words;
 
@@ -2967,10 +2961,19 @@ size_t emitArmSingleBlockTransferFastInstruction(uint32_t opcode,
     code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
     code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
 
+    // The helper fallback writes the loaded guest register to ArmAluState but
+    // may clobber caller-saved t2/t7. Reconstruct the forwarding value and
+    // cached condition before rejoining generated code.
+    if (decoded.load)
+        code[words++] = R5900::lw(R5900::R_T2,
+            static_cast<int16_t>(decoded.reg * 4), R5900::R_A0);
     if (registerCycles)
         code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
     if (registerCpsr)
         code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
+    if (decoded.condition != 0xEu)
+        words += emitArmCondition(decoded.condition, code + words,
+            registerCpsr);
 
     size_t done = words;
 
