@@ -3973,6 +3973,77 @@ size_t emitArmMultiBlockTransferInstruction(uint32_t opcode,
     return words;
 }
 
+size_t emitArm7VariableMultiplyTiming(uint32_t *code,
+    bool registerCycles, uint32_t constantExtra)
+{
+    if (!code)
+        return 0;
+
+    size_t words = 0;
+    code[words++] = R5900::sll(R5900::R_T6, R5900::R_T1, 24);
+    code[words++] = R5900::sra(R5900::R_T6, R5900::R_T6, 24);
+    size_t notM1Branch = words;
+    code[words++] = R5900::bne(R5900::R_T6, R5900::R_T1, 0);
+    code[words++] = R5900::nop();
+    words += emitArmCycleAdd(1u + constantExtra,
+        code + words, registerCycles);
+    size_t m1DoneBranch = words;
+    code[words++] = R5900::beq(R5900::R_ZERO, R5900::R_ZERO, 0);
+    code[words++] = R5900::nop();
+
+    size_t checkM2 = words;
+    code[words++] = R5900::sll(R5900::R_T6, R5900::R_T1, 16);
+    code[words++] = R5900::sra(R5900::R_T6, R5900::R_T6, 16);
+    size_t notM2Branch = words;
+    code[words++] = R5900::bne(R5900::R_T6, R5900::R_T1, 0);
+    code[words++] = R5900::nop();
+    words += emitArmCycleAdd(2u + constantExtra,
+        code + words, registerCycles);
+    size_t m2DoneBranch = words;
+    code[words++] = R5900::beq(R5900::R_ZERO, R5900::R_ZERO, 0);
+    code[words++] = R5900::nop();
+
+    size_t checkM3 = words;
+    code[words++] = R5900::sll(R5900::R_T6, R5900::R_T1, 8);
+    code[words++] = R5900::sra(R5900::R_T6, R5900::R_T6, 8);
+    size_t notM3Branch = words;
+    code[words++] = R5900::bne(R5900::R_T6, R5900::R_T1, 0);
+    code[words++] = R5900::nop();
+    words += emitArmCycleAdd(3u + constantExtra,
+        code + words, registerCycles);
+    size_t m3DoneBranch = words;
+    code[words++] = R5900::beq(R5900::R_ZERO, R5900::R_ZERO, 0);
+    code[words++] = R5900::nop();
+
+    size_t useM4 = words;
+    words += emitArmCycleAdd(4u + constantExtra,
+        code + words, registerCycles);
+    size_t timingDone = words;
+
+    auto patchTimingBranch = [&](size_t branch, size_t target, bool equal)
+    {
+        size_t distance = target - (branch + 1);
+        if (distance > 0x7FFFu)
+            return false;
+        code[branch] = equal
+            ? R5900::beq(R5900::R_ZERO, R5900::R_ZERO,
+                static_cast<int16_t>(distance))
+            : R5900::bne(R5900::R_T6, R5900::R_T1,
+                static_cast<int16_t>(distance));
+        return true;
+    };
+
+    if (!patchTimingBranch(notM1Branch, checkM2, false) ||
+        !patchTimingBranch(m1DoneBranch, timingDone, true) ||
+        !patchTimingBranch(notM2Branch, checkM3, false) ||
+        !patchTimingBranch(m2DoneBranch, timingDone, true) ||
+        !patchTimingBranch(notM3Branch, useM4, false) ||
+        !patchTimingBranch(m3DoneBranch, timingDone, true))
+        return 0;
+
+    return words;
+}
+
 size_t emitArmMultiplyInstruction(uint32_t opcode, uint32_t *code,
     bool registerCycles, bool registerCpsr, bool suppressResultStore = false,
     uint8_t targetCpuId = 0)
@@ -4001,71 +4072,12 @@ size_t emitArmMultiplyInstruction(uint32_t opcode, uint32_t *code,
 
     if (targetCpuId)
     {
-        // ARM7 multiply timing is data-dependent. m is the smallest signed
-        // 8/16/24/32-bit representation of Rs. One base instruction cycle was
-        // already charged above; add m for MUL and m+1 for MLA.
-        uint32_t accumulateExtra = decoded.accumulate ? 1u : 0u;
-
-        code[words++] = R5900::sll(R5900::R_T6, R5900::R_T1, 24);
-        code[words++] = R5900::sra(R5900::R_T6, R5900::R_T6, 24);
-        size_t notM1Branch = words;
-        code[words++] = R5900::bne(R5900::R_T6, R5900::R_T1, 0);
-        code[words++] = R5900::nop();
-        words += emitArmCycleAdd(1u + accumulateExtra,
-            code + words, registerCycles);
-        size_t m1DoneBranch = words;
-        code[words++] = R5900::beq(R5900::R_ZERO, R5900::R_ZERO, 0);
-        code[words++] = R5900::nop();
-
-        size_t checkM2 = words;
-        code[words++] = R5900::sll(R5900::R_T6, R5900::R_T1, 16);
-        code[words++] = R5900::sra(R5900::R_T6, R5900::R_T6, 16);
-        size_t notM2Branch = words;
-        code[words++] = R5900::bne(R5900::R_T6, R5900::R_T1, 0);
-        code[words++] = R5900::nop();
-        words += emitArmCycleAdd(2u + accumulateExtra,
-            code + words, registerCycles);
-        size_t m2DoneBranch = words;
-        code[words++] = R5900::beq(R5900::R_ZERO, R5900::R_ZERO, 0);
-        code[words++] = R5900::nop();
-
-        size_t checkM3 = words;
-        code[words++] = R5900::sll(R5900::R_T6, R5900::R_T1, 8);
-        code[words++] = R5900::sra(R5900::R_T6, R5900::R_T6, 8);
-        size_t notM3Branch = words;
-        code[words++] = R5900::bne(R5900::R_T6, R5900::R_T1, 0);
-        code[words++] = R5900::nop();
-        words += emitArmCycleAdd(3u + accumulateExtra,
-            code + words, registerCycles);
-        size_t m3DoneBranch = words;
-        code[words++] = R5900::beq(R5900::R_ZERO, R5900::R_ZERO, 0);
-        code[words++] = R5900::nop();
-
-        size_t useM4 = words;
-        words += emitArmCycleAdd(4u + accumulateExtra,
-            code + words, registerCycles);
-        size_t timingDone = words;
-
-        auto patchTimingBranch = [&](size_t branch, size_t target, bool equal)
-        {
-            size_t distance = target - (branch + 1);
-            if (distance > 0x7FFFu)
-                return false;
-            code[branch] = equal
-                ? R5900::beq(R5900::R_ZERO, R5900::R_ZERO,
-                    static_cast<int16_t>(distance))
-                : R5900::bne(R5900::R_T6, R5900::R_T1,
-                    static_cast<int16_t>(distance));
-            return true;
-        };
-
-        if (!patchTimingBranch(notM1Branch, checkM2, false) ||
-            !patchTimingBranch(m1DoneBranch, timingDone, true) ||
-            !patchTimingBranch(notM2Branch, checkM3, false) ||
-            !patchTimingBranch(m2DoneBranch, timingDone, true) ||
-            !patchTimingBranch(notM3Branch, useM4, false) ||
-            !patchTimingBranch(m3DoneBranch, timingDone, true))
+        // One base cycle is already charged; ARM7 adds m (+1 for MLA).
+        size_t timingWords = emitArm7VariableMultiplyTiming(code + words,
+            registerCycles, decoded.accumulate ? 1u : 0u);
+        if (!timingWords)
             return 0;
+        words += timingWords;
     }
     else
     {
@@ -4124,6 +4136,108 @@ size_t emitArmMultiplyInstruction(uint32_t opcode, uint32_t *code,
     return words;
 }
 
+size_t emitArmLongMultiplyInstruction(uint32_t opcode,
+    uint32_t *code, bool registerCycles, bool registerCpsr,
+    uint8_t targetCpuId = 0)
+{
+    Ps2ArmAlu::DecodedLongMultiply decoded;
+    if (!code || !Ps2ArmAlu::decodeLongMultiply(opcode, &decoded))
+        return 0;
+
+    size_t words = 0;
+    words += emitArmCycleAdd(1, code + words, registerCycles);
+
+    size_t conditionBranch = static_cast<size_t>(-1);
+    if (decoded.condition != 0xEu)
+    {
+        words += emitArmCondition(decoded.condition, code + words,
+            registerCpsr);
+        conditionBranch = words;
+        code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+    }
+
+    code[words++] = R5900::lw(R5900::R_T1,
+        static_cast<int16_t>(decoded.rs * 4), R5900::R_A0);
+
+    if (targetCpuId)
+    {
+        // Long multiply totals m+2, or m+3 for accumulate. One base cycle is
+        // already charged, so the variable tail is m+1(+1 accumulate).
+        size_t timingWords = emitArm7VariableMultiplyTiming(code + words,
+            registerCycles, 1u + (decoded.accumulate ? 1u : 0u));
+        if (!timingWords)
+            return 0;
+        words += timingWords;
+    }
+    else
+    {
+        words += emitArmCycleAdd(decoded.setFlags ? 4u : 2u,
+            code + words, registerCycles);
+    }
+
+    code[words++] = R5900::lw(R5900::R_T0,
+        static_cast<int16_t>(decoded.rm * 4), R5900::R_A0);
+    code[words++] = decoded.signedMultiply
+        ? R5900::multHiLo(R5900::R_T0, R5900::R_T1)
+        : R5900::multuHiLo(R5900::R_T0, R5900::R_T1);
+    code[words++] = R5900::mflo(R5900::R_T2);
+    code[words++] = R5900::mfhi(R5900::R_T3);
+
+    if (decoded.accumulate)
+    {
+        code[words++] = R5900::lw(R5900::R_T4,
+            static_cast<int16_t>(decoded.rdLo * 4), R5900::R_A0);
+        code[words++] = R5900::lw(R5900::R_T5,
+            static_cast<int16_t>(decoded.rdHi * 4), R5900::R_A0);
+        code[words++] = R5900::addu(R5900::R_T6,
+            R5900::R_T2, R5900::R_T4);
+        code[words++] = R5900::sltu(R5900::R_T7,
+            R5900::R_T6, R5900::R_T2);
+        code[words++] = R5900::addu(R5900::R_T3,
+            R5900::R_T3, R5900::R_T5);
+        code[words++] = R5900::addu(R5900::R_T3,
+            R5900::R_T3, R5900::R_T7);
+        code[words++] = R5900::or_(R5900::R_T2,
+            R5900::R_T6, R5900::R_ZERO);
+    }
+
+    code[words++] = R5900::sw(R5900::R_T2,
+        static_cast<int16_t>(decoded.rdLo * 4), R5900::R_A0);
+    code[words++] = R5900::sw(R5900::R_T3,
+        static_cast<int16_t>(decoded.rdHi * 4), R5900::R_A0);
+
+    if (decoded.setFlags)
+    {
+        int cpsrReg = registerCpsr ? R5900::R_V1 : R5900::R_T5;
+        if (!registerCpsr)
+            code[words++] = R5900::lw(cpsrReg, 64, R5900::R_A0);
+
+        // Match NooDS: long multiply S derives N/Z from RdHi only.
+        code[words++] = R5900::lui(R5900::R_T6, 0x3FFFu);
+        code[words++] = R5900::ori(R5900::R_T6, R5900::R_T6, 0xFFFFu);
+        code[words++] = R5900::and_(cpsrReg, cpsrReg, R5900::R_T6);
+        code[words++] = R5900::srl(R5900::R_T6, R5900::R_T3, 31);
+        code[words++] = R5900::sll(R5900::R_T6, R5900::R_T6, 31);
+        code[words++] = R5900::or_(cpsrReg, cpsrReg, R5900::R_T6);
+        code[words++] = R5900::sltiu(R5900::R_T6, R5900::R_T3, 1);
+        code[words++] = R5900::sll(R5900::R_T6, R5900::R_T6, 30);
+        code[words++] = R5900::or_(cpsrReg, cpsrReg, R5900::R_T6);
+        if (!registerCpsr)
+            code[words++] = R5900::sw(cpsrReg, 64, R5900::R_A0);
+    }
+
+    if (conditionBranch != static_cast<size_t>(-1))
+    {
+        size_t distance = words - (conditionBranch + 1);
+        if (distance > 0x7FFFu)
+            return 0;
+        code[conditionBranch] = R5900::beq(R5900::R_T7,
+            R5900::R_ZERO, static_cast<int16_t>(distance));
+    }
+    return words;
+}
+
 size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
     bool registerCycles = false, bool registerCpsr = false,
     Memory *directMemory = nullptr, int forwardedGuestReg = -1,
@@ -4143,6 +4257,11 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
     if (Ps2ArmAlu::decodeMultiply(opcode, &multiply))
         return emitArmMultiplyInstruction(opcode, code,
             registerCycles, registerCpsr, suppressResultStore, targetCpuId);
+
+    Ps2ArmAlu::DecodedLongMultiply longMultiply;
+    if (Ps2ArmAlu::decodeLongMultiply(opcode, &longMultiply))
+        return emitArmLongMultiplyInstruction(opcode, code,
+            registerCycles, registerCpsr, targetCpuId);
 
     Ps2ArmAlu::DecodedMultiBlockTransfer multiBlockTransfer;
     if (Ps2ArmAlu::decodeMultiBlockTransfer(opcode, &multiBlockTransfer))
