@@ -6153,7 +6153,10 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     // too: writes are visible to later ARM9 blocks exactly as in the
     // interpreter, but remain rollback-capable until the final CPU-state
     // commit. THUMB transitions still terminate immediately.
-    constexpr uint32_t MAX_INTERNAL_CHAIN_BLOCKS = 12;
+    // A one-store copy loop can consume the full 16-entry transactional
+    // journal before returning to Core. Multi-store blocks are still bounded by
+    // maxMemoryWrites below, and cycleBudget remains the hard scheduler fence.
+    constexpr uint32_t MAX_INTERNAL_CHAIN_BLOCKS = 16;
     R5900CompiledBlock *current = block;
 
     auto writesOverlapBlockCode = [&](const R5900CompiledBlock *candidate)
