@@ -60,6 +60,9 @@ class Gpu3DRenderer
 
         int polygonTop[2048] = {};
         int polygonBot[2048] = {};
+        // 2048 polygon bits per scanline. Built once at line 0 so the
+        // renderer doesn't rescan every polygon for all 192 scanlines.
+        uint32_t polygonLineMask[192][64] = {};
 
         int activeThreads = 0;
         std::thread *threads[3] = {};
