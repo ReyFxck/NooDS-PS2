@@ -8871,9 +8871,22 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
     uint32_t guestPc = CpuBackendAccess::nextInstructionAddress(cpu);
     constexpr uint32_t MIN_ARM7_ACTIVE_INSTRUCTIONS = 2;
 
+    // Recovery mode after the live-ARM7 black-screen regression: only admit
+    // one read-only, non-resident block at a time. Shadow+differential support
+    // remains wider so stores/self-loops keep getting validated without being
+    // allowed to mutate live state. Re-expand each feature independently once
+    // this conservative path survives long runtime tests.
+    auto conservativeArm7LiveSafe = [](const R5900CompiledBlock *candidate)
+    {
+        return candidate &&
+            candidate->arm7TimingSafe &&
+            candidate->guestInstructions >= MIN_ARM7_ACTIVE_INSTRUCTIONS &&
+            !candidate->writesMemory &&
+            !candidate->internalSelfLoop;
+    };
+
     R5900CompiledBlock *block = findMutableBlock(guestPc, false);
-    if (!block || !block->arm7TimingSafe ||
-        block->guestInstructions < MIN_ARM7_ACTIVE_INSTRUCTIONS)
+    if (!conservativeArm7LiveSafe(block))
     {
         ActiveRejectKind rejected = findActiveReject(guestPc);
         if (rejected != ACTIVE_REJECT_NONE)
@@ -8900,8 +8913,7 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
         }
 
         block = findMutableBlock(guestPc, false);
-        if (!block || !block->arm7TimingSafe ||
-            block->guestInstructions < MIN_ARM7_ACTIVE_INSTRUCTIONS)
+        if (!conservativeArm7LiveSafe(block))
         {
             cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
             DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
@@ -8920,8 +8932,8 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
 
     if (!block->activeReady)
     {
-        if (!block->arm7TimingSafe ||
-            block->maxMemoryWrites > 16 ||
+        if (!conservativeArm7LiveSafe(block) ||
+            block->maxMemoryWrites ||
             ((block->readMask | block->writeMask) & 0x8000u))
         {
             cacheActiveReject(guestPc, ACTIVE_REJECT_STATE);
@@ -8983,7 +8995,10 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
     ArmMemoryWriteGuard liveWrites(&state);
     constexpr uint32_t WRITE_JOURNAL_CAPACITY =
         sizeof(state.writes) / sizeof(state.writes[0]);
-    constexpr uint32_t MAX_ARM7_RESIDENT_BLOCKS = 8;
+    // Keep the recovery path to one generated block per architectural commit.
+    // The previous 8-block resident chain was heavily exercised in the broken
+    // run, while isolated differential gates still passed.
+    constexpr uint32_t MAX_ARM7_RESIDENT_BLOCKS = 1;
 
     uint32_t totalCycles = 0;
     uint32_t executedGuest = 0;
@@ -9131,29 +9146,11 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
         commitRegCount = unionCommitRegCount;
     }
 
-    bool committed = false;
-    R5900CompiledBlock *pipelineBlock = nullptr;
-    if (!(state.cpsr & BIT(5)) && state.writeCount == 0)
-    {
-        R5900CompiledBlock *next = findMutableBlock(state.nextPc, false);
-        if (next && next->guestInstructions >= 2)
-            pipelineBlock = next;
-    }
-
-    if (pipelineBlock)
-    {
-        committed = CpuBackendAccess::commitBlockStateSparseKnownArmPipeline(
-            cpu, state.r, commitRegs, commitRegCount, state.cpsr,
-            state.nextPc, pipelineBlock->entryOpcode0,
-            pipelineBlock->entryOpcode1);
-        if (committed)
-            DYNAREC_PROFILE(profile.activePipelineReuses++);
-    }
-    else
-    {
-        committed = CpuBackendAccess::commitBlockStateSparse(cpu, state.r,
-            commitRegs, commitRegCount, state.cpsr, state.nextPc);
-    }
+    // Recovery mode deliberately uses the ordinary refill path. Reusing the
+    // next compiled block's cached opcodes is a separate optimization and must
+    // not be coupled to the first ARM7 live-correctness retest.
+    bool committed = CpuBackendAccess::commitBlockStateSparse(cpu, state.r,
+        commitRegs, commitRegCount, state.cpsr, state.nextPc);
 
     if (!committed)
     {
