@@ -578,8 +578,8 @@ bool applyArmMultiply(uint32_t opcode, ArmAluState *state)
     else if (state->cpuId)
     {
         // Match Interpreter::mul/mla/muls/mlas on ARM7. Rs determines m from
-        // the smallest signed 8/16/24/32-bit representation. S changes flags
-        // but does not add ARM7 multiply cycles.
+        // multiplier early termination: upper [31:8]/[31:16]/[31:24] bits
+        // must all be sign bits for m=1/2/3. S changes flags but adds no cycles.
         uint32_t m = arm7MultiplyM(multiplier);
         state->cycles += m + 1u + (decoded.accumulate ? 1u : 0u);
     }
@@ -3980,10 +3980,19 @@ size_t emitArm7VariableMultiplyTiming(uint32_t *code,
         return 0;
 
     size_t words = 0;
-    code[words++] = R5900::sll(R5900::R_T6, R5900::R_T1, 24);
-    code[words++] = R5900::sra(R5900::R_T6, R5900::R_T6, 24);
+
+    // ARM7TDMI multiplier early termination is based on the upper bits of Rs,
+    // not on a conventional signed 8/16/24-bit range. For m=1, bits [31:8]
+    // must all equal the sign bit; m=2 checks [31:16], and m=3 checks [31:24].
+    // Build a full sign mask once, then compare each logical upper slice with
+    // the corresponding slice of that mask. This correctly includes negative
+    // boundaries such as -256, -65536 and -2^24 in m=1/2/3 respectively.
+    code[words++] = R5900::sra(R5900::R_T5, R5900::R_T1, 31);
+
+    code[words++] = R5900::srl(R5900::R_T6, R5900::R_T1, 8);
+    code[words++] = R5900::srl(R5900::R_T4, R5900::R_T5, 8);
     size_t notM1Branch = words;
-    code[words++] = R5900::bne(R5900::R_T6, R5900::R_T1, 0);
+    code[words++] = R5900::bne(R5900::R_T6, R5900::R_T4, 0);
     code[words++] = R5900::nop();
     words += emitArmCycleAdd(1u + constantExtra,
         code + words, registerCycles);
@@ -3992,10 +4001,10 @@ size_t emitArm7VariableMultiplyTiming(uint32_t *code,
     code[words++] = R5900::nop();
 
     size_t checkM2 = words;
-    code[words++] = R5900::sll(R5900::R_T6, R5900::R_T1, 16);
-    code[words++] = R5900::sra(R5900::R_T6, R5900::R_T6, 16);
+    code[words++] = R5900::srl(R5900::R_T6, R5900::R_T1, 16);
+    code[words++] = R5900::srl(R5900::R_T4, R5900::R_T5, 16);
     size_t notM2Branch = words;
-    code[words++] = R5900::bne(R5900::R_T6, R5900::R_T1, 0);
+    code[words++] = R5900::bne(R5900::R_T6, R5900::R_T4, 0);
     code[words++] = R5900::nop();
     words += emitArmCycleAdd(2u + constantExtra,
         code + words, registerCycles);
@@ -4004,10 +4013,10 @@ size_t emitArm7VariableMultiplyTiming(uint32_t *code,
     code[words++] = R5900::nop();
 
     size_t checkM3 = words;
-    code[words++] = R5900::sll(R5900::R_T6, R5900::R_T1, 8);
-    code[words++] = R5900::sra(R5900::R_T6, R5900::R_T6, 8);
+    code[words++] = R5900::srl(R5900::R_T6, R5900::R_T1, 24);
+    code[words++] = R5900::srl(R5900::R_T4, R5900::R_T5, 24);
     size_t notM3Branch = words;
-    code[words++] = R5900::bne(R5900::R_T6, R5900::R_T1, 0);
+    code[words++] = R5900::bne(R5900::R_T6, R5900::R_T4, 0);
     code[words++] = R5900::nop();
     words += emitArmCycleAdd(3u + constantExtra,
         code + words, registerCycles);
@@ -4028,7 +4037,7 @@ size_t emitArm7VariableMultiplyTiming(uint32_t *code,
         code[branch] = equal
             ? R5900::beq(R5900::R_ZERO, R5900::R_ZERO,
                 static_cast<int16_t>(distance))
-            : R5900::bne(R5900::R_T6, R5900::R_T1,
+            : R5900::bne(R5900::R_T6, R5900::R_T4,
                 static_cast<int16_t>(distance));
         return true;
     };
@@ -5416,8 +5425,8 @@ bool DynarecR5900::runArmAluSelfTest()
     }
 
     // Gate ARM7 data-dependent MUL/MLA timing against known cycle counts,
-    // not only against the portable helper. Rs selects m from the smallest
-    // signed 8/16/24/32-bit representation.
+    // not only against the portable helper. Include the exact negative
+    // early-termination boundaries (-256, -65536 and -2^24).
     {
         struct Arm7MultiplyTimingCase
         {
@@ -5429,11 +5438,11 @@ bool DynarecR5900::runArmAluSelfTest()
         const Arm7MultiplyTimingCase cases[] =
         {
             { 0xE0040291u, 0x0000007Fu, 0x00000013u, 2u }, // MUL m=1
-            { 0xE0040291u, 0xFFFFFF00u, 0x00000013u, 3u }, // MUL m=2 (-256)
+            { 0xE0040291u, 0xFFFFFF00u, 0x00000013u, 2u }, // MUL m=1 (-256)
             { 0xE0040291u, 0x00000100u, 0x00000013u, 3u }, // MUL m=2
-            { 0xE0040291u, 0xFFFF0000u, 0x00000013u, 4u }, // MUL m=3 (-65536)
+            { 0xE0040291u, 0xFFFF0000u, 0x00000013u, 3u }, // MUL m=2 (-65536)
             { 0xE0040291u, 0x00010000u, 0x00000013u, 4u }, // MUL m=3
-            { 0xE0040291u, 0xFF000000u, 0x00000013u, 5u }, // MUL m=4 (-2^24)
+            { 0xE0040291u, 0xFF000000u, 0x00000013u, 4u }, // MUL m=3 (-2^24)
             { 0xE0040291u, 0x01000000u, 0x00000013u, 5u }, // MUL m=4
             { 0xE0253291u, 0x01000000u, 0x00000013u, 6u }, // MLA m=4
             { 0xE0140291u, 0x00000100u, 0x00000013u, 3u }, // MULS m=2
