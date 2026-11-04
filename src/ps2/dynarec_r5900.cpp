@@ -5679,15 +5679,39 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     uint8_t unionCommitRegCount = 0;
     bool buildingUnionCommit = false;
     R5900CompiledBlock *pipelineHint = nullptr;
-    // Read-only, already-verified blocks may stay internal a little longer.
-    // cycleBudget still caps the chain before the next ARM7/task boundary, and
-    // stores/THUMB transitions terminate it immediately.
+    constexpr uint32_t WRITE_JOURNAL_CAPACITY =
+        sizeof(state.writes) / sizeof(state.writes[0]);
+
+    // Already-verified blocks may stay internal while the scheduler budget and
+    // transactional write journal both have room. Direct RAM stores can chain
+    // too: writes are visible to later ARM9 blocks exactly as in the
+    // interpreter, but remain rollback-capable until the final CPU-state
+    // commit. THUMB transitions still terminate immediately.
     constexpr uint32_t MAX_INTERNAL_CHAIN_BLOCKS = 12;
     R5900CompiledBlock *current = block;
+
+    auto writesOverlapBlockCode = [&](const R5900CompiledBlock *candidate)
+    {
+        if (!candidate || !state.writeCount)
+            return false;
+
+        uint64_t codeStart = candidate->guestPc;
+        uint64_t codeEnd = candidate->guestEndPc;
+        for (uint32_t i = 0; i < state.writeCount; i++)
+        {
+            const ArmMemoryWrite &write = state.writes[i];
+            uint64_t writeStart = write.address;
+            uint64_t writeEnd = writeStart + write.size;
+            if (writeStart < codeEnd && writeEnd > codeStart)
+                return true;
+        }
+        return false;
+    };
 
     while (current && executedBlocks < MAX_INTERNAL_CHAIN_BLOCKS)
     {
         uint32_t remainingBudget = cycleBudget - totalCycles;
+        uint32_t writesBefore = state.writeCount;
         state.nextPc = current->guestEndPc;
         state.guestExecuted = 0;
         state.cycles = 0;
@@ -5720,7 +5744,9 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         // failure discards the whole internal chain and the write guard rolls
         // memory back to the exact entry state. blockCycles is local to this
         // generated block; totalCycles tracks the complete internal chain.
-        if (state.memoryFault || ((state.cpsr ^ liveCpsr) & 0x1Fu) ||
+        if (state.memoryFault || state.writeCount < writesBefore ||
+            state.writeCount > WRITE_JOURNAL_CAPACITY ||
+            ((state.cpsr ^ liveCpsr) & 0x1Fu) ||
             !blockCycles || blockCycles > remainingBudget)
         {
             if (blockCycles > remainingBudget)
@@ -5755,16 +5781,11 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         initializedMask |= currentWriteMask;
         unionWriteMask |= currentWriteMask;
 
-        // Stores are committed at this boundary. They are fully differential-
-        // gated, but chaining through them would make code/data visibility
-        // between blocks harder to reason about and would consume the bounded
-        // transaction journal faster.
-        if (current->writesMemory || (state.cpsr & BIT(5)))
+        if (state.cpsr & BIT(5))
             break;
 
-        // Do not look up or import a ninth block when this dispatch has already
-        // reached the internal chain ceiling. The old path prepared that
-        // successor even though the loop condition prevented it from running.
+        // Stop before looking up/importing a successor when this dispatch has
+        // already reached the internal chain ceiling.
         if (executedBlocks >= MAX_INTERNAL_CHAIN_BLOCKS)
             break;
 
@@ -5772,9 +5793,19 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         R5900CompiledBlock *next = findMutableBlock(state.nextPc, false);
         if (next && next->guestInstructions >= 2)
             pipelineHint = next;
-        if (!next || !next->activeReady || next->writesMemory ||
-            !activeBlockUseful(next) ||
+        if (!next || !next->activeReady || !activeBlockUseful(next) ||
             !next->cycles || next->cycles > remaining)
+            break;
+
+        // A block that may store can only be chained when its worst-case
+        // journal demand fits. Unknown write demand stays at the old safe
+        // boundary. Also never execute compiled bytes after an earlier store
+        // in this transaction has overwritten that guest-code range.
+        if ((next->writesMemory &&
+             (!next->maxMemoryWrites ||
+              state.writeCount + next->maxMemoryWrites >
+                  WRITE_JOURNAL_CAPACITY)) ||
+            writesOverlapBlockCode(next))
             break;
 
         pipelineHint = nullptr;
