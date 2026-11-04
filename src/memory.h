@@ -135,7 +135,7 @@ class MemoryPageCache
     public:
         FORCE_INLINE bool lookup(uint32_t address, uint8_t *&page) const
         {
-            const Entry &entry = entries[(address >> 12) & 3u];
+            const Entry &entry = entries[(address >> 12) & 7u];
             if (entry.tag != (address >> 12) + 1u)
                 return false;
             page = entry.page;
@@ -144,14 +144,14 @@ class MemoryPageCache
 
         FORCE_INLINE void store(uint32_t address, uint8_t *page)
         {
-            Entry &entry = entries[(address >> 12) & 3u];
+            Entry &entry = entries[(address >> 12) & 7u];
             entry.tag = (address >> 12) + 1u;
             entry.page = page;
         }
 
         void invalidate()
         {
-            for (size_t i = 0; i < 4; i++)
+            for (size_t i = 0; i < 8; i++)
                 entries[i].tag = 0;
         }
 
@@ -161,7 +161,7 @@ class MemoryPageCache
             uint32_t tag = 0;
             uint8_t *page = nullptr;
         };
-        Entry entries[4];
+        Entry entries[8];
 };
 
 struct MemoryWriteJournalEntry

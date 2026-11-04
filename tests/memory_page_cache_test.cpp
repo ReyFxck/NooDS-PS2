@@ -5,7 +5,7 @@
 
 int main()
 {
-    uint8_t pages[5][0x1000] = {};
+    uint8_t pages[9][0x1000] = {};
     MemoryPageCache cache;
     uint8_t *page = nullptr;
 
@@ -19,18 +19,18 @@ int main()
     page = pages[1];
     assert(cache.lookup(0x04000ABCu, page) && page == nullptr);
 
-    // Four differently indexed pages coexist, while a fifth with the same
+    // Eight differently indexed pages coexist, while a ninth with the same
     // direct-map index replaces only its colliding entry.
-    for (uint32_t i = 0; i < 4; i++)
+    for (uint32_t i = 0; i < 8; i++)
         cache.store(0x03000000u + i * 0x1000u, pages[i]);
-    for (uint32_t i = 0; i < 4; i++)
+    for (uint32_t i = 0; i < 8; i++)
     {
         assert(cache.lookup(0x03000080u + i * 0x1000u, page));
         assert(page == pages[i]);
     }
 
-    cache.store(0x03004000u, pages[4]);
-    assert(cache.lookup(0x03004020u, page) && page == pages[4]);
+    cache.store(0x03008000u, pages[8]);
+    assert(cache.lookup(0x03008020u, page) && page == pages[8]);
     assert(!cache.lookup(0x03000020u, page));
     assert(cache.lookup(0x03001020u, page) && page == pages[1]);
     return 0;
