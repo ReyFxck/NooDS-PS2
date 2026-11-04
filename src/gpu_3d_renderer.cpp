@@ -439,7 +439,8 @@ uint32_t Gpu3DRenderer::interpolateColor(uint32_t c1, uint32_t c2, uint32_t x1, 
     return (a << 18) | (b << 12) | (g << 6) | r;
 }
 
-uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t)
+uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
+    uint8_t *basePalette)
 {
     // Handle S-coordinate overflows
     if (polygon->repeatS)
@@ -495,7 +496,7 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t)
             uint8_t index = *data;
 
             // Get the palette
-            uint8_t *palette = getPalette(polygon->paletteAddr);
+            uint8_t *palette = basePalette;
             if (!palette) return 0;
 
             // Return the palette color
@@ -517,7 +518,7 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t)
                 return 0;
 
             // Get the palette
-            uint8_t *palette = getPalette(polygon->paletteAddr);
+            uint8_t *palette = basePalette;
             if (!palette) return 0;
 
             // Return the palette color
@@ -537,7 +538,7 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t)
                 return 0;
 
             // Get the palette
-            uint8_t *palette = getPalette(polygon->paletteAddr);
+            uint8_t *palette = basePalette;
             if (!palette) return 0;
 
             // Return the palette color
@@ -557,7 +558,7 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t)
                 return 0;
 
             // Get the palette
-            uint8_t *palette = getPalette(polygon->paletteAddr);
+            uint8_t *palette = basePalette;
             if (!palette) return 0;
 
             // Return the palette color
@@ -652,7 +653,7 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t)
             uint8_t index = *data;
 
             // Get the palette
-            uint8_t *palette = getPalette(polygon->paletteAddr);
+            uint8_t *palette = basePalette;
             if (!palette) return 0;
 
             // Return the palette color
@@ -678,6 +679,20 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t)
 void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
 {
     _Polygon *polygon = &core->gpu3D.getPolygons()[polygonIndex];
+
+    // Formats 1/2/3/4/6 use one fixed palette base for the whole polygon.
+    // Resolve it once instead of indexing the palette-slot table for every
+    // texel. A missing mapping makes the same formats fully transparent, so
+    // the polygon can return immediately.
+    uint8_t *basePalette = nullptr;
+    if (polygon->textureFmt == 1 || polygon->textureFmt == 2 ||
+        polygon->textureFmt == 3 || polygon->textureFmt == 4 ||
+        polygon->textureFmt == 6)
+    {
+        basePalette = getPalette(polygon->paletteAddr);
+        if (!basePalette)
+            return;
+    }
 
     // Get the polygon vertices
     Vertex *vertices[10];
@@ -1117,7 +1132,7 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
                 static_cast<uint32_t>(t2 + 0xFFFF))) - 0xFFFF;
 
             // Read a texel from the texture
-            uint32_t texel = readTexture(polygon, s >> 4, t >> 4);
+            uint32_t texel = readTexture(polygon, s >> 4, t >> 4, basePalette);
 
             // Apply texture blending
             // These formulas are a translation of the pseudocode from GBATEK to C++
