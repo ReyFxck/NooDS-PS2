@@ -1672,6 +1672,9 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
     return words;
 }
 
+size_t emitArmRegisterOffsetAddress(uint8_t rn, uint8_t rm,
+    uint8_t shiftType, uint8_t shiftAmount, bool addOffset, uint32_t *code);
+
 size_t emitArmHalfwordRegisterStoreFastInstruction(uint32_t opcode,
     uint32_t *code, bool registerCycles, bool registerCpsr)
 {
