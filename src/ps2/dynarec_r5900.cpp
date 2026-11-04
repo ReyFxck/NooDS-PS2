@@ -4401,10 +4401,10 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     uint16_t initializedMask = static_cast<uint16_t>(
         (block->readMask | block->writeMask) & 0x7FFFu);
     uint16_t unionWriteMask = static_cast<uint16_t>(block->writeMask & 0x7FFFu);
-    for (uint8_t reg = 0; reg < 15; reg++)
+    for (uint8_t i = 0; i < block->liveRegCount; i++)
     {
-        if (initializedMask & static_cast<uint16_t>(1u << reg))
-            state.r[reg] = CpuBackendAccess::readReg(cpu, reg);
+        uint8_t reg = block->liveRegs[i];
+        state.r[reg] = CpuBackendAccess::readReg(cpu, reg);
     }
 
     uint32_t liveCpsr = CpuBackendAccess::readCpsr(cpu);
@@ -4488,12 +4488,11 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
 
         uint16_t nextLiveMask = static_cast<uint16_t>(
             (next->readMask | next->writeMask) & 0x7FFFu);
-        uint16_t missingMask = static_cast<uint16_t>(
-            nextLiveMask & ~initializedMask);
-        for (uint8_t reg = 0; reg < 15; reg++)
+        for (uint8_t i = 0; i < next->liveRegCount; i++)
         {
+            uint8_t reg = next->liveRegs[i];
             uint16_t bit = static_cast<uint16_t>(1u << reg);
-            if (missingMask & bit)
+            if (!(initializedMask & bit))
                 state.r[reg] = CpuBackendAccess::readReg(cpu, reg);
         }
         initializedMask |= nextLiveMask;
