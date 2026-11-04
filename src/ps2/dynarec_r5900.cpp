@@ -1376,7 +1376,9 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     block.guestEndPc = guestPc + static_cast<uint32_t>(count * 4);
     block.mapGeneration = mappedGeneration;
     block.guestInstructions = static_cast<uint32_t>(count);
-    block.cycles = 0; // Runtime state records exact condition-dependent cycles.
+    // Conservative per-iteration upper bound used only to decide whether a
+    // read-only self-loop may repeat without crossing the ARM7/task deadline.
+    block.cycles = 0;
     block.entryOpcode0 = opcodes[0];
     block.entryOpcode1 = (count > 1) ? opcodes[1] : 0;
     block.thumb = false;
@@ -1388,6 +1390,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         Ps2ArmAlu::Decoded decoded;
         if (Ps2ArmAlu::decode(opcodes[i], &decoded))
         {
+            block.cycles += decoded.registerShift ? 2u : 1u;
             if (decoded.operation != 13 && decoded.operation != 15)
                 block.readMask |= static_cast<uint16_t>(1u << decoded.rn);
             if (!decoded.immediate)
@@ -1404,6 +1407,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         Ps2ArmAlu::DecodedHalfwordTransfer transfer;
         if (Ps2ArmAlu::decodeHalfwordTransfer(opcodes[i], &transfer))
         {
+            block.cycles += 1u;
             block.readMask |= static_cast<uint16_t>(1u << transfer.rn);
             if (!transfer.immediate)
                 block.readMask |= static_cast<uint16_t>(1u << transfer.rm);
@@ -1423,6 +1427,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         Ps2ArmAlu::DecodedByteTransfer byteTransfer;
         if (Ps2ArmAlu::decodeByteTransfer(opcodes[i], &byteTransfer))
         {
+            block.cycles += 1u;
             block.readMask |= static_cast<uint16_t>(1u << byteTransfer.rn);
             if (byteTransfer.registerOffset)
                 block.readMask |= static_cast<uint16_t>(1u << byteTransfer.rm);
@@ -1442,6 +1447,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         Ps2ArmAlu::DecodedLiteralLoad literalLoad;
         if (Ps2ArmAlu::decodeLiteralLoad(opcodes[i], &literalLoad))
         {
+            block.cycles += 1u;
             block.writeMask |= static_cast<uint16_t>(1u << literalLoad.rd);
             block.readsFlags |= literalLoad.condition != 0xEu;
             continue;
@@ -1450,6 +1456,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
         if (Ps2ArmAlu::decodeSingleTransfer(opcodes[i], &singleTransfer))
         {
+            block.cycles += 1u;
             block.readMask |= static_cast<uint16_t>(1u << singleTransfer.rn);
             if (singleTransfer.registerOffset)
                 block.readMask |= static_cast<uint16_t>(1u << singleTransfer.rm);
@@ -1469,6 +1476,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
         if (Ps2ArmAlu::decodeSingleBlockTransfer(opcodes[i], &blockTransfer))
         {
+            block.cycles += 2u;
             block.readMask |= static_cast<uint16_t>(1u << blockTransfer.rn);
             if (blockTransfer.load)
                 block.writeMask |= static_cast<uint16_t>(1u << blockTransfer.reg);
@@ -1486,6 +1494,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         Ps2ArmAlu::DecodedBranchExchange branchExchange;
         if (Ps2ArmAlu::decodeBranchExchange(opcodes[i], &branchExchange))
         {
+            block.cycles += 3u;
             if (i + 1 != count)
                 return false;
             block.readMask |= static_cast<uint16_t>(1u << branchExchange.rm);
@@ -1496,6 +1505,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         Ps2ArmAlu::DecodedBranch branch;
         if (!Ps2ArmAlu::decodeBranch(opcodes[i], &branch) || i + 1 != count)
             return false;
+        block.cycles += 3u;
         block.readsFlags |= branch.condition != 0xEu;
     }
 
@@ -2561,6 +2571,31 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         reinterpret_cast<ArmAluBlockFunction>(block->hostCode);
     function(&state);
 
+    uint32_t executedGuestInstructions = block->guestInstructions;
+    constexpr uint32_t MAX_ACTIVE_SELF_LOOP_ITERATIONS = 64;
+    uint32_t selfLoopIterations = 1;
+
+    // A read-only block that branches exactly back to its own entry can repeat
+    // inside this scheduler slot without exposing any intermediate state: the
+    // cycleBudget already ends at the next ARM7 execution or scheduled task.
+    // Use the conservative max-cycle bound so the next iteration can never
+    // cross that deadline. Reset nextPc to the normal fallthrough before each
+    // call because a conditional branch helper may leave it unchanged when
+    // its condition fails.
+    while (selfLoopIterations < MAX_ACTIVE_SELF_LOOP_ITERATIONS &&
+        !state.memoryFault && !state.writeCount &&
+        !(state.cpsr & BIT(5)) &&
+        ((state.cpsr ^ liveCpsr) & 0x1Fu) == 0 &&
+        state.nextPc == block->guestPc && block->cycles &&
+        state.cycles <= cycleBudget &&
+        block->cycles <= cycleBudget - state.cycles)
+    {
+        state.nextPc = block->guestEndPc;
+        function(&state);
+        selfLoopIterations++;
+        executedGuestInstructions += block->guestInstructions;
+    }
+
     // No guest state has been committed yet, so every failure below is a
     // lossless interpreter fallback.
     if (state.memoryFault || state.writeCount ||
@@ -2602,10 +2637,10 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     }
 
     profile.activeExecutions++;
-    profile.activeGuestInstructions += block->guestInstructions;
+    profile.activeGuestInstructions += executedGuestInstructions;
     profile.activeCycles += state.cycles;
     if (guestInstructions)
-        *guestInstructions = block->guestInstructions;
+        *guestInstructions = executedGuestInstructions;
 
     return static_cast<int>(state.cycles);
 }
