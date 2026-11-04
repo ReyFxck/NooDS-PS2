@@ -1140,7 +1140,12 @@ bool applyArmSingleBlockTransfer(ArmAluState *state, uint32_t opcode)
     if (Ps2ArmAlu::executeSingleBlockTransfer(opcode, state->r, &state->cpsr,
         state, readDirectArm9Word, writeDirectArm9Word))
     {
-        state->cycles += taken ? 2u : 1u;
+        if (!taken)
+            state->cycles += 1u;
+        else if (state->cpuId)
+            state->cycles += decoded.load ? 3u : 2u;
+        else
+            state->cycles += 2u;
         return true;
     }
 
@@ -3030,7 +3035,7 @@ size_t emitArmSingleTransferInstruction(uint32_t opcode, uint32_t *code)
 size_t emitArmSingleBlockTransferFastInstruction(uint32_t opcode,
     uint32_t *code, bool registerCycles, bool registerCpsr,
     int forwardedGuestReg = -1, uint8_t forwardedCondition = 0xEu,
-    bool reuseCondition = false)
+    bool reuseCondition = false, uint8_t targetCpuId = 0)
 {
     Ps2ArmAlu::DecodedSingleBlockTransfer decoded;
     if (!code || !Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &decoded))
@@ -3055,7 +3060,9 @@ size_t emitArmSingleBlockTransferFastInstruction(uint32_t opcode,
         code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
         code[words++] = R5900::nop();
     }
-    words += emitArmCycleAdd(1, code + words, registerCycles);
+    words += emitArmCycleAdd(
+        (targetCpuId && decoded.load) ? 2u : 1u,
+        code + words, registerCycles);
 
     // If the immediately preceding generated instruction left the exact store
     // value in t2 under the same ARM condition, preserve it before the cache
@@ -3658,7 +3665,7 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
                         return emitArmSingleBlockTransferFastInstruction(opcode,
                             code, registerCycles, registerCpsr,
                             forwardedGuestReg, forwardedCondition,
-                            reuseCondition);
+                            reuseCondition, targetCpuId);
                     }
                     else
                     {
@@ -3759,7 +3766,7 @@ uint32_t maxArmInstructionCycles(uint32_t opcode, uint8_t targetCpuId = 0)
 
     Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
     if (Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &blockTransfer))
-        return 2u;
+        return targetCpuId && blockTransfer.load ? 3u : 2u;
 
     Ps2ArmAlu::DecodedBranch branch;
     Ps2ArmAlu::DecodedBranchExchange branchExchange;
@@ -3824,7 +3831,11 @@ uint32_t minArmInstructionCycles(uint32_t opcode, uint8_t targetCpuId = 0)
 
     Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
     if (Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &blockTransfer))
-        return blockTransfer.condition == 0xEu ? 2u : 1u;
+    {
+        if (blockTransfer.condition != 0xEu)
+            return 1u;
+        return targetCpuId && blockTransfer.load ? 3u : 2u;
+    }
 
     Ps2ArmAlu::DecodedBranch branch;
     if (Ps2ArmAlu::decodeBranch(opcode, &branch))
@@ -6318,6 +6329,13 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
             continue;
         }
 
+        Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
+        if (Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &blockTransfer))
+        {
+            opcodes[count++] = opcode;
+            continue;
+        }
+
         Ps2ArmAlu::DecodedBranchExchange branchExchange;
         if (Ps2ArmAlu::decodeBranchExchange(opcode, &branchExchange))
         {
@@ -6409,6 +6427,14 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
                 halfwordTransfer.writeBack)
                 return 0;
             if (!applyArmHalfwordTransfer(&expected, opcodes[i]))
+                return 0;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
+        if (Ps2ArmAlu::decodeSingleBlockTransfer(opcodes[i], &blockTransfer))
+        {
+            if (!applyArmSingleBlockTransfer(&expected, opcodes[i]))
                 return 0;
             continue;
         }
