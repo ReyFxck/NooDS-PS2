@@ -1412,6 +1412,22 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     }
     blocks.push_back(block);
 
+    // Prefer the newest compilation for active dispatch. A PC may have been
+    // compiled earlier as a shorter shadow/gate sequence; publishing the new
+    // vector index here prevents that stale partial block from winning the
+    // direct lookup forever.
+    if (blocks.size() <= 0xFFFFu)
+    {
+        size_t slot = activeLookupSlot(guestPc);
+        activeBlockPc[slot] = guestPc;
+        activeBlockIndex[slot] = static_cast<uint16_t>(blocks.size());
+        if (activeRejectedPc[slot] == guestPc)
+        {
+            activeRejectedPc[slot] = 0;
+            activeRejectedKind[slot] = ACTIVE_REJECT_NONE;
+        }
+    }
+
     *entry = code;
     *hostWords = static_cast<uint32_t>(words);
     return true;
@@ -2289,9 +2305,20 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         return 0;
     }
 
+    constexpr uint32_t MIN_ACTIVE_GUEST_INSTRUCTIONS = 3;
+
+    // Do not even compile a hot candidate until this scheduler slot could
+    // execute the minimum useful block. This prevents tiny one-opcode cache
+    // entries from being created just because ARM7 is due in 1-2 cycles.
+    if (cycleBudget < MIN_ACTIVE_GUEST_INSTRUCTIONS)
+    {
+        profile.activeBudgetFallbacks++;
+        return 0;
+    }
+
     R5900CompiledBlock *block = findMutableBlock(guestPc, false);
 
-    if (!block)
+    if (!block || block->guestInstructions < MIN_ACTIVE_GUEST_INSTRUCTIONS)
     {
         // Keep enough room for realistic game code while still placing a hard
         // ceiling on metadata growth. The 2 MiB code cache remains the actual
@@ -2304,10 +2331,12 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         }
 
         profile.activeCompileMisses++;
-        size_t maxInstructions = std::min<size_t>(16,
-            static_cast<size_t>(cycleBudget));
+
+        // Compilation length is intentionally independent from cycleBudget.
+        // The block is built to its natural terminator (up to the validated
+        // 16-op ceiling); cycleBudget is checked only before live commit.
         int shadow = runArm9BlockShadowSelfTest(cpu, nullptr, nullptr, nullptr,
-            maxInstructions);
+            16);
         if (shadow <= 0)
         {
             cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
@@ -2316,7 +2345,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         }
 
         block = findMutableBlock(guestPc, false);
-        if (!block)
+        if (!block ||
+            block->guestInstructions < MIN_ACTIVE_GUEST_INSTRUCTIONS)
         {
             cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
             profile.activeVerifyFallbacks++;
