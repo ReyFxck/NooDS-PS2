@@ -1043,8 +1043,124 @@ void logGpu2DProfile(const char *label, const Gpu2DRunProfile &profile)
             static_cast<unsigned long long>(counters.transparent),
             static_cast<unsigned long long>(counters.writes));
     }
+#if NOODS_PROFILE_LEVEL >= 2
+    if (profile.textDetailSamples)
+    {
+        const Gpu2DTextDetailCounters &d = profile.textDetail;
+        PS2_LOG("[PS2][PROF] %s text-detail: samples=%llu calls=%llu mode4=%llu mode8=%llu 3d=%llu windowed=%llu tiles=%llu hFlip=%llu vFlip=%llu\n",
+            label,
+            static_cast<unsigned long long>(profile.textDetailSamples),
+            static_cast<unsigned long long>(d.calls),
+            static_cast<unsigned long long>(d.mode4),
+            static_cast<unsigned long long>(d.mode8),
+            static_cast<unsigned long long>(d.threeD),
+            static_cast<unsigned long long>(d.windowed),
+            static_cast<unsigned long long>(d.tiles),
+            static_cast<unsigned long long>(d.hFlipTiles),
+            static_cast<unsigned long long>(d.vFlipTiles));
+        PS2_LOG("[PS2][PROF] %s text-memory: tileHit=%llu tileMap=%llu tileFallback=%llu indexHit=%llu indexMap=%llu indexFallback=%llu pixels=%llu transparent=%llu clipped=%llu palette=%llu writes=%llu\n",
+            label,
+            static_cast<unsigned long long>(d.tilePageHits),
+            static_cast<unsigned long long>(d.tilePageMaps),
+            static_cast<unsigned long long>(d.tileFallbackReads),
+            static_cast<unsigned long long>(d.indexPageHits),
+            static_cast<unsigned long long>(d.indexPageMaps),
+            static_cast<unsigned long long>(d.indexFallbackReads),
+            static_cast<unsigned long long>(d.pixelsVisited),
+            static_cast<unsigned long long>(d.transparent),
+            static_cast<unsigned long long>(d.clipped),
+            static_cast<unsigned long long>(d.paletteReads),
+            static_cast<unsigned long long>(d.writes));
+    }
+
+    if (profile.objDetailSamples)
+    {
+        const Gpu2DObjDetailCounters &d = profile.objDetail;
+        PS2_LOG("[PS2][PROF] %s obj-detail: samples=%llu calls=%llu objWindow=%llu scanned=%llu disabled=%llu outY=%llu visible=%llu affine=%llu bitmap=%llu bpp8=%llu bpp4=%llu\n",
+            label,
+            static_cast<unsigned long long>(profile.objDetailSamples),
+            static_cast<unsigned long long>(d.calls),
+            static_cast<unsigned long long>(d.windowCalls),
+            static_cast<unsigned long long>(d.spritesScanned),
+            static_cast<unsigned long long>(d.spritesDisabled),
+            static_cast<unsigned long long>(d.spritesOutsideY),
+            static_cast<unsigned long long>(d.spritesVisible),
+            static_cast<unsigned long long>(d.affineSprites),
+            static_cast<unsigned long long>(d.bitmapSprites),
+            static_cast<unsigned long long>(d.bpp8Sprites),
+            static_cast<unsigned long long>(d.bpp4Sprites));
+        PS2_LOG("[PS2][PROF] %s obj-memory: pageHit=%llu pageMap=%llu fallback=%llu texels=%llu clipped=%llu objWinWrites=%llu pixelWrites=%llu\n",
+            label,
+            static_cast<unsigned long long>(d.pageHits),
+            static_cast<unsigned long long>(d.pageMaps),
+            static_cast<unsigned long long>(d.fallbackReads),
+            static_cast<unsigned long long>(d.texels),
+            static_cast<unsigned long long>(d.clipped),
+            static_cast<unsigned long long>(d.objectWindowWrites),
+            static_cast<unsigned long long>(d.pixelWrites));
+    }
+
+    if (profile.composeDetailSamples)
+    {
+        const Gpu2DComposeDetailCounters &d = profile.composeDetail;
+        PS2_LOG("[PS2][PROF] %s compose-detail: samples=%llu calls=%llu noBlend=%llu blended=%llu windowed=%llu pixels=%llu rgbConvert=%llu 3d=%llu semi=%llu 3dAlpha=%llu alpha=%llu brightUp=%llu brightDown=%llu winCheck=%llu winReject=%llu writes=%llu\n",
+            label,
+            static_cast<unsigned long long>(profile.composeDetailSamples),
+            static_cast<unsigned long long>(d.calls),
+            static_cast<unsigned long long>(d.noBlendCalls),
+            static_cast<unsigned long long>(d.blendedCalls),
+            static_cast<unsigned long long>(d.windowedCalls),
+            static_cast<unsigned long long>(d.pixels),
+            static_cast<unsigned long long>(d.rgbConversions),
+            static_cast<unsigned long long>(d.threeDPixels),
+            static_cast<unsigned long long>(d.semiTransparentPixels),
+            static_cast<unsigned long long>(d.special3DAlpha),
+            static_cast<unsigned long long>(d.alphaBlend),
+            static_cast<unsigned long long>(d.brightUp),
+            static_cast<unsigned long long>(d.brightDown),
+            static_cast<unsigned long long>(d.windowChecks),
+            static_cast<unsigned long long>(d.windowRejects),
+            static_cast<unsigned long long>(d.directWrites));
+    }
 #endif
 }
+
+#if NOODS_PROFILE_LEVEL >= 2
+void logGpu3DDetailProfile(const Gpu3DDetailProfile &p)
+{
+    PS2_LOG("[PS2][PROF] gpu3d-detail: frames=%llu scanlines=%llu threadedFrames=%llu polygonCalls=%llu solid=%llu trans=%llu polygonSamples=%llu sampledPixels=%llu linear=%llu perspective=%llu depthTests=%llu depthFailBoth=%llu shadow=%llu\n",
+        static_cast<unsigned long long>(p.frames),
+        static_cast<unsigned long long>(p.scanlines),
+        static_cast<unsigned long long>(p.threadedFrames),
+        static_cast<unsigned long long>(p.polygonCalls),
+        static_cast<unsigned long long>(p.solidCalls),
+        static_cast<unsigned long long>(p.translucentCalls),
+        static_cast<unsigned long long>(p.polygonSamples),
+        static_cast<unsigned long long>(p.sampledPixels),
+        static_cast<unsigned long long>(p.linearPixels),
+        static_cast<unsigned long long>(p.perspectivePixels),
+        static_cast<unsigned long long>(p.depthTests),
+        static_cast<unsigned long long>(p.depthFailBoth),
+        static_cast<unsigned long long>(p.shadowPixels));
+    PS2_LOG("[PS2][PROF] gpu3d-pixel: texture=%llu fmt0=%llu fmt1=%llu fmt2=%llu fmt3=%llu fmt4=%llu fmt5=%llu fmt6=%llu fmt7=%llu alphaReject=%llu opaqueWrite=%llu transWrite=%llu blend=%llu finishSamples=%llu fog=%llu edge=%llu\n",
+        static_cast<unsigned long long>(p.textureSamples),
+        static_cast<unsigned long long>(p.textureFormat[0]),
+        static_cast<unsigned long long>(p.textureFormat[1]),
+        static_cast<unsigned long long>(p.textureFormat[2]),
+        static_cast<unsigned long long>(p.textureFormat[3]),
+        static_cast<unsigned long long>(p.textureFormat[4]),
+        static_cast<unsigned long long>(p.textureFormat[5]),
+        static_cast<unsigned long long>(p.textureFormat[6]),
+        static_cast<unsigned long long>(p.textureFormat[7]),
+        static_cast<unsigned long long>(p.alphaRejects),
+        static_cast<unsigned long long>(p.opaqueWrites),
+        static_cast<unsigned long long>(p.transparentWrites),
+        static_cast<unsigned long long>(p.blendOps),
+        static_cast<unsigned long long>(p.finishSamples),
+        static_cast<unsigned long long>(p.fogPixels),
+        static_cast<unsigned long long>(p.edgePixels));
+}
+#endif
 
 const char *romIoCallerName(RomIoCaller caller)
 {
@@ -2004,6 +2120,10 @@ int main(int argc, char **argv)
 
                 logGpu2DProfile("gpu2dA", core->gpu2D[0].getProfile());
                 logGpu2DProfile("gpu2dB", core->gpu2D[1].getProfile());
+#if NOODS_PROFILE_LEVEL >= 2
+                logGpu3DDetailProfile(
+                    core->gpu3DRenderer.getDetailProfile());
+#endif
 
                 uint32_t currentRomHits = core->cartridgeNds.getRomCacheHits();
                 uint32_t currentRomMisses = core->cartridgeNds.getRomCacheMisses();
