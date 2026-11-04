@@ -530,6 +530,17 @@ bool applyArmAlu(uint32_t opcode, ArmAluState *state)
     return true;
 }
 
+uint32_t arm7MultiplyM(int32_t value)
+{
+    if (value >= -256 && value < 256)
+        return 1u;
+    if (value >= -65536 && value < 65536)
+        return 2u;
+    if (value >= -16777216 && value < 16777216)
+        return 3u;
+    return 4u;
+}
+
 bool applyArmMultiply(uint32_t opcode, ArmAluState *state)
 {
     Ps2ArmAlu::DecodedMultiply decoded;
@@ -537,11 +548,27 @@ bool applyArmMultiply(uint32_t opcode, ArmAluState *state)
         return false;
 
     bool passed = Ps2ArmAlu::conditionPassed(decoded.condition, state->cpsr);
+    int32_t multiplier = static_cast<int32_t>(state->r[decoded.rs]);
     if (!Ps2ArmAlu::executeMultiply(opcode, state->r, &state->cpsr))
         return false;
 
-    // Match Interpreter::mul/mla/muls/mlas on ARM9.
-    state->cycles += passed ? (decoded.setFlags ? 4u : 2u) : 1u;
+    if (!passed)
+    {
+        state->cycles += 1u;
+    }
+    else if (state->cpuId)
+    {
+        // Match Interpreter::mul/mla/muls/mlas on ARM7. Rs determines m from
+        // the smallest signed 8/16/24/32-bit representation. S changes flags
+        // but does not add ARM7 multiply cycles.
+        uint32_t m = arm7MultiplyM(multiplier);
+        state->cycles += m + 1u + (decoded.accumulate ? 1u : 0u);
+    }
+    else
+    {
+        // ARM9 has the existing fixed timing model.
+        state->cycles += decoded.setFlags ? 4u : 2u;
+    }
     return true;
 }
 
@@ -3354,7 +3381,8 @@ size_t emitArmMultiBlockTransferInstruction(uint32_t opcode,
 }
 
 size_t emitArmMultiplyInstruction(uint32_t opcode, uint32_t *code,
-    bool registerCycles, bool registerCpsr, bool suppressResultStore = false)
+    bool registerCycles, bool registerCpsr, bool suppressResultStore = false,
+    uint8_t targetCpuId = 0)
 {
     Ps2ArmAlu::DecodedMultiply decoded;
     if (!code || !Ps2ArmAlu::decodeMultiply(opcode, &decoded))
@@ -3375,14 +3403,86 @@ size_t emitArmMultiplyInstruction(uint32_t opcode, uint32_t *code,
         code[words++] = R5900::nop();
     }
 
-    // Successful ARM9 MUL/MLA = 2 cycles; S variants = 4 cycles.
-    words += emitArmCycleAdd(decoded.setFlags ? 3u : 1u,
-        code + words, registerCycles);
+    code[words++] = R5900::lw(R5900::R_T1,
+        static_cast<int16_t>(decoded.rs * 4), R5900::R_A0);
+
+    if (targetCpuId)
+    {
+        // ARM7 multiply timing is data-dependent. m is the smallest signed
+        // 8/16/24/32-bit representation of Rs. One base instruction cycle was
+        // already charged above; add m for MUL and m+1 for MLA.
+        uint32_t accumulateExtra = decoded.accumulate ? 1u : 0u;
+
+        code[words++] = R5900::sll(R5900::R_T6, R5900::R_T1, 24);
+        code[words++] = R5900::sra(R5900::R_T6, R5900::R_T6, 24);
+        size_t notM1Branch = words;
+        code[words++] = R5900::bne(R5900::R_T6, R5900::R_T1, 0);
+        code[words++] = R5900::nop();
+        words += emitArmCycleAdd(1u + accumulateExtra,
+            code + words, registerCycles);
+        size_t m1DoneBranch = words;
+        code[words++] = R5900::beq(R5900::R_ZERO, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+
+        size_t checkM2 = words;
+        code[words++] = R5900::sll(R5900::R_T6, R5900::R_T1, 16);
+        code[words++] = R5900::sra(R5900::R_T6, R5900::R_T6, 16);
+        size_t notM2Branch = words;
+        code[words++] = R5900::bne(R5900::R_T6, R5900::R_T1, 0);
+        code[words++] = R5900::nop();
+        words += emitArmCycleAdd(2u + accumulateExtra,
+            code + words, registerCycles);
+        size_t m2DoneBranch = words;
+        code[words++] = R5900::beq(R5900::R_ZERO, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+
+        size_t checkM3 = words;
+        code[words++] = R5900::sll(R5900::R_T6, R5900::R_T1, 8);
+        code[words++] = R5900::sra(R5900::R_T6, R5900::R_T6, 8);
+        size_t notM3Branch = words;
+        code[words++] = R5900::bne(R5900::R_T6, R5900::R_T1, 0);
+        code[words++] = R5900::nop();
+        words += emitArmCycleAdd(3u + accumulateExtra,
+            code + words, registerCycles);
+        size_t m3DoneBranch = words;
+        code[words++] = R5900::beq(R5900::R_ZERO, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+
+        size_t useM4 = words;
+        words += emitArmCycleAdd(4u + accumulateExtra,
+            code + words, registerCycles);
+        size_t timingDone = words;
+
+        auto patchTimingBranch = [&](size_t branch, size_t target, bool equal)
+        {
+            size_t distance = target - (branch + 1);
+            if (distance > 0x7FFFu)
+                return false;
+            code[branch] = equal
+                ? R5900::beq(R5900::R_ZERO, R5900::R_ZERO,
+                    static_cast<int16_t>(distance))
+                : R5900::bne(R5900::R_T6, R5900::R_T1,
+                    static_cast<int16_t>(distance));
+            return true;
+        };
+
+        if (!patchTimingBranch(notM1Branch, checkM2, false) ||
+            !patchTimingBranch(m1DoneBranch, timingDone, true) ||
+            !patchTimingBranch(notM2Branch, checkM3, false) ||
+            !patchTimingBranch(m2DoneBranch, timingDone, true) ||
+            !patchTimingBranch(notM3Branch, useM4, false) ||
+            !patchTimingBranch(m3DoneBranch, timingDone, true))
+            return 0;
+    }
+    else
+    {
+        // Successful ARM9 MUL/MLA = 2 cycles; S variants = 4 cycles.
+        words += emitArmCycleAdd(decoded.setFlags ? 3u : 1u,
+            code + words, registerCycles);
+    }
 
     code[words++] = R5900::lw(R5900::R_T0,
         static_cast<int16_t>(decoded.rm * 4), R5900::R_A0);
-    code[words++] = R5900::lw(R5900::R_T1,
-        static_cast<int16_t>(decoded.rs * 4), R5900::R_A0);
     code[words++] = R5900::multu(R5900::R_T2,
         R5900::R_T0, R5900::R_T1);
 
@@ -3449,7 +3549,7 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
     Ps2ArmAlu::DecodedMultiply multiply;
     if (Ps2ArmAlu::decodeMultiply(opcode, &multiply))
         return emitArmMultiplyInstruction(opcode, code,
-            registerCycles, registerCpsr, suppressResultStore);
+            registerCycles, registerCpsr, suppressResultStore, targetCpuId);
 
     Ps2ArmAlu::DecodedMultiBlockTransfer multiBlockTransfer;
     if (Ps2ArmAlu::decodeMultiBlockTransfer(opcode, &multiBlockTransfer))
@@ -3628,7 +3728,11 @@ uint32_t maxArmInstructionCycles(uint32_t opcode, uint8_t targetCpuId = 0)
 
     Ps2ArmAlu::DecodedMultiply multiply;
     if (Ps2ArmAlu::decodeMultiply(opcode, &multiply))
+    {
+        if (targetCpuId)
+            return multiply.accumulate ? 6u : 5u;
         return multiply.setFlags ? 4u : 2u;
+    }
 
     Ps2ArmAlu::DecodedLiteralLoad literalLoad;
     if (Ps2ArmAlu::decodeLiteralLoad(opcode, &literalLoad) && targetCpuId)
@@ -3674,8 +3778,13 @@ uint32_t minArmInstructionCycles(uint32_t opcode, uint8_t targetCpuId = 0)
 
     Ps2ArmAlu::DecodedMultiply multiply;
     if (Ps2ArmAlu::decodeMultiply(opcode, &multiply))
-        return multiply.condition == 0xEu
-            ? (multiply.setFlags ? 4u : 2u) : 1u;
+    {
+        if (multiply.condition != 0xEu)
+            return 1u;
+        if (targetCpuId)
+            return multiply.accumulate ? 3u : 2u;
+        return multiply.setFlags ? 4u : 2u;
+    }
 
     Ps2ArmAlu::DecodedLiteralLoad literalLoad;
     if (Ps2ArmAlu::decodeLiteralLoad(opcode, &literalLoad) && targetCpuId)
@@ -6096,6 +6205,17 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
             continue;
         }
 
+        Ps2ArmAlu::DecodedMultiply multiply;
+        if (Ps2ArmAlu::decodeMultiply(opcode, &multiply))
+        {
+            if (multiply.rd == 15 || multiply.rm == 15 ||
+                multiply.rs == 15 ||
+                (multiply.accumulate && multiply.rn == 15))
+                break;
+            opcodes[count++] = opcode;
+            continue;
+        }
+
         Ps2ArmAlu::DecodedLiteralLoad literalLoad;
         if (Ps2ArmAlu::decodeLiteralLoad(opcode, &literalLoad))
         {
@@ -6146,8 +6266,9 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
             break;
         }
 
-        // MUL/MLA and every memory form stay out: their ARM7 timing differs
-        // from ARM9 and will get a separate correctness/timing gate.
+        // Long multiplies, multi-register transfers, complex memory forms and
+        // other CPU-specific instructions stay interpreter-only until their
+        // ARM7 timing/semantics receive a dedicated gate.
         break;
     }
 
@@ -6170,6 +6291,14 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
         if (Ps2ArmAlu::decode(opcodes[i], &decoded))
         {
             if (!applyArmAlu(opcodes[i], &expected))
+                return -1;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedMultiply multiply;
+        if (Ps2ArmAlu::decodeMultiply(opcodes[i], &multiply))
+        {
+            if (!applyArmMultiply(opcodes[i], &expected))
                 return -1;
             continue;
         }
