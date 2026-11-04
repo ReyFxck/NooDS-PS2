@@ -144,7 +144,7 @@ void Gpu2D::drawGbaScanline(int line)
         // Clear the layers with the backdrop (first palette index).
         // When blending is disabled the lower layer is never populated or
         // consumed, so avoid clearing 240 pixels and metadata unnecessarily.
-        uint16_t backdrop = U8TO16(palette, 0) & ~BIT(15);
+        uint16_t backdrop = gpu2dLoad16(palette, 0) & ~BIT(15);
         gpu2dFill32(layers[0], 240, backdrop);
         memset(priorities[0], 4, 240 * sizeof(uint8_t));
         memset(blendBits[0], 5, 240 * sizeof(uint8_t));
@@ -298,7 +298,7 @@ void Gpu2D::drawScanline(int line)
         // Clear the layers with the backdrop (first palette index).
         // BLDCNT=0 makes the lower layer unobservable, matching the top-only
         // pixel path below and halving this fixed scanline clear.
-        uint16_t backdrop = U8TO16(palette, 0) & ~BIT(15);
+        uint16_t backdrop = gpu2dLoad16(palette, 0) & ~BIT(15);
         gpu2dFill32(layers[0], 256, backdrop);
         memset(priorities[0], 4, 256 * sizeof(uint8_t));
         memset(blendBits[0], 5, 256 * sizeof(uint8_t));
@@ -928,13 +928,13 @@ void Gpu2D::drawText(int bg, int line)
             if (tilePageCache.lookup(tileAddr, page))
             {
                 GPU2D_DETAIL_INC(textDetail, tilePageHits, 1);
-                tile = U8TO16(page, tileAddr & 0xFFFu);
+                tile = gpu2dLoad16(page, tileAddr & 0xFFFu);
             }
             else if ((page = core->memory.getDirectReadPage(gba, tileAddr)))
             {
                 GPU2D_DETAIL_INC(textDetail, tilePageMaps, 1);
                 tilePageCache.store(tileAddr, page);
-                tile = U8TO16(page, tileAddr & 0xFFFu);
+                tile = gpu2dLoad16(page, tileAddr & 0xFFFu);
             }
             else
             {
@@ -958,15 +958,15 @@ void Gpu2D::drawText(int bg, int line)
             if (indexPageCache.lookup(indexAddr, page))
             {
                 GPU2D_DETAIL_INC(textDetail, indexPageHits, 1);
-                indices = U8TO32(page, indexAddr & 0xFFFu) |
-                    (static_cast<uint64_t>(U8TO32(page, (indexAddr & 0xFFFu) + 4)) << 32);
+                indices = gpu2dLoad32(page, indexAddr & 0xFFFu) |
+                    (static_cast<uint64_t>(gpu2dLoad32(page, (indexAddr & 0xFFFu) + 4)) << 32);
             }
             else if ((page = core->memory.getDirectReadPage(gba, indexAddr)))
             {
                 GPU2D_DETAIL_INC(textDetail, indexPageMaps, 1);
                 indexPageCache.store(indexAddr, page);
-                indices = U8TO32(page, indexAddr & 0xFFFu) |
-                    (static_cast<uint64_t>(U8TO32(page, (indexAddr & 0xFFFu) + 4)) << 32);
+                indices = gpu2dLoad32(page, indexAddr & 0xFFFu) |
+                    (static_cast<uint64_t>(gpu2dLoad32(page, (indexAddr & 0xFFFu) + 4)) << 32);
             }
             else
             {
@@ -994,7 +994,7 @@ void Gpu2D::drawText(int bg, int line)
                 {
                     GPU2D_DETAIL_INC(textDetail, paletteReads, 1);
                     GPU2D_DETAIL_INC(textDetail, writes, 1);
-                    putBgPixel(x, U8TO16(pal, index * 2) | BIT(15));
+                    putBgPixel(x, gpu2dLoad16(pal, index * 2) | BIT(15));
                 }
             }
         }
@@ -1020,13 +1020,13 @@ void Gpu2D::drawText(int bg, int line)
             if (tilePageCache.lookup(tileAddr, page))
             {
                 GPU2D_DETAIL_INC(textDetail, tilePageHits, 1);
-                tile = U8TO16(page, tileAddr & 0xFFFu);
+                tile = gpu2dLoad16(page, tileAddr & 0xFFFu);
             }
             else if ((page = core->memory.getDirectReadPage(gba, tileAddr)))
             {
                 GPU2D_DETAIL_INC(textDetail, tilePageMaps, 1);
                 tilePageCache.store(tileAddr, page);
-                tile = U8TO16(page, tileAddr & 0xFFFu);
+                tile = gpu2dLoad16(page, tileAddr & 0xFFFu);
             }
             else
             {
@@ -1048,13 +1048,13 @@ void Gpu2D::drawText(int bg, int line)
             if (indexPageCache.lookup(indexAddr, page))
             {
                 GPU2D_DETAIL_INC(textDetail, indexPageHits, 1);
-                indices = U8TO32(page, indexAddr & 0xFFFu);
+                indices = gpu2dLoad32(page, indexAddr & 0xFFFu);
             }
             else if ((page = core->memory.getDirectReadPage(gba, indexAddr)))
             {
                 GPU2D_DETAIL_INC(textDetail, indexPageMaps, 1);
                 indexPageCache.store(indexAddr, page);
-                indices = U8TO32(page, indexAddr & 0xFFFu);
+                indices = gpu2dLoad32(page, indexAddr & 0xFFFu);
             }
             else
             {
@@ -1081,7 +1081,7 @@ void Gpu2D::drawText(int bg, int line)
                 {
                     GPU2D_DETAIL_INC(textDetail, paletteReads, 1);
                     GPU2D_DETAIL_INC(textDetail, writes, 1);
-                    putBgPixel(x, U8TO16(pal, index * 2) | BIT(15));
+                    putBgPixel(x, gpu2dLoad16(pal, index * 2) | BIT(15));
                 }
             }
         }
@@ -1179,7 +1179,7 @@ void Gpu2D::drawAffine(int bg, int line)
 
         // Draw a pixel
         if (index)
-            putBgPixel(i, U8TO16(palette, index * 2) | BIT(15));
+            putBgPixel(i, gpu2dLoad16(palette, index * 2) | BIT(15));
     }
 
     // Increment the internal registers at the end of the scanline
@@ -1335,7 +1335,7 @@ void Gpu2D::drawExtended(int bg, int line)
                 {
                     GPU2D_EXT_COUNT(paletteReads, 1);
                     GPU2D_EXT_COUNT(writes, 1);
-                    drawBgPixel(bg, line, i, U8TO16(palette, index * 2) | BIT(15));
+                    drawBgPixel(bg, line, i, gpu2dLoad16(palette, index * 2) | BIT(15));
                 }
                 else
                 {
@@ -1399,12 +1399,12 @@ void Gpu2D::drawExtended(int bg, int line)
                 if (tilePageCache.lookup(tileAddr, page))
                 {
                     GPU2D_EXT_COUNT(directPageHits, 1);
-                    tile = U8TO16(page, tileAddr & 0xFFFu);
+                    tile = gpu2dLoad16(page, tileAddr & 0xFFFu);
                 }
                 else if ((page = core->memory.getDirectReadPage(gba, tileAddr)))
                 {
                     tilePageCache.store(tileAddr, page);
-                    tile = U8TO16(page, tileAddr & 0xFFFu);
+                    tile = gpu2dLoad16(page, tileAddr & 0xFFFu);
                 }
                 else
                 {
@@ -1460,7 +1460,7 @@ void Gpu2D::drawExtended(int bg, int line)
             {
                 GPU2D_EXT_COUNT(paletteReads, 1);
                 GPU2D_EXT_COUNT(writes, 1);
-                drawBgPixel(bg, line, i, U8TO16(pal, index * 2) | BIT(15));
+                drawBgPixel(bg, line, i, gpu2dLoad16(pal, index * 2) | BIT(15));
             }
             else
             {
@@ -1527,7 +1527,7 @@ void Gpu2D::drawLarge(int bg, int line)
 
         // Draw a pixel
         if (index)
-            drawBgPixel(bg, line, i, U8TO16(palette, index * 2) | BIT(15));
+            drawBgPixel(bg, line, i, gpu2dLoad16(palette, index * 2) | BIT(15));
     }
 
     // Increment the internal registers at the end of the scanline
@@ -1591,13 +1591,13 @@ void Gpu2D::drawObjects(int line, bool window)
         if (objectPageCache.lookup(address, page))
         {
             GPU2D_DETAIL_INC(objDetail, pageHits, 1);
-            return U8TO16(page, address & 0xFFFu);
+            return gpu2dLoad16(page, address & 0xFFFu);
         }
         if ((page = core->memory.getDirectReadPage(gba, address)))
         {
             GPU2D_DETAIL_INC(objDetail, pageMaps, 1);
             objectPageCache.store(address, page);
-            return U8TO16(page, address & 0xFFFu);
+            return gpu2dLoad16(page, address & 0xFFFu);
         }
         GPU2D_DETAIL_INC(objDetail, fallbackReads, 1);
         return core->memory.read<uint16_t>(gba, address);
@@ -1610,14 +1610,14 @@ void Gpu2D::drawObjects(int line, bool window)
         if (offset <= 0xFFCu && objectPageCache.lookup(address, page))
         {
             GPU2D_DETAIL_INC(objDetail, pageHits, 1);
-            return U8TO32(page, offset);
+            return gpu2dLoad32(page, offset);
         }
         if (offset <= 0xFFCu &&
             (page = core->memory.getDirectReadPage(gba, address)))
         {
             GPU2D_DETAIL_INC(objDetail, pageMaps, 1);
             objectPageCache.store(address, page);
-            return U8TO32(page, offset);
+            return gpu2dLoad32(page, offset);
         }
         GPU2D_DETAIL_INC(objDetail, fallbackReads, 1);
         return core->memory.read<uint32_t>(gba, address);
@@ -1630,16 +1630,16 @@ void Gpu2D::drawObjects(int line, bool window)
         if (offset <= 0xFF8u && objectPageCache.lookup(address, page))
         {
             GPU2D_DETAIL_INC(objDetail, pageHits, 1);
-            return static_cast<uint64_t>(U8TO32(page, offset)) |
-                (static_cast<uint64_t>(U8TO32(page, offset + 4)) << 32);
+            return static_cast<uint64_t>(gpu2dLoad32(page, offset)) |
+                (static_cast<uint64_t>(gpu2dLoad32(page, offset + 4)) << 32);
         }
         if (offset <= 0xFF8u &&
             (page = core->memory.getDirectReadPage(gba, address)))
         {
             GPU2D_DETAIL_INC(objDetail, pageMaps, 1);
             objectPageCache.store(address, page);
-            return static_cast<uint64_t>(U8TO32(page, offset)) |
-                (static_cast<uint64_t>(U8TO32(page, offset + 4)) << 32);
+            return static_cast<uint64_t>(gpu2dLoad32(page, offset)) |
+                (static_cast<uint64_t>(gpu2dLoad32(page, offset + 4)) << 32);
         }
         GPU2D_DETAIL_INC(objDetail, fallbackReads, 2);
         return static_cast<uint64_t>(
@@ -1692,9 +1692,9 @@ void Gpu2D::drawObjects(int line, bool window)
         // Each object takes up 8 bytes in memory, but the last 2 bytes are reserved for rotscale
         uint16_t object[3] =
         {
-            (uint16_t)U8TO16(oam, i * 8 + 0),
-            (uint16_t)U8TO16(oam, i * 8 + 2),
-            (uint16_t)U8TO16(oam, i * 8 + 4)
+            (uint16_t)gpu2dLoad16(oam, i * 8 + 0),
+            (uint16_t)gpu2dLoad16(oam, i * 8 + 2),
+            (uint16_t)gpu2dLoad16(oam, i * 8 + 4)
         };
 
         // Determine the dimensions of the object
@@ -1772,10 +1772,10 @@ void Gpu2D::drawObjects(int line, bool window)
                 // Get the rotscale parameters
                 int16_t params[4] =
                 {
-                    (int16_t)U8TO16(oam, ((object[1] >> 9) & 0x1F) * 0x20 + 0x06),
-                    (int16_t)U8TO16(oam, ((object[1] >> 9) & 0x1F) * 0x20 + 0x0E),
-                    (int16_t)U8TO16(oam, ((object[1] >> 9) & 0x1F) * 0x20 + 0x16),
-                    (int16_t)U8TO16(oam, ((object[1] >> 9) & 0x1F) * 0x20 + 0x1E)
+                    (int16_t)gpu2dLoad16(oam, ((object[1] >> 9) & 0x1F) * 0x20 + 0x06),
+                    (int16_t)gpu2dLoad16(oam, ((object[1] >> 9) & 0x1F) * 0x20 + 0x0E),
+                    (int16_t)gpu2dLoad16(oam, ((object[1] >> 9) & 0x1F) * 0x20 + 0x16),
+                    (int16_t)gpu2dLoad16(oam, ((object[1] >> 9) & 0x1F) * 0x20 + 0x1E)
                 };
 
                 const int centeredY = spriteY - height2 / 2;
@@ -1856,7 +1856,7 @@ void Gpu2D::drawObjects(int line, bool window)
                         if (directPage &&
                             (address & 0xFFFu) <= 0xFFEu)
                         {
-                            pixel = U8TO16(directPage, address & 0xFFFu);
+                            pixel = gpu2dLoad16(directPage, address & 0xFFFu);
                         }
                         else
                         {
@@ -1895,10 +1895,10 @@ void Gpu2D::drawObjects(int line, bool window)
             // Get the rotscale parameters
             int16_t params[4] =
             {
-                (int16_t)U8TO16(oam, ((object[1] >> 9) & 0x1F) * 0x20 + 0x06),
-                (int16_t)U8TO16(oam, ((object[1] >> 9) & 0x1F) * 0x20 + 0x0E),
-                (int16_t)U8TO16(oam, ((object[1] >> 9) & 0x1F) * 0x20 + 0x16),
-                (int16_t)U8TO16(oam, ((object[1] >> 9) & 0x1F) * 0x20 + 0x1E)
+                (int16_t)gpu2dLoad16(oam, ((object[1] >> 9) & 0x1F) * 0x20 + 0x06),
+                (int16_t)gpu2dLoad16(oam, ((object[1] >> 9) & 0x1F) * 0x20 + 0x0E),
+                (int16_t)gpu2dLoad16(oam, ((object[1] >> 9) & 0x1F) * 0x20 + 0x16),
+                (int16_t)gpu2dLoad16(oam, ((object[1] >> 9) & 0x1F) * 0x20 + 0x1E)
             };
 
             if (object[0] & BIT(13)) // 8-bit
@@ -1956,7 +1956,7 @@ void Gpu2D::drawObjects(int line, bool window)
                     {
                         // Draw a pixel, marking semi-transparent pixels with an extra bit
                         if (index)
-                            putObjPixel(offset, ((type == 1) << 25) | BIT(15) | U8TO16(pal, index * 2), priority);
+                            putObjPixel(offset, ((type == 1) << 25) | BIT(15) | gpu2dLoad16(pal, index * 2), priority);
 
                         // Update the priority even if the pixel is transparent
                         // This is a quirky behavior of the GBA, but it seems to have been fixed on the DS
@@ -2012,7 +2012,7 @@ void Gpu2D::drawObjects(int line, bool window)
                     {
                         // Draw a pixel, marking semi-transparent pixels with an extra bit
                         if (index)
-                            putObjPixel(offset, ((type == 1) << 25) | BIT(15) | U8TO16(pal, index * 2), priority);
+                            putObjPixel(offset, ((type == 1) << 25) | BIT(15) | gpu2dLoad16(pal, index * 2), priority);
 
                         // Update the priority even if the pixel is transparent
                         // This is a quirky behavior of the GBA, but it seems to have been fixed on the DS
@@ -2102,7 +2102,7 @@ void Gpu2D::drawObjects(int line, bool window)
                     {
                         putObjPixel(offset,
                             ((type == 1) << 25) | BIT(15) |
-                            U8TO16(pal, index * 2), priority);
+                            gpu2dLoad16(pal, index * 2), priority);
                     }
 
                     // Preserve the GBA transparent-OBJ priority quirk.
@@ -2181,7 +2181,7 @@ void Gpu2D::drawObjects(int line, bool window)
                     {
                         putObjPixel(offset,
                             ((type == 1) << 25) | BIT(15) |
-                            U8TO16(pal, index * 2), priority);
+                            gpu2dLoad16(pal, index * 2), priority);
                     }
 
                     if (gba && priority < priorities[0][offset] &&
