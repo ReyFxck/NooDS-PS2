@@ -4390,6 +4390,14 @@ uint32_t maxArmInstructionCycles(uint32_t opcode, uint8_t targetCpuId = 0)
         return multiply.setFlags ? 4u : 2u;
     }
 
+    Ps2ArmAlu::DecodedLongMultiply longMultiply;
+    if (Ps2ArmAlu::decodeLongMultiply(opcode, &longMultiply))
+    {
+        if (targetCpuId)
+            return longMultiply.accumulate ? 7u : 6u;
+        return longMultiply.setFlags ? 5u : 3u;
+    }
+
     Ps2ArmAlu::DecodedLiteralLoad literalLoad;
     if (Ps2ArmAlu::decodeLiteralLoad(opcode, &literalLoad) && targetCpuId)
         return 3u;
@@ -4445,6 +4453,16 @@ uint32_t minArmInstructionCycles(uint32_t opcode, uint8_t targetCpuId = 0)
         if (targetCpuId)
             return multiply.accumulate ? 3u : 2u;
         return multiply.setFlags ? 4u : 2u;
+    }
+
+    Ps2ArmAlu::DecodedLongMultiply longMultiply;
+    if (Ps2ArmAlu::decodeLongMultiply(opcode, &longMultiply))
+    {
+        if (longMultiply.condition != 0xEu)
+            return 1u;
+        if (targetCpuId)
+            return longMultiply.accumulate ? 4u : 3u;
+        return longMultiply.setFlags ? 5u : 3u;
     }
 
     Ps2ArmAlu::DecodedLiteralLoad literalLoad;
@@ -4577,6 +4595,16 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             if (multiply.condition != 0xEu || multiply.setFlags)
                 registerCpsr = true;
             if (multiply.setFlags)
+                writesRegisterCpsr = true;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedLongMultiply longMultiply;
+        if (Ps2ArmAlu::decodeLongMultiply(opcodes[i], &longMultiply))
+        {
+            if (longMultiply.condition != 0xEu || longMultiply.setFlags)
+                registerCpsr = true;
+            if (longMultiply.setFlags)
                 writesRegisterCpsr = true;
             continue;
         }
@@ -8231,6 +8259,13 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
             continue;
         }
 
+        Ps2ArmAlu::DecodedLongMultiply longMultiply;
+        if (Ps2ArmAlu::decodeLongMultiply(opcode, &longMultiply))
+        {
+            opcodes[count++] = opcode;
+            continue;
+        }
+
         Ps2ArmAlu::DecodedLiteralLoad literalLoad;
         if (Ps2ArmAlu::decodeLiteralLoad(opcode, &literalLoad))
         {
@@ -8292,9 +8327,8 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
             break;
         }
 
-        // Long multiplies, multi-register transfers, complex memory forms and
-        // other CPU-specific instructions stay interpreter-only until their
-        // ARM7 timing/semantics receive a dedicated gate.
+        // Remaining complex/CPU-specific forms stay interpreter-only until
+        // their timing/semantics receive a dedicated gate.
         break;
     }
 
@@ -8325,6 +8359,14 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
         if (Ps2ArmAlu::decodeMultiply(opcodes[i], &multiply))
         {
             if (!applyArmMultiply(opcodes[i], &expected))
+                return -1;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedLongMultiply longMultiply;
+        if (Ps2ArmAlu::decodeLongMultiply(opcodes[i], &longMultiply))
+        {
+            if (!applyArmLongMultiply(opcodes[i], &expected))
                 return -1;
             continue;
         }
