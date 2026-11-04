@@ -7593,8 +7593,31 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
         commitRegCount = unionCommitRegCount;
     }
 
-    if (!CpuBackendAccess::commitBlockStateSparse(cpu, state.r,
-        commitRegs, commitRegCount, state.cpsr, state.nextPc))
+    bool committed = false;
+    R5900CompiledBlock *pipelineBlock = nullptr;
+    if (!(state.cpsr & BIT(5)) && state.writeCount == 0)
+    {
+        R5900CompiledBlock *next = findMutableBlock(state.nextPc, false);
+        if (next && next->guestInstructions >= 2)
+            pipelineBlock = next;
+    }
+
+    if (pipelineBlock)
+    {
+        committed = CpuBackendAccess::commitBlockStateSparseKnownArmPipeline(
+            cpu, state.r, commitRegs, commitRegCount, state.cpsr,
+            state.nextPc, pipelineBlock->entryOpcode0,
+            pipelineBlock->entryOpcode1);
+        if (committed)
+            DYNAREC_PROFILE(profile.activePipelineReuses++);
+    }
+    else
+    {
+        committed = CpuBackendAccess::commitBlockStateSparse(cpu, state.r,
+            commitRegs, commitRegCount, state.cpsr, state.nextPc);
+    }
+
+    if (!committed)
     {
         DYNAREC_PROFILE(profile.activeStateFallbacks++);
         return 0;
