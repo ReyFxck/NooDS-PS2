@@ -62,6 +62,7 @@ struct R5900DynarecProfile
     uint64_t activeCompileMisses = 0;
     uint64_t activeBudgetFallbacks = 0;
     uint64_t activeWriteFallbacks = 0;
+    uint64_t activeBackedgeFallbacks = 0;
     uint64_t activeVerifyFallbacks = 0;
     uint64_t activeStateFallbacks = 0;
 
@@ -85,6 +86,7 @@ struct R5900CompiledBlock
     bool readsFlags = false;
     bool writesFlags = false;
     bool writesMemory = false;
+    bool backEdge = false;
     bool thumb = false;
     bool differentialVerified = false;
 
@@ -144,8 +146,9 @@ class DynarecR5900
 
         // Execute one already-safe ARM9 block against live state. On a cache
         // miss the candidate is shadow-validated and differentially checked
-        // once before it can commit. Store blocks and blocks that do not fit
-        // entirely inside cycleBudget fall back to the interpreter.
+        // once before it can commit. Store blocks, backedge/loop blocks and
+        // blocks that do not fit entirely inside cycleBudget fall back to the
+        // interpreter.
         int runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
             uint32_t *guestInstructions = nullptr);
 
@@ -169,6 +172,7 @@ class DynarecR5900
             ACTIVE_REJECT_NONE = 0,
             ACTIVE_REJECT_VERIFY,
             ACTIVE_REJECT_WRITE,
+            ACTIVE_REJECT_BACKEDGE,
             ACTIVE_REJECT_STATE
         };
 

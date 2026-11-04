@@ -1297,6 +1297,16 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
 
     for (size_t i = 0; i < count; i++)
     {
+        // Preserve control-flow shape in compiled metadata. Backedges are
+        // deliberately kept out of live execution for now: replacing an
+        // ARM9 polling loop atomically can change when ARM7/shared-memory
+        // updates become observable even when one isolated iteration matches
+        // the interpreter perfectly.
+        Ps2ArmAlu::InstructionInfo compiledInfo;
+        Ps2ArmAlu::inspect(opcodes[i],
+            guestPc + static_cast<uint32_t>(i * 4), &compiledInfo);
+        block.backEdge |= compiledInfo.backEdge;
+
         Ps2ArmAlu::Decoded decoded;
         if (Ps2ArmAlu::decode(opcodes[i], &decoded))
         {
@@ -2298,6 +2308,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     {
         if (rejected == ACTIVE_REJECT_WRITE)
             profile.activeWriteFallbacks++;
+        else if (rejected == ACTIVE_REJECT_BACKEDGE)
+            profile.activeBackedgeFallbacks++;
         else if (rejected == ACTIVE_REJECT_STATE)
             profile.activeStateFallbacks++;
         else
@@ -2367,6 +2379,17 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     {
         cacheActiveReject(guestPc, ACTIVE_REJECT_WRITE);
         profile.activeWriteFallbacks++;
+        return 0;
+    }
+
+    // A one-shot differential test proves instruction semantics, but it does
+    // not prove cross-CPU visibility across a repeated polling/copy loop.
+    // Preserve opcode-level ARM9/ARM7 interleaving for every backward branch
+    // until loop scheduling has an explicit synchronization model.
+    if (block->backEdge)
+    {
+        cacheActiveReject(guestPc, ACTIVE_REJECT_BACKEDGE);
+        profile.activeBackedgeFallbacks++;
         return 0;
     }
 

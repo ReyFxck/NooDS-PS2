@@ -912,7 +912,7 @@ size_t logDynarecHotBlocks(DynarecR5900 &dynarec,
         static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_PC]),
         static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_SYSTEM]),
         static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_OTHER]));
-    PS2_LOG("[PS2][JIT] active attempts=%llu exec=%llu guest=%llu cycles=%llu compileMiss=%llu budgetFallback=%llu writeFallback=%llu verifyFallback=%llu stateFallback=%llu\n",
+    PS2_LOG("[PS2][JIT] active attempts=%llu exec=%llu guest=%llu cycles=%llu compileMiss=%llu budgetFallback=%llu writeFallback=%llu backedgeFallback=%llu verifyFallback=%llu stateFallback=%llu\n",
         static_cast<unsigned long long>(profile.activeAttempts),
         static_cast<unsigned long long>(profile.activeExecutions),
         static_cast<unsigned long long>(profile.activeGuestInstructions),
@@ -920,6 +920,7 @@ size_t logDynarecHotBlocks(DynarecR5900 &dynarec,
         static_cast<unsigned long long>(profile.activeCompileMisses),
         static_cast<unsigned long long>(profile.activeBudgetFallbacks),
         static_cast<unsigned long long>(profile.activeWriteFallbacks),
+        static_cast<unsigned long long>(profile.activeBackedgeFallbacks),
         static_cast<unsigned long long>(profile.activeVerifyFallbacks),
         static_cast<unsigned long long>(profile.activeStateFallbacks));
 
@@ -1143,7 +1144,7 @@ int main(int argc, char **argv)
     PS2_LOG(" Instrumentation: disabled\n");
 #endif
 #if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
-    PS2_LOG(" Dynarec: ARM-ALU-v12 selective-hot-fullstate (profile L2)\n");
+    PS2_LOG(" Dynarec: ARM-ALU-v13 selective-hot-no-backedge (profile L2)\n");
 #else
     PS2_LOG(" Dynarec: ARM-ALU-v10 shadow-gated\n");
 #endif
