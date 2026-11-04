@@ -3173,7 +3173,9 @@ bool DynarecR5900::emitArmAluBlock(uint32_t opcode, uint32_t **entry, uint8_t *r
     if (!Ps2ArmAlu::decode(opcode, &decoded))
         return false;
 
-    uint32_t *code = cache.reserveWords(64);
+    // Direct register-shift flag paths are larger than the original ALU
+    // subset. Reserve enough headroom for the largest admitted single op.
+    uint32_t *code = cache.reserveWords(96);
     if (!code)
         return false;
 
@@ -3308,7 +3310,11 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         }
     }
 
-    const size_t maxWords = count * 70 + (internalSelfLoop ? 40 : 6);
+    // Store fast paths include cache checks, transaction journaling and a
+    // cold helper fallback, so the old 70-word/instruction reservation is no
+    // longer a safe upper bound. This is reservation headroom only; commitWords
+    // still advances by the exact emitted size.
+    const size_t maxWords = count * 160 + (internalSelfLoop ? 48 : 8);
     uint32_t *code = cache.reserveWords(maxWords);
     if (!code)
         return false;
@@ -3966,7 +3972,7 @@ bool DynarecR5900::runArmAluSelfTest()
     // Gate cache-hit register-offset STRB directly in generated R5900 code.
     const uint32_t regByteTarget = byteAddress + 4u;
     uint8_t regByteBefore = bytePage[regByteTarget & 0xFFFu];
-    uint32_t *regByteCode = cache.reserveWords(96);
+    uint32_t *regByteCode = cache.reserveWords(160);
     if (!regByteCode)
         return false;
     size_t regByteWords = emitArmRegisterStoreFastInstruction(
@@ -4010,7 +4016,7 @@ bool DynarecR5900::runArmAluSelfTest()
         (static_cast<uint32_t>(regWordPage[regWordOffset + 1]) << 8) |
         (static_cast<uint32_t>(regWordPage[regWordOffset + 2]) << 16) |
         (static_cast<uint32_t>(regWordPage[regWordOffset + 3]) << 24);
-    uint32_t *regWordCode = cache.reserveWords(96);
+    uint32_t *regWordCode = cache.reserveWords(160);
     if (!regWordCode)
         return false;
     size_t regWordWords = emitArmRegisterStoreFastInstruction(
@@ -4054,7 +4060,7 @@ bool DynarecR5900::runArmAluSelfTest()
     // Gate post-index register STRB: store uses the old base, then Rn updates.
     const uint32_t postByteBase = byteAddress + 8u;
     uint8_t postByteBefore = bytePage[postByteBase & 0xFFFu];
-    uint32_t *postByteCode = cache.reserveWords(96);
+    uint32_t *postByteCode = cache.reserveWords(160);
     if (!postByteCode)
         return false;
     size_t postByteWords = emitArmRegisterStoreFastInstruction(
