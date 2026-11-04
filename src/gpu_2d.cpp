@@ -1554,6 +1554,9 @@ void Gpu2D::drawObjects(int line, bool window)
 
     const bool gba = core->isGbaMode();
     const bool noWindows = (dispCnt & 0x0000E000u) == 0;
+    const int objMosaicSize = ((mosaic >> 12) & 0xFu) + 1;
+    const int objMosaicLine =
+        (objMosaicSize > 1) ? (line - (line % objMosaicSize)) : line;
     uint32_t *frameLine = &framebuffer[line * 256];
     auto putObjPixel = [&](int x, uint32_t pixel, int8_t priority)
     {
@@ -1732,7 +1735,8 @@ void Gpu2D::drawObjects(int line, bool window)
         if (y >= 192) y -= 256;
 
         // Don't draw anything if the current scanline lies outside of the object's bounds
-        int spriteY = ((object[0] & BIT(12)) ? (line - (line % (((mosaic >> 12) & 0xF) + 1))) : line) - y;
+        int spriteY =
+            ((object[0] & BIT(12)) ? objMosaicLine : line) - y;
         if (spriteY < 0 || spriteY >= height2)
         {
             GPU2D_DETAIL_INC(objDetail, spritesOutsideY, 1);
@@ -2028,9 +2032,9 @@ void Gpu2D::drawObjects(int line, bool window)
             // Adjust the current tile to align with the current Y coordinate relative to the object
             int mapWidth = (dispCnt & BIT(gba ? 6 : 4)) ? width : 128;
             if (object[1] & BIT(13)) // Vertical flip
-                tileBase += (7 - (spriteY % 8) + ((height - 1 - spriteY) / 8) * mapWidth) * 8;
+                tileBase += (7 - (spriteY & 7) + ((height - 1 - spriteY) >> 3) * mapWidth) * 8;
             else
-                tileBase += ((spriteY % 8) + (spriteY / 8) * mapWidth) * 8;
+                tileBase += ((spriteY & 7) + (spriteY >> 3) * mapWidth) * 8;
 
             // Get the object's palette
             uint8_t *pal;
@@ -2118,9 +2122,9 @@ void Gpu2D::drawObjects(int line, bool window)
             // Adjust the current tile to align with the current Y coordinate relative to the object
             int mapWidth = (dispCnt & BIT(gba ? 6 : 4)) ? width : 256;
             if (object[1] & BIT(13)) // Vertical flip
-                tileBase += (7 - (spriteY % 8) + ((height - 1 - spriteY) / 8) * mapWidth) * 4;
+                tileBase += (7 - (spriteY & 7) + ((height - 1 - spriteY) >> 3) * mapWidth) * 4;
             else
-                tileBase += ((spriteY % 8) + (spriteY / 8) * mapWidth) * 4;
+                tileBase += ((spriteY & 7) + (spriteY >> 3) * mapWidth) * 4;
 
             // Get the palette of the object
             // In 4-bit mode, the object can select from multiple 16-color palettes
