@@ -2094,7 +2094,7 @@ int main(int argc, char **argv)
                     coreExIoMs / profFrameDiv,
                     romIoMs / profFrameDiv,
                     static_cast<unsigned long long>(runProfile.arm9Opcodes),
-                    static_cast<unsigned long long>(arm7Profile.instructions),
+                    static_cast<unsigned long long>(runProfile.arm7Opcodes),
                     gpu2dAMs,
                     gpu2dBMs,
                     gpu3dMs,
