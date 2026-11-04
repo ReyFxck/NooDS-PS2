@@ -1500,12 +1500,24 @@ void Gpu2D::drawObjects(int line, bool window)
 #ifdef NOODS_PROFILE
     ProfileScope profile(this, GPU2D_PROFILE_OBJECTS);
 #endif
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+    Gpu2DObjDetailCounters *objDetail = nullptr;
+    if (profileEnabled && profileSample64(runProfile.objDetailSampleState,
+        0x6A0u + static_cast<uint32_t>(engine)))
+    {
+        objDetail = &runProfile.objDetail;
+        runProfile.objDetailSamples++;
+        objDetail->calls++;
+        objDetail->windowCalls += window ? 1u : 0u;
+    }
+#endif
 
     const bool gba = core->isGbaMode();
     const bool noWindows = (dispCnt & 0x0000E000u) == 0;
     uint32_t *frameLine = &framebuffer[line * 256];
     auto putObjPixel = [&](int x, uint32_t pixel, int8_t priority)
     {
+        GPU2D_DETAIL_INC(objDetail, pixelWrites, 1);
         if (noWindows)
             drawObjPixelNoWindow(x, pixel, priority);
         else
@@ -1515,39 +1527,55 @@ void Gpu2D::drawObjects(int line, bool window)
 
     auto readObject8 = [&](uint32_t address) -> uint8_t
     {
+        GPU2D_DETAIL_INC(objDetail, texels, 1);
         uint8_t *page = nullptr;
         if (objectPageCache.lookup(address, page))
+        {
+            GPU2D_DETAIL_INC(objDetail, pageHits, 1);
             return page[address & 0xFFFu];
+        }
         if ((page = core->memory.getDirectReadPage(gba, address)))
         {
+            GPU2D_DETAIL_INC(objDetail, pageMaps, 1);
             objectPageCache.store(address, page);
             return page[address & 0xFFFu];
         }
+        GPU2D_DETAIL_INC(objDetail, fallbackReads, 1);
         return core->memory.read<uint8_t>(gba, address);
     };
 
     auto readObject16 = [&](uint32_t address) -> uint16_t
     {
+        GPU2D_DETAIL_INC(objDetail, texels, 1);
         uint8_t *page = nullptr;
         if (objectPageCache.lookup(address, page))
+        {
+            GPU2D_DETAIL_INC(objDetail, pageHits, 1);
             return U8TO16(page, address & 0xFFFu);
+        }
         if ((page = core->memory.getDirectReadPage(gba, address)))
         {
+            GPU2D_DETAIL_INC(objDetail, pageMaps, 1);
             objectPageCache.store(address, page);
             return U8TO16(page, address & 0xFFFu);
         }
+        GPU2D_DETAIL_INC(objDetail, fallbackReads, 1);
         return core->memory.read<uint16_t>(gba, address);
     };
 
     // Loop through and draw the 128 sprites in OAM
     for (int i = 0; i < 128; i++)
     {
+        GPU2D_DETAIL_INC(objDetail, spritesScanned, 1);
         uint8_t byte = oam[i * 8 + 1];
         uint8_t type = (byte >> 2) & 0x3;
 
         // Skip objects that are disabled or are/aren't window type
         if ((byte & 0x3) == 2 || (type == 2) != window)
+        {
+            GPU2D_DETAIL_INC(objDetail, spritesDisabled, 1);
             continue;
+        }
 
         // Get the current object
         // Each object takes up 8 bytes in memory, but the last 2 bytes are reserved for rotscale
@@ -1595,7 +1623,11 @@ void Gpu2D::drawObjects(int line, bool window)
         // Don't draw anything if the current scanline lies outside of the object's bounds
         int spriteY = ((object[0] & BIT(12)) ? (line - (line % (((mosaic >> 12) & 0xF) + 1))) : line) - y;
         if (spriteY < 0 || spriteY >= height2)
+        {
+            GPU2D_DETAIL_INC(objDetail, spritesOutsideY, 1);
             continue;
+        }
+        GPU2D_DETAIL_INC(objDetail, spritesVisible, 1);
 
         // Get the X coordinate and wrap it around if it exceeds the screen bounds
         int x = object[1] & 0x1FF;
@@ -1607,6 +1639,7 @@ void Gpu2D::drawObjects(int line, bool window)
         // Draw bitmap objects
         if (!gba && type == 3)
         {
+            GPU2D_DETAIL_INC(objDetail, bitmapSprites, 1);
             uint32_t dataBase;
             int bitmapWidth;
 
@@ -1648,7 +1681,11 @@ void Gpu2D::drawObjects(int line, bool window)
                     objectCoordinates.advance();
 
                     int offset = x + j;
-                    if (offset < 0 || offset >= 256) continue;
+                    if (offset < 0 || offset >= 256)
+                    {
+                        GPU2D_DETAIL_INC(objDetail, clipped, 1);
+                        continue;
+                    }
                     if (rotscaleX < 0 || rotscaleX >= width) continue;
                     if (rotscaleY < 0 || rotscaleY >= height) continue;
 
@@ -1665,7 +1702,11 @@ void Gpu2D::drawObjects(int line, bool window)
                 for (int j = 0; j < width; j++)
                 {
                     int offset = x + j;
-                    if (offset < 0 || offset >= 256) continue;
+                    if (offset < 0 || offset >= 256)
+                    {
+                        GPU2D_DETAIL_INC(objDetail, clipped, 1);
+                        continue;
+                    }
 
                     // Draw a pixel
                     uint16_t pixel = readObject16(
@@ -1693,6 +1734,7 @@ void Gpu2D::drawObjects(int line, bool window)
 
         if (object[0] & BIT(8)) // Rotscale
         {
+            GPU2D_DETAIL_INC(objDetail, affineSprites, 1);
             // Get the rotscale parameters
             int16_t params[4] =
             {
@@ -1704,6 +1746,7 @@ void Gpu2D::drawObjects(int line, bool window)
 
             if (object[0] & BIT(13)) // 8-bit
             {
+                GPU2D_DETAIL_INC(objDetail, bpp8Sprites, 1);
                 int mapWidth = (dispCnt & BIT(gba ? 6 : 4)) ? width : 128;
 
                 // Get the object's palette
@@ -1733,7 +1776,11 @@ void Gpu2D::drawObjects(int line, bool window)
                     objectCoordinates.advance();
 
                     int offset = x + j;
-                    if (offset < 0 || offset >= 256) continue;
+                    if (offset < 0 || offset >= 256)
+                    {
+                        GPU2D_DETAIL_INC(objDetail, clipped, 1);
+                        continue;
+                    }
                     if (rotscaleX < 0 || rotscaleX >= width) continue;
                     if (rotscaleY < 0 || rotscaleY >= height) continue;
 
@@ -1745,6 +1792,7 @@ void Gpu2D::drawObjects(int line, bool window)
                     if (index && type == 2) // Object window
                     {
                         // Mark object window pixels with an extra bit, and don't draw anything
+                        GPU2D_DETAIL_INC(objDetail, objectWindowWrites, 1);
                         frameLine[offset] |= BIT(24);
                     }
                     else
@@ -1762,6 +1810,7 @@ void Gpu2D::drawObjects(int line, bool window)
             }
             else // 4-bit
             {
+                GPU2D_DETAIL_INC(objDetail, bpp4Sprites, 1);
                 int mapWidth = (dispCnt & BIT(gba ? 6 : 4)) ? width : 256;
 
                 // Get the object's palette
@@ -1782,7 +1831,11 @@ void Gpu2D::drawObjects(int line, bool window)
                     objectCoordinates.advance();
 
                     int offset = x + j;
-                    if (offset < 0 || offset >= 256) continue;
+                    if (offset < 0 || offset >= 256)
+                    {
+                        GPU2D_DETAIL_INC(objDetail, clipped, 1);
+                        continue;
+                    }
                     if (rotscaleX < 0 || rotscaleX >= width) continue;
                     if (rotscaleY < 0 || rotscaleY >= height) continue;
 
@@ -1795,6 +1848,7 @@ void Gpu2D::drawObjects(int line, bool window)
                     if (index && type == 2) // Object window
                     {
                         // Mark object window pixels with an extra bit, and don't draw anything
+                        GPU2D_DETAIL_INC(objDetail, objectWindowWrites, 1);
                         frameLine[offset] |= BIT(24);
                     }
                     else
@@ -1813,6 +1867,7 @@ void Gpu2D::drawObjects(int line, bool window)
         }
         else if (object[0] & BIT(13)) // 8-bit
         {
+            GPU2D_DETAIL_INC(objDetail, bpp8Sprites, 1);
             // Adjust the current tile to align with the current Y coordinate relative to the object
             int mapWidth = (dispCnt & BIT(gba ? 6 : 4)) ? width : 128;
             if (object[1] & BIT(13)) // Vertical flip
@@ -1851,6 +1906,8 @@ void Gpu2D::drawObjects(int line, bool window)
             }
             if (jStart < 0) jStart = 0;
             if (jEnd > width) jEnd = width;
+            GPU2D_DETAIL_INC(objDetail, clipped,
+                static_cast<uint64_t>(width - (jEnd > jStart ? (jEnd - jStart) : 0)));
             if (jStart >= jEnd) continue;
 
             // Draw the visible line of the object.
@@ -1865,6 +1922,7 @@ void Gpu2D::drawObjects(int line, bool window)
                 if (index && type == 2) // Object window
                 {
                     // Mark object window pixels with an extra bit, and don't draw anything
+                    GPU2D_DETAIL_INC(objDetail, objectWindowWrites, 1);
                     frameLine[offset] |= BIT(24);
                 }
                 else
@@ -1882,6 +1940,7 @@ void Gpu2D::drawObjects(int line, bool window)
         }
         else // 4-bit
         {
+            GPU2D_DETAIL_INC(objDetail, bpp4Sprites, 1);
             // Adjust the current tile to align with the current Y coordinate relative to the object
             int mapWidth = (dispCnt & BIT(gba ? 6 : 4)) ? width : 256;
             if (object[1] & BIT(13)) // Vertical flip
@@ -1910,6 +1969,8 @@ void Gpu2D::drawObjects(int line, bool window)
             }
             if (jStart < 0) jStart = 0;
             if (jEnd > width) jEnd = width;
+            GPU2D_DETAIL_INC(objDetail, clipped,
+                static_cast<uint64_t>(width - (jEnd > jStart ? (jEnd - jStart) : 0)));
             if (jStart >= jEnd) continue;
 
             // Draw the visible line of the object.
@@ -1925,6 +1986,7 @@ void Gpu2D::drawObjects(int line, bool window)
                 if (index && type == 2) // Object window
                 {
                     // Mark object window pixels with an extra bit, and don't draw anything
+                    GPU2D_DETAIL_INC(objDetail, objectWindowWrites, 1);
                     frameLine[offset] |= BIT(24);
                 }
                 else
