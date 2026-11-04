@@ -242,38 +242,32 @@ void Gpu3DRenderer::drawScanline1(int line)
 
     stencilClear[line] = false;
 
-    // The hardware polygon RAM is bounded to 2048 entries, matching the
-    // renderer's polygonTop/polygonBot arrays. Avoid a heap allocation for
-    // every scanline by keeping the translucent ordering in a fixed buffer.
-    uint16_t translucent[2048];
-    int translucentCount = 0;
-
-    // Draw only polygons pre-indexed for this scanline. Walking set bits
-    // in ascending word/bit order preserves the original polygon order.
+    // Draw only polygons pre-indexed for this scanline. Two tiny bitset
+    // passes preserve the original solid-then-translucent ordering without
+    // heap allocation or a 4 KiB per-thread temporary index buffer.
     _Polygon *polygons = core->gpu3D.getPolygons();
-    for (int word = 0; word < 64; word++)
+    for (int pass = 0; pass < 2; pass++)
     {
-        uint32_t bits = polygonLineMask[line][word];
-        while (bits)
+        const bool wantTranslucent = pass != 0;
+        for (int word = 0; word < 64; word++)
         {
-            const int bit = __builtin_ctz(bits);
-            const int i = (word << 5) + bit;
-            bits &= bits - 1;
+            uint32_t bits = polygonLineMask[line][word];
+            while (bits)
+            {
+                const int bit = __builtin_ctz(bits);
+                const int i = (word << 5) + bit;
+                bits &= bits - 1;
 
-            // Draw solid polygons and save the translucent ones for later
-            _Polygon *polygon = &polygons[i];
-            if (polygon->alpha < 0x3F || polygon->textureFmt == 1 ||
-                polygon->textureFmt == 6)
-                translucent[translucentCount++] =
-                    static_cast<uint16_t>(i);
-            else
-                drawPolygon(line, i);
+                _Polygon *polygon = &polygons[i];
+                const bool translucent =
+                    polygon->alpha < 0x3F ||
+                    polygon->textureFmt == 1 ||
+                    polygon->textureFmt == 6;
+                if (translucent == wantTranslucent)
+                    drawPolygon(line, i);
+            }
         }
     }
-
-    // Draw the translucent polygons in the same submission order.
-    for (int i = 0; i < translucentCount; i++)
-        drawPolygon(line, translucent[i]);
 }
 
 void Gpu3DRenderer::finishScanline(int line)
