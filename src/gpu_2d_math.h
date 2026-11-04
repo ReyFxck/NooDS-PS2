@@ -2,7 +2,49 @@
 #define GPU_2D_MATH_H
 
 #include <cstdint>
+#include <cstddef>
 #include <cstring>
+
+inline uint16_t gpu2dLoad16(const uint8_t *data, size_t index)
+{
+    uint16_t value = 0;
+#if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && \
+    (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+    std::memcpy(&value, data + index, sizeof(value));
+#else
+    value = static_cast<uint16_t>(data[index]) |
+        (static_cast<uint16_t>(data[index + 1]) << 8);
+#endif
+    return value;
+}
+
+inline uint32_t gpu2dLoad32(const uint8_t *data, size_t index)
+{
+    uint32_t value = 0;
+#if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && \
+    (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+    std::memcpy(&value, data + index, sizeof(value));
+#else
+    value = static_cast<uint32_t>(data[index]) |
+        (static_cast<uint32_t>(data[index + 1]) << 8) |
+        (static_cast<uint32_t>(data[index + 2]) << 16) |
+        (static_cast<uint32_t>(data[index + 3]) << 24);
+#endif
+    return value;
+}
+
+inline uint64_t gpu2dLoad64(const uint8_t *data, size_t index)
+{
+    uint64_t value = 0;
+#if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && \
+    (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+    std::memcpy(&value, data + index, sizeof(value));
+#else
+    value = static_cast<uint64_t>(gpu2dLoad32(data, index)) |
+        (static_cast<uint64_t>(gpu2dLoad32(data, index + 4)) << 32);
+#endif
+    return value;
+}
 
 // Backdrop clear is executed twice per visible scanline. Keep the stores
 // strictly typed as uint32_t (no aliasing tricks), but unroll eight pixels per
