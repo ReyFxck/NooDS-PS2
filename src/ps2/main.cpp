@@ -1147,10 +1147,10 @@ int main(int argc, char **argv)
     PS2_LOG(" Instrumentation: disabled\n");
 #endif
 #ifdef NOODS_PROFILE
-    PS2_LOG(" Dynarec: ARM-ALU-v53 ARM9-store-chain + ARM7-direct-mem-mul (profile L%d)\n",
+    PS2_LOG(" Dynarec: ARM-ALU-v54 dual-CPU-inline-multi (profile L%d)\n",
         NOODS_PROFILE_LEVEL);
 #else
-    PS2_LOG(" Dynarec: ARM-ALU-v53 ARM9-store-chain + ARM7-direct-mem-mul\n");
+    PS2_LOG(" Dynarec: ARM-ALU-v54 dual-CPU-inline-multi\n");
 #endif
     PS2_LOG("============================================================\n");
 
@@ -2068,10 +2068,22 @@ int main(int argc, char **argv)
                 InterpreterHotPc summaryHot[1] = {};
                 collectTopHotPc(arm9Profile, summaryHot, 1);
                 const R5900DynarecProfile &jitProfile = dynarec.getProfile();
+                double arm7JitCoverage = 0.0;
+                double arm7JitGuestPerExec = 0.0;
+                uint64_t arm7JitGuest = 0;
                 if (arm7ShadowDynarec && arm7ActiveExecutorEnabled)
                 {
                     const R5900DynarecProfile &arm7Jit =
                         arm7ShadowDynarec->getProfile();
+                    arm7JitGuest = arm7Jit.activeGuestInstructions;
+                    arm7JitCoverage = runProfile.arm7Opcodes
+                        ? 100.0 * static_cast<double>(arm7JitGuest) /
+                            static_cast<double>(runProfile.arm7Opcodes)
+                        : 0.0;
+                    arm7JitGuestPerExec = arm7Jit.activeExecutions
+                        ? static_cast<double>(arm7JitGuest) /
+                            static_cast<double>(arm7Jit.activeExecutions)
+                        : 0.0;
                     PS2_LOG("[PS2][ARM7JIT] active attempts=%llu exec=%llu guest=%llu cycles=%llu codeInv=%llu compileMiss=%llu budgetFallback=%llu verifyFallback=%llu stateFallback=%llu\n",
                         static_cast<unsigned long long>(arm7Jit.activeAttempts),
                         static_cast<unsigned long long>(arm7Jit.activeExecutions),
@@ -2102,7 +2114,7 @@ int main(int argc, char **argv)
                     static_cast<double>(runProfile.taskClassCount[TASK_PROFILE_SPU]) /
                     1000.0 / profFrameDiv;
 
-                PS2_LOG("[PS2][SUMMARY] fps=%.2f coreMs=%.2f coreExIoMs=%.2f romIoMs=%.2f arm9Instr=%llu arm7Instr=%llu gpu2dAMs=%.2f gpu2dBMs=%.2f gpu3dMs=%.2f spuMs=%.2f schedulerMs=%.3f getFrameMs=%.2f gsUploadMs=%.2f presentMs=%.2f hotPc=%08lX hotOpcode=%08lX dynarecCoveragePct=%.2f dynarecActiveGuest=%llu\n",
+                PS2_LOG("[PS2][SUMMARY] fps=%.2f coreMs=%.2f coreExIoMs=%.2f romIoMs=%.2f arm9Instr=%llu arm7Instr=%llu gpu2dAMs=%.2f gpu2dBMs=%.2f gpu3dMs=%.2f spuMs=%.2f schedulerMs=%.3f getFrameMs=%.2f gsUploadMs=%.2f presentMs=%.2f hotPc=%08lX hotOpcode=%08lX dynarecCoveragePct=%.2f dynarecActiveGuest=%llu arm7JitCoveragePct=%.2f arm7JitGuest=%llu arm7JitGuestPerExec=%.2f\n",
                     profWindowFps,
                     profCoreMs / profFrameDiv,
                     coreExIoMs / profFrameDiv,
@@ -2121,7 +2133,10 @@ int main(int argc, char **argv)
                     static_cast<unsigned long>(summaryHot[0].opcode),
                     jitCoverage,
                     static_cast<unsigned long long>(
-                        jitProfile.activeGuestInstructions));
+                        jitProfile.activeGuestInstructions),
+                    arm7JitCoverage,
+                    static_cast<unsigned long long>(arm7JitGuest),
+                    arm7JitGuestPerExec);
 
                 // Retry the correctness gate only after a complete profile window.
                 // Its temporary interpreter execution is then discarded by the
