@@ -4430,6 +4430,9 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     ArmMemoryWriteGuard liveWrites(&state);
     uint32_t executedGuestInstructions = 0;
     uint32_t executedBlocks = 0;
+    uint8_t unionCommitRegs[15] = {};
+    uint8_t unionCommitRegCount = 0;
+    bool buildingUnionCommit = false;
     constexpr uint32_t MAX_INTERNAL_CHAIN_BLOCKS = 8;
     R5900CompiledBlock *current = block;
 
@@ -4476,10 +4479,21 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
                 : 0;
         }
 
-        initializedMask |= static_cast<uint16_t>(
+        uint16_t currentWriteMask = static_cast<uint16_t>(
             current->writeMask & 0x7FFFu);
-        unionWriteMask |= static_cast<uint16_t>(
-            current->writeMask & 0x7FFFu);
+        if (buildingUnionCommit)
+        {
+            uint16_t newWrites = static_cast<uint16_t>(
+                currentWriteMask & ~unionWriteMask);
+            for (uint8_t i = 0; i < current->writeRegCount; i++)
+            {
+                uint8_t reg = current->writeRegs[i];
+                if (newWrites & static_cast<uint16_t>(1u << reg))
+                    unionCommitRegs[unionCommitRegCount++] = reg;
+            }
+        }
+        initializedMask |= currentWriteMask;
+        unionWriteMask |= currentWriteMask;
 
         // Stores are committed at this boundary. They are fully differential-
         // gated, but chaining through them would make code/data visibility
@@ -4504,6 +4518,13 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
                 state.r[reg] = CpuBackendAccess::readReg(cpu, reg);
         }
         initializedMask |= nextInputMask;
+        if (!buildingUnionCommit)
+        {
+            for (uint8_t i = 0; i < block->writeRegCount; i++)
+                unionCommitRegs[i] = block->writeRegs[i];
+            unionCommitRegCount = block->writeRegCount;
+            buildingUnionCommit = true;
+        }
         current = next;
         profile.activeInternalChainBlocks++;
     }
@@ -4515,19 +4536,14 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     }
 
     // The common single-block case reuses its compile-time sparse write list.
-    // Only multi-block internal chains need to synthesize the union list.
-    uint8_t unionCommitRegs[15] = {};
+    // Multi-block chains build the union incrementally from each compact
+    // writeRegs[] list, avoiding a final r0-r14 mask scan.
     const uint8_t *commitRegs = block->writeRegs;
     uint8_t commitRegCount = block->writeRegCount;
     if (executedBlocks > 1)
     {
-        commitRegCount = 0;
-        for (uint8_t reg = 0; reg < 15; reg++)
-        {
-            if (unionWriteMask & static_cast<uint16_t>(1u << reg))
-                unionCommitRegs[commitRegCount++] = reg;
-        }
         commitRegs = unionCommitRegs;
+        commitRegCount = unionCommitRegCount;
     }
 
     bool committed = false;
