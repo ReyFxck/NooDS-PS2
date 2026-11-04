@@ -91,6 +91,20 @@ void Gpu3DRenderer::drawScanline(int line)
 {
     if (line == 0)
     {
+        // Finish the previous frame before touching polygon bounds or the
+        // per-line mask. Threaded drawScanline1() reads both structures, so
+        // rebuilding them first would race a worker still completing the old
+        // frame.
+        for (int i = 0; i < activeThreads; i++)
+        {
+            if (threads[i])
+            {
+                threads[i]->join();
+                delete threads[i];
+                threads[i] = nullptr;
+            }
+        }
+
         // Calculate the scanline bounds for each polygon and build a
         // compact active-polygon mask for every visible line. drawScanline1()
         // can then skip all polygons that do not intersect its line instead of
@@ -124,16 +138,6 @@ void Gpu3DRenderer::drawScanline(int line)
             const int word = i >> 5;
             for (int y = firstLine; y < lastLine; y++)
                 polygonLineMask[y][word] |= bit;
-        }
-
-        // Clean up any existing threads
-        for (int i = 0; i < activeThreads; i++)
-        {
-            if (threads[i]) 
-            {
-                threads[i]->join();
-                delete threads[i];
-            }
         }
 
         // Update the thread count
