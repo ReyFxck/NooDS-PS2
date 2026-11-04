@@ -186,8 +186,68 @@ int main()
         assert(Ps2ArmAlu::executeMultiply(0x00040291u, mulState, &mulCpsr));
         assert(mulState[4] == 0xA5A55A5Au && mulCpsr == 0x00000013u);
 
-        // Long multiply intentionally remains unsupported by this decoder.
-        assert(!Ps2ArmAlu::decodeMultiply(0xE0810392u, &multiply));
+        // Long multiply subset: UMULL/UMLAL/SMULL/SMLAL, including the
+        // current NooDS N/Z flag semantics and conditional no-op behavior.
+        Ps2ArmAlu::DecodedLongMultiply longMultiply;
+        assert(Ps2ArmAlu::decodeLongMultiply(0xE0810392u, &longMultiply));
+        assert(!longMultiply.signedMultiply && !longMultiply.accumulate &&
+            !longMultiply.setFlags && longMultiply.rdLo == 0 &&
+            longMultiply.rdHi == 1 && longMultiply.rm == 2 &&
+            longMultiply.rs == 3);
+
+        uint32_t longState[16] = {};
+        longState[2] = 0xFFFFFFFFu;
+        longState[3] = 2u;
+        uint32_t longCpsr = 0x30000013u;
+        assert(Ps2ArmAlu::executeLongMultiply(0xE0810392u,
+            longState, &longCpsr)); // UMULL r0,r1,r2,r3
+        assert(longState[0] == 0xFFFFFFFEu && longState[1] == 1u &&
+            longCpsr == 0x30000013u);
+
+        longState[0] = 5u;
+        longState[1] = 1u;
+        assert(Ps2ArmAlu::executeLongMultiply(0xE0A10392u,
+            longState, &longCpsr)); // UMLAL
+        assert(longState[0] == 3u && longState[1] == 3u);
+
+        longState[2] = 0xFFFFFFFFu;
+        longState[3] = 2u;
+        assert(Ps2ArmAlu::executeLongMultiply(0xE0C10392u,
+            longState, &longCpsr)); // SMULL
+        assert(longState[0] == 0xFFFFFFFEu &&
+            longState[1] == 0xFFFFFFFFu);
+
+        longState[0] = 2u;
+        longState[1] = 0u;
+        longState[2] = 0xFFFFFFFFu;
+        longState[3] = 2u;
+        assert(Ps2ArmAlu::executeLongMultiply(0xE0E10392u,
+            longState, &longCpsr)); // SMLAL
+        assert(longState[0] == 0u && longState[1] == 0u);
+
+        longState[0] = 0xA5A55A5Au;
+        longState[1] = 0x11223344u;
+        longState[2] = 0u;
+        longState[3] = 7u;
+        longCpsr = 0x30000013u;
+        assert(Ps2ArmAlu::executeLongMultiply(0xE0910392u,
+            longState, &longCpsr)); // UMULLS -> high==0 => Z
+        assert(longState[0] == 0u && longState[1] == 0u &&
+            longCpsr == 0x70000013u);
+
+        longState[0] = 0xA5A55A5Au;
+        longState[1] = 0x11223344u;
+        longState[2] = 3u;
+        longState[3] = 4u;
+        longCpsr = 0x00000013u; // EQ fails.
+        assert(Ps2ArmAlu::executeLongMultiply(0x00810392u,
+            longState, &longCpsr));
+        assert(longState[0] == 0xA5A55A5Au &&
+            longState[1] == 0x11223344u &&
+            longCpsr == 0x00000013u);
+
+        assert(!Ps2ArmAlu::decodeLongMultiply(0xE08F0392u,
+            &longMultiply));
     }
 
     // Arithmetic S operations calculate all four flags, including borrow and overflow.
