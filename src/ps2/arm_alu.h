@@ -76,6 +76,17 @@ namespace Ps2ArmAlu
         uint32_t immediateValue = 0;
     };
 
+    struct DecodedMultiply
+    {
+        uint8_t condition = 0xE;
+        bool accumulate = false;
+        bool setFlags = false;
+        uint8_t rd = 0;
+        uint8_t rn = 0;
+        uint8_t rs = 0;
+        uint8_t rm = 0;
+    };
+
     struct DecodedBranch
     {
         uint8_t condition = 0xE;
@@ -175,6 +186,7 @@ namespace Ps2ArmAlu
         uint32_t registerAmount, uint32_t *result);
     bool conditionPassed(uint8_t condition, uint32_t cpsr);
     bool decode(uint32_t opcode, Decoded *decoded);
+    bool decodeMultiply(uint32_t opcode, DecodedMultiply *decoded);
     bool decodeBranch(uint32_t opcode, DecodedBranch *decoded);
     bool decodeBranchExchange(uint32_t opcode,
         DecodedBranchExchange *decoded);
@@ -187,6 +199,8 @@ namespace Ps2ArmAlu
     bool decodeLiteralLoad(uint32_t opcode, DecodedLiteralLoad *decoded);
     bool decodeSingleBlockTransfer(uint32_t opcode,
         DecodedSingleBlockTransfer *decoded);
+    bool executeMultiply(uint32_t opcode, uint32_t registers[16],
+        uint32_t *cpsr = nullptr);
     bool executeHalfwordTransfer(uint32_t opcode, uint32_t registers[16],
         uint32_t *cpsr, void *context, ReadHalfword read,
         WriteHalfword write = nullptr);

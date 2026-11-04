@@ -268,6 +268,34 @@ bool Ps2ArmAlu::decode(uint32_t opcode, Decoded *decoded)
     return true;
 }
 
+bool Ps2ArmAlu::decodeMultiply(uint32_t opcode, DecodedMultiply *decoded)
+{
+    // ARM short multiply encoding (MUL/MLA). Long multiplies use a separate
+    // encoding and remain outside this first dynarec subset.
+    if (!decoded || (opcode & 0x0FC000F0u) != 0x00000090u)
+        return false;
+
+    *decoded = DecodedMultiply();
+    decoded->condition = static_cast<uint8_t>(opcode >> 28);
+    decoded->accumulate = (opcode & BIT(21)) != 0;
+    decoded->setFlags = (opcode & BIT(20)) != 0;
+    decoded->rd = static_cast<uint8_t>((opcode >> 16) & 0xFu);
+    decoded->rn = static_cast<uint8_t>((opcode >> 12) & 0xFu);
+    decoded->rs = static_cast<uint8_t>((opcode >> 8) & 0xFu);
+    decoded->rm = static_cast<uint8_t>(opcode & 0xFu);
+
+    if (decoded->condition == 0xFu || decoded->rd == 15 ||
+        decoded->rs == 15 || decoded->rm == 15 ||
+        (decoded->accumulate && decoded->rn == 15))
+        return false;
+
+    // MUL's unused Rn field is architecturally zero in the canonical encoding.
+    if (!decoded->accumulate && decoded->rn != 0)
+        return false;
+
+    return true;
+}
+
 bool Ps2ArmAlu::decodeBranch(uint32_t opcode, DecodedBranch *decoded)
 {
     if (!decoded || (opcode & 0x0E000000u) != 0x0A000000u ||
@@ -689,6 +717,38 @@ bool Ps2ArmAlu::executeBranchExchange(uint32_t opcode,
     return true;
 }
 
+bool Ps2ArmAlu::executeMultiply(uint32_t opcode,
+    uint32_t registers[16], uint32_t *cpsr)
+{
+    if (!registers)
+        return false;
+
+    DecodedMultiply decoded;
+    if (!decodeMultiply(opcode, &decoded))
+        return false;
+    if ((decoded.condition != 0xEu || decoded.setFlags) && !cpsr)
+        return false;
+    if (cpsr && !conditionPassed(decoded.condition, *cpsr))
+        return true;
+
+    uint32_t result = static_cast<uint32_t>(
+        static_cast<uint64_t>(registers[decoded.rm]) *
+        static_cast<uint64_t>(registers[decoded.rs]));
+    if (decoded.accumulate)
+        result += registers[decoded.rn];
+
+    registers[decoded.rd] = result;
+    if (decoded.setFlags)
+    {
+        uint32_t flags = result & BIT(31);
+        if (!result)
+            flags |= BIT(30);
+        // Match NooDS ARM9 MULS/MLAS: update N/Z, preserve C/V and mode bits.
+        *cpsr = (*cpsr & 0x3FFFFFFFu) | flags;
+    }
+    return true;
+}
+
 bool Ps2ArmAlu::execute(uint32_t opcode, uint32_t registers[16], uint32_t *cpsr)
 {
     if (!registers)
@@ -939,6 +999,9 @@ Ps2ArmAlu::RejectReason Ps2ArmAlu::rejectionReason(uint32_t opcode)
 {
     Decoded decoded;
     if (decode(opcode, &decoded))
+        return REJECT_NONE;
+    DecodedMultiply multiply;
+    if (decodeMultiply(opcode, &multiply))
         return REJECT_NONE;
     DecodedBranch branch;
     if (decodeBranch(opcode, &branch))

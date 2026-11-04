@@ -157,6 +157,39 @@ int main()
     assert(Ps2ArmAlu::execute(0xE2121102u, registers, &cpsr)); // ANDS r1,r2,#0x80000000
     assert(registers[1] == 0x80000000u && cpsr == 0xB0000013u);
 
+    // Short ARM MUL/MLA subset, including N/Z-only S flags and condition.
+    {
+        Ps2ArmAlu::DecodedMultiply multiply;
+        assert(Ps2ArmAlu::decodeMultiply(0xE0040291u, &multiply));
+        assert(!multiply.accumulate && !multiply.setFlags &&
+            multiply.rd == 4 && multiply.rm == 1 && multiply.rs == 2);
+
+        uint32_t mulState[16] = {};
+        mulState[1] = 0xFFFFFFFEu;
+        mulState[2] = 3u;
+        mulState[3] = 10u;
+        uint32_t mulCpsr = 0x30000013u;
+        assert(Ps2ArmAlu::executeMultiply(0xE0040291u, mulState, &mulCpsr));
+        assert(mulState[4] == 0xFFFFFFFAu && mulCpsr == 0x30000013u);
+
+        assert(Ps2ArmAlu::executeMultiply(0xE0253291u, mulState, &mulCpsr));
+        assert(mulState[5] == 4u);
+
+        mulState[1] = 0u;
+        mulState[4] = 0xFFFFFFFFu;
+        assert(Ps2ArmAlu::executeMultiply(0xE0140291u, mulState, &mulCpsr));
+        assert(mulState[4] == 0u && mulCpsr == 0x70000013u);
+
+        mulState[1] = 7u;
+        mulState[4] = 0xA5A55A5Au;
+        mulCpsr = 0x00000013u; // EQ fails.
+        assert(Ps2ArmAlu::executeMultiply(0x00040291u, mulState, &mulCpsr));
+        assert(mulState[4] == 0xA5A55A5Au && mulCpsr == 0x00000013u);
+
+        // Long multiply intentionally remains unsupported by this decoder.
+        assert(!Ps2ArmAlu::decodeMultiply(0xE0810392u, &multiply));
+    }
+
     // Arithmetic S operations calculate all four flags, including borrow and overflow.
     registers[5] = 0;
     cpsr = 0xF0000013u;
