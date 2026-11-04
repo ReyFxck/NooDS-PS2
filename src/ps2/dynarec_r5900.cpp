@@ -6375,6 +6375,128 @@ bool DynarecR5900::runArmAluSelfTest()
     if (arm7HalfRestored != arm7BeforeHalf)
         return false;
 
+    // Gate ARM7 register-offset loads. The decoder already excludes PC/RRX;
+    // these cases verify shifted word addressing plus byte/halfword Rm forms
+    // and their native 3-cycle load timing.
+    {
+        const uint32_t base = loadAddress;
+        const uint32_t target = base + 4u;
+        uint8_t *page = memory->getDirectReadPage(1, target);
+        if (!page)
+            return false;
+        uint32_t offset = target & 0xFFFu;
+        uint32_t expected =
+            static_cast<uint32_t>(page[offset]) |
+            (static_cast<uint32_t>(page[offset + 1]) << 8) |
+            (static_cast<uint32_t>(page[offset + 2]) << 16) |
+            (static_cast<uint32_t>(page[offset + 3]) << 24);
+
+        uint32_t *code = cache.reserveWords(128);
+        if (!code)
+            return false;
+        size_t words = emitArmWordLoadCachedInstruction(
+            0xE7901102u, code, false, false, false, 1);
+            // LDR r1,[r0,r2,LSL #2]
+        if (!words)
+            return false;
+        code[words++] = R5900::jr(R5900::R_RA);
+        code[words++] = R5900::nop();
+        cache.commitWords(words);
+        cache.syncExecutable(code, code + words);
+
+        ArmAluState state = {};
+        state.r[0] = base;
+        state.r[1] = 0xCAFEBABEu;
+        state.r[2] = 1u;
+        state.memory = memory;
+        state.cpuId = 1;
+        state.readCacheTag = (target >> 12) + 1u;
+        state.readCachePage = page;
+        ArmLoadFunction function =
+            reinterpret_cast<ArmLoadFunction>(code);
+        function(&state);
+        if (state.memoryFault || state.cycles != 3u ||
+            state.r[1] != expected)
+            return false;
+    }
+
+    {
+        const uint32_t base = loadAddress;
+        const uint32_t target = base + 7u;
+        uint8_t *page = memory->getDirectReadPage(1, target);
+        if (!page)
+            return false;
+        uint8_t expected = page[target & 0xFFFu];
+
+        uint32_t *code = cache.reserveWords(128);
+        if (!code)
+            return false;
+        size_t words = emitArmByteLoadCachedInstruction(
+            0xE7D01002u, code, false, false, false, 1);
+            // LDRB r1,[r0,r2]
+        if (!words)
+            return false;
+        code[words++] = R5900::jr(R5900::R_RA);
+        code[words++] = R5900::nop();
+        cache.commitWords(words);
+        cache.syncExecutable(code, code + words);
+
+        ArmAluState state = {};
+        state.r[0] = base;
+        state.r[1] = 0xCAFEBABEu;
+        state.r[2] = 7u;
+        state.memory = memory;
+        state.cpuId = 1;
+        state.readCacheTag = (target >> 12) + 1u;
+        state.readCachePage = page;
+        ArmLoadFunction function =
+            reinterpret_cast<ArmLoadFunction>(code);
+        function(&state);
+        if (state.memoryFault || state.cycles != 3u ||
+            state.r[1] != expected)
+            return false;
+    }
+
+    {
+        const uint32_t base = loadAddress;
+        const uint32_t target = base + 2u;
+        uint8_t *page = memory->getDirectReadPage(1, target);
+        if (!page)
+            return false;
+        uint32_t offset = target & 0xFFFu;
+        uint16_t expected =
+            static_cast<uint16_t>(page[offset]) |
+            (static_cast<uint16_t>(page[offset + 1]) << 8);
+
+        uint32_t *code = cache.reserveWords(128);
+        if (!code)
+            return false;
+        size_t words = emitArmHalfwordLoadCachedInstruction(
+            0xE19010B2u, code, false, false, false, 1);
+            // LDRH r1,[r0,r2]
+        if (!words)
+            return false;
+        code[words++] = R5900::jr(R5900::R_RA);
+        code[words++] = R5900::nop();
+        cache.commitWords(words);
+        cache.syncExecutable(code, code + words);
+
+        ArmAluState state = {};
+        state.r[0] = base;
+        state.r[1] = 0xCAFEBABEu;
+        state.r[2] = 2u;
+        state.memory = memory;
+        state.cpuId = 1;
+        state.readCacheTag = (target >> 12) + 1u;
+        state.readCachePage = page;
+        ArmLoadFunction function =
+            reinterpret_cast<ArmLoadFunction>(code);
+        function(&state);
+        if (state.memoryFault || state.cycles != 3u ||
+            state.r[1] != expected)
+            return false;
+    }
+
     return true;
 }
 
