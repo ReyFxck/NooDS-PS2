@@ -18,7 +18,6 @@
 */
 
 #include <cstring>
-#include <vector>
 
 #include "gpu_3d_renderer.h"
 #include "core.h"
@@ -200,12 +199,28 @@ void Gpu3DRenderer::drawScanline1(int line)
     uint32_t attrib = ((clearColor & BIT(15)) >> 2) | ((clearColor & 0x3F000000) >> 18) | ((clearColor & 0x3F000000) >> 24) |
         (0x3F << 15) | (((clearColor & 0x001F0000) && ((clearColor & 0x001F0000) >> 16) < 31) << 12);
 
-    // Clear the scanline buffers with the clear values
-    for (int i = line * 256; i < (line + 1) * 256; i++)
+    // Clear the scanline buffers with the clear values. Keep line-local
+    // pointers and unroll four pixels at a time; older PS2 GCC does not
+    // reliably unroll this interleaved three-buffer loop at -O2.
+    uint32_t *colorLine = &framebuffer[0][line * 256];
+    int32_t *depthLine = &depthBuffer[0][line * 256];
+    uint32_t *attribLine = &attribBuffer[0][line * 256];
+    for (int i = 0; i < 256; i += 4)
     {
-        framebuffer[0][i]  = color;
-        depthBuffer[0][i]  = depth;
-        attribBuffer[0][i] = attrib;
+        colorLine[i + 0] = color;
+        colorLine[i + 1] = color;
+        colorLine[i + 2] = color;
+        colorLine[i + 3] = color;
+
+        depthLine[i + 0] = depth;
+        depthLine[i + 1] = depth;
+        depthLine[i + 2] = depth;
+        depthLine[i + 3] = depth;
+
+        attribLine[i + 0] = attrib;
+        attribLine[i + 1] = attrib;
+        attribLine[i + 2] = attrib;
+        attribLine[i + 3] = attrib;
     }
 
     stencilClear[line] = false;
@@ -213,7 +228,7 @@ void Gpu3DRenderer::drawScanline1(int line)
     // The hardware polygon RAM is bounded to 2048 entries, matching the
     // renderer's polygonTop/polygonBot arrays. Avoid a heap allocation for
     // every scanline by keeping the translucent ordering in a fixed buffer.
-    int translucent[2048];
+    uint16_t translucent[2048];
     int translucentCount = 0;
 
     // Draw the polygons
