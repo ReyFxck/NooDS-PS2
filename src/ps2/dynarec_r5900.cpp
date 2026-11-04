@@ -1490,6 +1490,8 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
     code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
     code[words++] = R5900::sw(R5900::R_V0,
         static_cast<int16_t>(decoded.rd * 4), R5900::R_A0);
+    code[words++] = R5900::or_(R5900::R_T2,
+        R5900::R_V0, R5900::R_ZERO);
     if (registerCycles)
         code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
     if (registerCpsr)
@@ -1870,6 +1872,8 @@ size_t emitArmByteLoadCachedInstruction(uint32_t opcode,
     code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
     code[words++] = R5900::sw(R5900::R_V0,
         static_cast<int16_t>(decoded.rd * 4), R5900::R_A0);
+    code[words++] = R5900::or_(R5900::R_T2,
+        R5900::R_V0, R5900::R_ZERO);
     if (registerCycles)
         code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
     if (registerCpsr)
@@ -1963,6 +1967,8 @@ size_t emitArmLiteralLoadDirectInstruction(uint32_t opcode, uint32_t pc,
     code[words++] = R5900::lw(R5900::R_T1, 0, R5900::R_T0);
     code[words++] = R5900::sw(R5900::R_T1,
         static_cast<int16_t>(decoded.rd * 4), R5900::R_A0);
+    code[words++] = R5900::or_(R5900::R_T2,
+        R5900::R_T1, R5900::R_ZERO);
 
     if (conditionBranch != static_cast<size_t>(-1))
     {
@@ -2077,6 +2083,8 @@ size_t emitArmWordLoadCachedInstruction(uint32_t opcode,
     code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
     code[words++] = R5900::sw(R5900::R_V0,
         static_cast<int16_t>(decoded.rd * 4), R5900::R_A0);
+    code[words++] = R5900::or_(R5900::R_T2,
+        R5900::R_V0, R5900::R_ZERO);
     if (registerCycles)
         code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
     if (registerCpsr)
@@ -2712,6 +2720,36 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             currentAlu.condition == 0xEu &&
             !logicalShiftNeedsHelper(currentAlu);
 
+        int producedGuestReg = -1;
+        if (currentDirectAlu && currentAlu.writesResult)
+        {
+            producedGuestReg = currentAlu.rd;
+        }
+        else
+        {
+            Ps2ArmAlu::DecodedHalfwordTransfer half;
+            Ps2ArmAlu::DecodedByteTransfer byte;
+            Ps2ArmAlu::DecodedSingleTransfer word;
+            if (Ps2ArmAlu::decodeHalfwordTransfer(opcodes[i], &half) &&
+                half.condition == 0xEu && half.load && half.preIndex &&
+                !half.writeBack)
+            {
+                producedGuestReg = half.rd;
+            }
+            else if (Ps2ArmAlu::decodeByteTransfer(opcodes[i], &byte) &&
+                byte.condition == 0xEu && byte.load && !byte.registerOffset &&
+                byte.preIndex && !byte.writeBack)
+            {
+                producedGuestReg = byte.rd;
+            }
+            else if (Ps2ArmAlu::decodeSingleTransfer(opcodes[i], &word) &&
+                word.condition == 0xEu && word.load && !word.registerOffset &&
+                word.preIndex && !word.writeBack)
+            {
+                producedGuestReg = word.rd;
+            }
+        }
+
         size_t emitted = emitArmInstruction(opcodes[i],
             guestPc + static_cast<uint32_t>(i * 4), code + words, true,
             registerCpsr, memory, forwardedGuestReg);
@@ -2719,9 +2757,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             return false;
         words += emitted;
 
-        forwardedGuestReg = (currentDirectAlu && currentAlu.writesResult)
-            ? static_cast<int>(currentAlu.rd)
-            : -1;
+        forwardedGuestReg = producedGuestReg;
 
         // Generic ALU-S -> B.EQ/B.NE fusion. The ALU emitter has already
         // committed architectural NZCV to v1/state, but its result is still
@@ -2748,8 +2784,10 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             }
         }
 
-        // Any non-ALU instruction terminates host-register forwarding.
-        if (!currentDirectAlu)
+        // Instructions that did not leave a known architectural value in t2
+        // terminate host-register forwarding. Fast direct loads are producers
+        // just like ALU writes.
+        if (producedGuestReg < 0)
             forwardedGuestReg = -1;
     }
 
