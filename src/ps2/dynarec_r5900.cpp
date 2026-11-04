@@ -63,6 +63,9 @@ void DynarecR5900::clearActiveLookups()
     std::memset(activeBlockIndex, 0, sizeof(activeBlockIndex));
     std::memset(activeRejectedPc, 0, sizeof(activeRejectedPc));
     std::memset(activeRejectedKind, 0, sizeof(activeRejectedKind));
+    std::memset(compiledGuestPageBloom, 0, sizeof(compiledGuestPageBloom));
+    std::memset(compiledPhysicalPageBloom, 0,
+        sizeof(compiledPhysicalPageBloom));
 }
 
 void DynarecR5900::cacheActiveReject(uint32_t pc, ActiveRejectKind kind)
@@ -169,6 +172,119 @@ R5900CompiledBlock *DynarecR5900::findMutableBlock(uint32_t pc, bool thumb)
     }
 
     return nullptr;
+}
+
+namespace
+{
+void addCompiledPageBloom(uint64_t bloom[4], uint64_t key)
+{
+    uint64_t mixed1 = key ^ (key >> 17) ^ (key * 0x9E3779B185EBCA87ull);
+    uint64_t mixed2 = (key >> 7) ^ (key * 0xC2B2AE3D27D4EB4Full);
+    uint32_t bit1 = static_cast<uint32_t>(mixed1) & 0xFFu;
+    uint32_t bit2 = static_cast<uint32_t>(mixed2) & 0xFFu;
+    bloom[bit1 >> 6] |= 1ull << (bit1 & 63u);
+    bloom[bit2 >> 6] |= 1ull << (bit2 & 63u);
+}
+
+bool maybeCompiledPageBloom(const uint64_t bloom[4], uint64_t key)
+{
+    uint64_t mixed1 = key ^ (key >> 17) ^ (key * 0x9E3779B185EBCA87ull);
+    uint64_t mixed2 = (key >> 7) ^ (key * 0xC2B2AE3D27D4EB4Full);
+    uint32_t bit1 = static_cast<uint32_t>(mixed1) & 0xFFu;
+    uint32_t bit2 = static_cast<uint32_t>(mixed2) & 0xFFu;
+    return (bloom[bit1 >> 6] & (1ull << (bit1 & 63u))) &&
+        (bloom[bit2 >> 6] & (1ull << (bit2 & 63u)));
+}
+}
+
+void DynarecR5900::rememberCompiledCodePages(
+    const R5900CompiledBlock &block)
+{
+    if (!memory || block.guestEndPc <= block.guestPc)
+        return;
+
+    bool cpu = targetCpuId != 0;
+    uint32_t address = block.guestPc;
+    while (address < block.guestEndPc)
+    {
+        uint32_t guestPage = address >> 12;
+        addCompiledPageBloom(compiledGuestPageBloom, guestPage);
+
+        uint8_t *page = memory->getDirectReadPage(cpu, address);
+        if (page)
+        {
+            uint64_t physicalKey =
+                static_cast<uint64_t>(reinterpret_cast<uintptr_t>(page)) >> 12;
+            addCompiledPageBloom(compiledPhysicalPageBloom, physicalKey);
+        }
+
+        uint32_t next = (address & ~0xFFFu) + 0x1000u;
+        if (next <= address)
+            break;
+        address = std::min(next, block.guestEndPc);
+    }
+}
+
+bool DynarecR5900::writeOverlapsCompiledCode(
+    uint32_t address, uint8_t size) const
+{
+    if (!memory || !size || blocks.empty())
+        return false;
+
+    bool cpu = targetCpuId != 0;
+    uint8_t *writePage = memory->getDirectWritePage(cpu, address);
+    uint64_t guestKey = static_cast<uint64_t>(address >> 12);
+    bool guestMaybe = maybeCompiledPageBloom(compiledGuestPageBloom, guestKey);
+    bool physicalMaybe = false;
+    if (writePage)
+    {
+        uint64_t physicalKey =
+            static_cast<uint64_t>(reinterpret_cast<uintptr_t>(writePage)) >> 12;
+        physicalMaybe =
+            maybeCompiledPageBloom(compiledPhysicalPageBloom, physicalKey);
+    }
+
+    if (!guestMaybe && !physicalMaybe)
+        return false;
+
+    uint64_t writeStart = address;
+    uint64_t writeEnd = writeStart + size;
+    for (const R5900CompiledBlock &block : blocks)
+    {
+        uint64_t codeStart = block.guestPc;
+        uint64_t codeEnd = block.guestEndPc;
+        if (writeStart < codeEnd && writeEnd > codeStart)
+            return true;
+
+        if (!writePage)
+            continue;
+
+        uint32_t codeAddress = block.guestPc;
+        while (codeAddress < block.guestEndPc)
+        {
+            uint8_t *codePage =
+                memory->getDirectReadPage(cpu, codeAddress);
+            uint32_t pageBase = codeAddress & ~0xFFFu;
+            uint32_t pageEnd = std::min<uint32_t>(
+                block.guestEndPc, pageBase + 0x1000u);
+
+            if (codePage && codePage == writePage)
+            {
+                uint32_t writeOffset = address & 0xFFFu;
+                uint32_t writeOffsetEnd = writeOffset + size;
+                uint32_t codeOffset = codeAddress & 0xFFFu;
+                uint32_t codeOffsetEnd = pageEnd - pageBase;
+                if (writeOffset < codeOffsetEnd &&
+                    writeOffsetEnd > codeOffset)
+                    return true;
+            }
+
+            if (pageEnd <= codeAddress)
+                break;
+            codeAddress = pageEnd;
+        }
+    }
+    return false;
 }
 
 bool DynarecR5900::analyzeArmBlock(uint32_t pc, R5900BlockAnalysis *analysis,
@@ -4120,6 +4236,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     }
 
     blocks.push_back(block);
+    rememberCompiledCodePages(blocks.back());
 
     // Prefer the newest compilation for active dispatch. A PC may have been
     // compiled earlier as a shorter shadow/gate sequence; publishing the new
@@ -5985,6 +6102,17 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
         return 0;
     }
 
+    bool invalidatesCompiledCode = false;
+    for (uint32_t i = 0; i < state.writeCount; i++)
+    {
+        if (writeOverlapsCompiledCode(state.writes[i].address,
+            state.writes[i].size))
+        {
+            invalidatesCompiledCode = true;
+            break;
+        }
+    }
+
     if (!CpuBackendAccess::commitBlockStateSparse(cpu, state.r,
         block->writeRegs, block->writeRegCount, state.cpsr, state.nextPc))
     {
@@ -6003,7 +6131,13 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
     if (guestInstructions)
         *guestInstructions = executedGuest;
 
-    return static_cast<int>(state.cycles);
+    int committedCycles = static_cast<int>(state.cycles);
+    if (invalidatesCompiledCode)
+    {
+        DYNAREC_PROFILE(profile.activeCodeWriteInvalidations++);
+        reset();
+    }
+    return committedCycles;
 }
 
 
@@ -6535,6 +6669,19 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     }
 
     bool wroteMemory = state.writeCount != 0;
+    bool invalidatesCompiledCode = false;
+    if (wroteMemory)
+    {
+        for (uint32_t i = 0; i < state.writeCount; i++)
+        {
+            if (writeOverlapsCompiledCode(state.writes[i].address,
+                state.writes[i].size))
+            {
+                invalidatesCompiledCode = true;
+                break;
+            }
+        }
+    }
 
     // The common single-block case reuses its compile-time sparse write list.
     // Multi-block chains build the union incrementally from each compact
@@ -6597,5 +6744,11 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     if (guestInstructions)
         *guestInstructions = executedGuestInstructions;
 
-    return static_cast<int>(totalCycles);
+    int committedCycles = static_cast<int>(totalCycles);
+    if (invalidatesCompiledCode)
+    {
+        DYNAREC_PROFILE(profile.activeCodeWriteInvalidations++);
+        reset();
+    }
+    return committedCycles;
 }

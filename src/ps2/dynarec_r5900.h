@@ -62,6 +62,7 @@ struct R5900DynarecProfile
     uint64_t activePipelineReuses = 0;
     uint64_t activeInternalChainBlocks = 0;
     uint64_t activeStoreChainBlocks = 0;
+    uint64_t activeCodeWriteInvalidations = 0;
     uint64_t activeCompileMisses = 0;
     uint64_t activeBudgetFallbacks = 0;
     uint64_t activeWriteFallbacks = 0;
@@ -221,6 +222,8 @@ class DynarecR5900
 
         uint32_t mappedGeneration = 0;
         uint32_t *probeCode = nullptr;
+        uint64_t compiledGuestPageBloom[4] = {};
+        uint64_t compiledPhysicalPageBloom[4] = {};
         R5900DynarecProfile profile;
 
         size_t activeLookupSlot(uint32_t pc) const
@@ -231,6 +234,8 @@ class DynarecR5900
         void cacheActiveReject(uint32_t pc, ActiveRejectKind kind);
         ActiveRejectKind findActiveReject(uint32_t pc) const;
         R5900CompiledBlock *findMutableBlock(uint32_t pc, bool thumb);
+        void rememberCompiledCodePages(const R5900CompiledBlock &block);
+        bool writeOverlapsCompiledCode(uint32_t address, uint8_t size) const;
         bool emitArmAluBlock(uint32_t opcode, uint32_t **entry, uint8_t *rd);
         bool emitArmAluSequence(const uint32_t *opcodes, size_t count,
             uint32_t guestPc, uint32_t **entry, uint32_t *hostWords);

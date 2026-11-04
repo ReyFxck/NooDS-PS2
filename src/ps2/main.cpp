@@ -912,7 +912,7 @@ size_t logDynarecHotBlocks(DynarecR5900 &dynarec,
         static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_PC]),
         static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_SYSTEM]),
         static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_OTHER]));
-    PS2_LOG("[PS2][JIT] active attempts=%llu exec=%llu guest=%llu cycles=%llu chain=%llu storeChain=%llu pipeReuse=%llu compileMiss=%llu budgetFallback=%llu writeFallback=%llu verifyFallback=%llu stateFallback=%llu\n",
+    PS2_LOG("[PS2][JIT] active attempts=%llu exec=%llu guest=%llu cycles=%llu chain=%llu storeChain=%llu pipeReuse=%llu codeInv=%llu compileMiss=%llu budgetFallback=%llu writeFallback=%llu verifyFallback=%llu stateFallback=%llu\n",
         static_cast<unsigned long long>(profile.activeAttempts),
         static_cast<unsigned long long>(profile.activeExecutions),
         static_cast<unsigned long long>(profile.activeGuestInstructions),
@@ -920,6 +920,7 @@ size_t logDynarecHotBlocks(DynarecR5900 &dynarec,
         static_cast<unsigned long long>(profile.activeInternalChainBlocks),
         static_cast<unsigned long long>(profile.activeStoreChainBlocks),
         static_cast<unsigned long long>(profile.activePipelineReuses),
+        static_cast<unsigned long long>(profile.activeCodeWriteInvalidations),
         static_cast<unsigned long long>(profile.activeCompileMisses),
         static_cast<unsigned long long>(profile.activeBudgetFallbacks),
         static_cast<unsigned long long>(profile.activeWriteFallbacks),
@@ -2069,12 +2070,14 @@ int main(int argc, char **argv)
                 {
                     const R5900DynarecProfile &arm7Jit =
                         arm7ShadowDynarec->getProfile();
-                    PS2_LOG("[PS2][ARM7JIT] active attempts=%llu exec=%llu guest=%llu cycles=%llu compileMiss=%llu budgetFallback=%llu verifyFallback=%llu stateFallback=%llu\n",
+                    PS2_LOG("[PS2][ARM7JIT] active attempts=%llu exec=%llu guest=%llu cycles=%llu codeInv=%llu compileMiss=%llu budgetFallback=%llu verifyFallback=%llu stateFallback=%llu\n",
                         static_cast<unsigned long long>(arm7Jit.activeAttempts),
                         static_cast<unsigned long long>(arm7Jit.activeExecutions),
                         static_cast<unsigned long long>(
                             arm7Jit.activeGuestInstructions),
                         static_cast<unsigned long long>(arm7Jit.activeCycles),
+                        static_cast<unsigned long long>(
+                            arm7Jit.activeCodeWriteInvalidations),
                         static_cast<unsigned long long>(arm7Jit.activeCompileMisses),
                         static_cast<unsigned long long>(arm7Jit.activeBudgetFallbacks),
                         static_cast<unsigned long long>(arm7Jit.activeVerifyFallbacks),
