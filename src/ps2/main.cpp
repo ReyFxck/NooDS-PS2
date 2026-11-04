@@ -1407,21 +1407,13 @@ int main(int argc, char **argv)
 
         if (arm7ShadowReady)
         {
-            // Arm the callback immediately, but not unchecked execution. Core
-            // only calls it for sampled-hot ARM PCs, and the backend requires
-            // a per-block portable shadow + exact Interpreter differential
-            // before setting activeReady and committing any live state.
-            core->setArm7BlockRunner(arm7ShadowDynarec,
-                [](void *context, Interpreter &cpu,
-                    uint32_t cycleBudget,
-                    uint32_t *guestInstructions) -> int
-                {
-                    return static_cast<DynarecR5900*>(context)
-                        ->runArm7ActiveAluBranchBlock(cpu, cycleBudget,
-                            guestInstructions);
-                });
-            arm7ActiveExecutorEnabled = true;
-            PS2_LOG("[PS2][OK] ARM7 guarded dynarec armed: every hot block must pass shadow+differential before live commit.\n");
+            // Runtime quarantine: the current ARM7 live executor can leave the
+            // emulated ARM9 waiting indefinitely while both LCD outputs settle
+            // on solid black. Keep compiling/probing/shadowing/differential-
+            // checking ARM7 blocks, but do not let them commit live state until
+            // the scheduler/IRQ timing regression is isolated.
+            arm7ActiveExecutorEnabled = false;
+            PS2_LOG("[PS2][WARN] ARM7 guarded dynarec is shadow-only for this build; live execution quarantined after black-screen regression.\n");
         }
 
         bool arm9ActiveExecutorEnabled = false;
