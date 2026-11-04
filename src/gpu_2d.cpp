@@ -134,13 +134,18 @@ void Gpu2D::drawGbaScanline(int line)
 #ifdef NOODS_PROFILE
         ProfileScope profile(this, GPU2D_PROFILE_CLEAR);
 #endif
-        // Clear the layers with the backdrop (first palette index)
+        // Clear the layers with the backdrop (first palette index).
+        // When blending is disabled the lower layer is never populated or
+        // consumed, so avoid clearing 240 pixels and metadata unnecessarily.
         uint16_t backdrop = U8TO16(palette, 0) & ~BIT(15);
-        for (int i = 0; i < 2; i++)
+        gpu2dFill32(layers[0], 240, backdrop);
+        memset(priorities[0], 4, 240 * sizeof(uint8_t));
+        memset(blendBits[0], 5, 240 * sizeof(uint8_t));
+        if (bldCnt != 0)
         {
-            gpu2dFill32(layers[i], 240, backdrop);
-            memset(priorities[i], 4, 240 * sizeof(uint8_t));
-            memset(blendBits[i],  5, 240 * sizeof(uint8_t));
+            gpu2dFill32(layers[1], 240, backdrop);
+            memset(priorities[1], 4, 240 * sizeof(uint8_t));
+            memset(blendBits[1], 5, 240 * sizeof(uint8_t));
         }
     }
 
@@ -284,11 +289,19 @@ void Gpu2D::drawScanline(int line)
 #ifdef NOODS_PROFILE
         ProfileScope profile(this, GPU2D_PROFILE_CLEAR);
 #endif
-        // Clear the layers with the backdrop (first palette index)
+        // Clear the layers with the backdrop (first palette index).
+        // BLDCNT=0 makes the lower layer unobservable, matching the top-only
+        // pixel path below and halving this fixed scanline clear.
         uint16_t backdrop = U8TO16(palette, 0) & ~BIT(15);
-        gpu2dFill32(&layers[0][0], 2 * 256, backdrop);
-        memset(&priorities[0][0], 4, sizeof(priorities));
-        memset(&blendBits[0][0], 5, sizeof(blendBits));
+        gpu2dFill32(layers[0], 256, backdrop);
+        memset(priorities[0], 4, 256 * sizeof(uint8_t));
+        memset(blendBits[0], 5, 256 * sizeof(uint8_t));
+        if (bldCnt != 0)
+        {
+            gpu2dFill32(layers[1], 256, backdrop);
+            memset(priorities[1], 4, 256 * sizeof(uint8_t));
+            memset(blendBits[1], 5, 256 * sizeof(uint8_t));
+        }
     }
 
     // Draw the objects, object window first if enabled
