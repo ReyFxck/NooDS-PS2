@@ -3633,8 +3633,11 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     state.memoryFault = 0;
     state.writeCount = 0;
     state.cycles = 0;
-    state.readCacheTag = 0;
-    state.readCachePage = nullptr;
+    // Direct data pages are stable for the block's mapGeneration. Preserve
+    // the last successful page across dispatches so recurring polling/copy
+    // blocks skip even the first helper lookup after warm-up.
+    state.readCacheTag = block->cachedReadTag;
+    state.readCachePage = block->cachedReadPage;
     state.cycleLimit = cycleBudget;
     state.guestExecuted = 0;
 
@@ -3643,6 +3646,12 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         reinterpret_cast<ArmAluBlockFunction>(block->hostCode);
     ArmMemoryWriteGuard liveWrites(&state);
     function(&state);
+
+    if (state.readCacheTag && state.readCachePage)
+    {
+        block->cachedReadTag = state.readCacheTag;
+        block->cachedReadPage = state.readCachePage;
+    }
 
     uint32_t executedGuestInstructions = state.guestExecuted
         ? state.guestExecuted

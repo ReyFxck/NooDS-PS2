@@ -82,6 +82,8 @@ struct R5900CompiledBlock
     uint32_t cycles = 0;
     uint32_t entryOpcode0 = 0;
     uint32_t entryOpcode1 = 0;
+    uint32_t cachedReadTag = 0;
+    uint8_t *cachedReadPage = nullptr;
     uint16_t readMask = 0;
     uint16_t writeMask = 0;
     uint8_t liveRegCount = 0;
