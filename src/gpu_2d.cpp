@@ -23,6 +23,13 @@
 #include "gpu_2d_math.h"
 #include "core.h"
 
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+#define GPU2D_DETAIL_INC(ptr, field, amount) \
+    do { if (ptr) (ptr)->field += (amount); } while (0)
+#else
+#define GPU2D_DETAIL_INC(ptr, field, amount) do {} while (0)
+#endif
+
 Gpu2D::Gpu2D(Core *core, bool engine): core(core), engine(engine)
 {
     if (engine == 0)
@@ -756,6 +763,16 @@ void Gpu2D::drawText(int bg, int line)
 #ifdef NOODS_PROFILE
     ProfileScope profile(this, GPU2D_PROFILE_TEXT);
 #endif
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+    Gpu2DTextDetailCounters *textDetail = nullptr;
+    if (profileEnabled && profileSample64(runProfile.textDetailSampleState,
+        0x620u + static_cast<uint32_t>(engine)))
+    {
+        textDetail = &runProfile.textDetail;
+        runProfile.textDetailSamples++;
+        textDetail->calls++;
+    }
+#endif
 
     // If 3D is enabled, override BG0 in text mode. The normal text path
     // already bypasses per-pixel window checks when no windows are active;
@@ -764,21 +781,39 @@ void Gpu2D::drawText(int bg, int line)
     {
         uint32_t *data = core->gpu3DRenderer.getLine(line);
         const bool noWindows = (dispCnt & 0x0000E000u) == 0;
+        GPU2D_DETAIL_INC(textDetail, threeD, 1);
+        GPU2D_DETAIL_INC(textDetail, windowed, noWindows ? 0 : 1);
         const int8_t bgPriority = bgCnt[0] & 0x3;
         if (noWindows)
         {
             for (int i = 0; i < 256; i++)
             {
+                GPU2D_DETAIL_INC(textDetail, pixelsVisited, 1);
                 if (data[i] & 0xFC0000)
+                {
+                    GPU2D_DETAIL_INC(textDetail, writes, 1);
                     drawBgPixelNoWindow(0, i, data[i], bgPriority);
+                }
+                else
+                {
+                    GPU2D_DETAIL_INC(textDetail, transparent, 1);
+                }
             }
         }
         else
         {
             for (int i = 0; i < 256; i++)
             {
+                GPU2D_DETAIL_INC(textDetail, pixelsVisited, 1);
                 if (data[i] & 0xFC0000)
+                {
+                    GPU2D_DETAIL_INC(textDetail, writes, 1);
                     drawBgPixel(0, line, i, data[i]);
+                }
+                else
+                {
+                    GPU2D_DETAIL_INC(textDetail, transparent, 1);
+                }
             }
         }
         return;
@@ -799,6 +834,7 @@ void Gpu2D::drawText(int bg, int line)
 
     const bool gba = core->isGbaMode();
     const bool noWindows = (dispCnt & 0x0000E000u) == 0;
+    GPU2D_DETAIL_INC(textDetail, windowed, noWindows ? 0 : 1);
     const int8_t bgPriority = bgCnt[bg] & 0x3;
     auto putBgPixel = [&](int x, uint32_t pixel)
     {
@@ -833,8 +869,10 @@ void Gpu2D::drawText(int bg, int line)
     // Draw a line
     if (bgCnt[bg] & BIT(7)) // 8-bit
     {
+        GPU2D_DETAIL_INC(textDetail, mode8, 1);
         for (int tileIndex = 0; tileIndex < tileCount; tileIndex++)
         {
+            GPU2D_DETAIL_INC(textDetail, tiles, 1);
             const int i = tileIndex << 3;
             const int tileX = (firstTileX + tileIndex) & 0x3F;
             uint32_t tileAddr = tileBase + ((tileX & 0x1F) << 1);
@@ -848,14 +886,24 @@ void Gpu2D::drawText(int bg, int line)
             uint8_t *page = nullptr;
             uint16_t tile;
             if (tilePageCache.lookup(tileAddr, page))
+            {
+                GPU2D_DETAIL_INC(textDetail, tilePageHits, 1);
                 tile = U8TO16(page, tileAddr & 0xFFFu);
+            }
             else if ((page = core->memory.getDirectReadPage(gba, tileAddr)))
             {
+                GPU2D_DETAIL_INC(textDetail, tilePageMaps, 1);
                 tilePageCache.store(tileAddr, page);
                 tile = U8TO16(page, tileAddr & 0xFFFu);
             }
             else
+            {
+                GPU2D_DETAIL_INC(textDetail, tileFallbackReads, 1);
                 tile = core->memory.read<uint16_t>(gba, tileAddr);
+            }
+
+            GPU2D_DETAIL_INC(textDetail, hFlipTiles, (tile & BIT(10)) ? 1 : 0);
+            GPU2D_DETAIL_INC(textDetail, vFlipTiles, (tile & BIT(11)) ? 1 : 0);
 
             // Get the tile's palette. Extended slot selection was already
             // resolved once for this scanline above.
@@ -869,17 +917,20 @@ void Gpu2D::drawText(int bg, int line)
             page = nullptr;
             if (indexPageCache.lookup(indexAddr, page))
             {
+                GPU2D_DETAIL_INC(textDetail, indexPageHits, 1);
                 indices = U8TO32(page, indexAddr & 0xFFFu) |
                     (static_cast<uint64_t>(U8TO32(page, (indexAddr & 0xFFFu) + 4)) << 32);
             }
             else if ((page = core->memory.getDirectReadPage(gba, indexAddr)))
             {
+                GPU2D_DETAIL_INC(textDetail, indexPageMaps, 1);
                 indexPageCache.store(indexAddr, page);
                 indices = U8TO32(page, indexAddr & 0xFFFu) |
                     (static_cast<uint64_t>(U8TO32(page, (indexAddr & 0xFFFu) + 4)) << 32);
             }
             else
             {
+                GPU2D_DETAIL_INC(textDetail, indexFallbackReads, 2);
                 indices = core->memory.read<uint32_t>(gba, indexAddr) |
                     (static_cast<uint64_t>(core->memory.read<uint32_t>(gba, indexAddr + 4)) << 32);
             }
@@ -889,16 +940,31 @@ void Gpu2D::drawText(int bg, int line)
             for (int x = i - fineX + ((tile & BIT(10)) ? 7 : 0);
                 indices != 0; x += xStep, indices >>= 8)
             {
-                // Draw a pixel if it's visible
-                if (x >= 0 && x < 256 && (indices & 0xFF))
-                    putBgPixel(x, U8TO16(pal, (indices & 0xFF) * 2) | BIT(15));
+                GPU2D_DETAIL_INC(textDetail, pixelsVisited, 1);
+                const uint8_t index = indices & 0xFF;
+                if (x < 0 || x >= 256)
+                {
+                    GPU2D_DETAIL_INC(textDetail, clipped, 1);
+                }
+                else if (!index)
+                {
+                    GPU2D_DETAIL_INC(textDetail, transparent, 1);
+                }
+                else
+                {
+                    GPU2D_DETAIL_INC(textDetail, paletteReads, 1);
+                    GPU2D_DETAIL_INC(textDetail, writes, 1);
+                    putBgPixel(x, U8TO16(pal, index * 2) | BIT(15));
+                }
             }
         }
     }
     else // 4-bit
     {
+        GPU2D_DETAIL_INC(textDetail, mode4, 1);
         for (int tileIndex = 0; tileIndex < tileCount; tileIndex++)
         {
+            GPU2D_DETAIL_INC(textDetail, tiles, 1);
             const int i = tileIndex << 3;
             const int tileX = (firstTileX + tileIndex) & 0x3F;
             uint32_t tileAddr = tileBase + ((tileX & 0x1F) << 1);
@@ -912,14 +978,24 @@ void Gpu2D::drawText(int bg, int line)
             uint8_t *page = nullptr;
             uint16_t tile;
             if (tilePageCache.lookup(tileAddr, page))
+            {
+                GPU2D_DETAIL_INC(textDetail, tilePageHits, 1);
                 tile = U8TO16(page, tileAddr & 0xFFFu);
+            }
             else if ((page = core->memory.getDirectReadPage(gba, tileAddr)))
             {
+                GPU2D_DETAIL_INC(textDetail, tilePageMaps, 1);
                 tilePageCache.store(tileAddr, page);
                 tile = U8TO16(page, tileAddr & 0xFFFu);
             }
             else
+            {
+                GPU2D_DETAIL_INC(textDetail, tileFallbackReads, 1);
                 tile = core->memory.read<uint16_t>(gba, tileAddr);
+            }
+
+            GPU2D_DETAIL_INC(textDetail, hFlipTiles, (tile & BIT(10)) ? 1 : 0);
+            GPU2D_DETAIL_INC(textDetail, vFlipTiles, (tile & BIT(11)) ? 1 : 0);
 
             // Get the tile's palette
             // In 4-bit mode, the tile can select from multiple 16-color palettes
@@ -930,23 +1006,43 @@ void Gpu2D::drawText(int bg, int line)
             uint32_t indices;
             page = nullptr;
             if (indexPageCache.lookup(indexAddr, page))
+            {
+                GPU2D_DETAIL_INC(textDetail, indexPageHits, 1);
                 indices = U8TO32(page, indexAddr & 0xFFFu);
+            }
             else if ((page = core->memory.getDirectReadPage(gba, indexAddr)))
             {
+                GPU2D_DETAIL_INC(textDetail, indexPageMaps, 1);
                 indexPageCache.store(indexAddr, page);
                 indices = U8TO32(page, indexAddr & 0xFFFu);
             }
             else
+            {
+                GPU2D_DETAIL_INC(textDetail, indexFallbackReads, 1);
                 indices = core->memory.read<uint32_t>(gba, indexAddr);
+            }
 
             // Draw the current line of the tile, flipped horizontally if enabled
             const int xStep = (tile & BIT(10)) ? -1 : 1;
             for (int x = i - fineX + ((tile & BIT(10)) ? 7 : 0);
                 indices != 0; x += xStep, indices >>= 4)
             {
-                // Draw a pixel if it's visible
-                if (x >= 0 && x < 256 && (indices & 0xF))
-                    putBgPixel(x, U8TO16(pal, (indices & 0xF) * 2) | BIT(15));
+                GPU2D_DETAIL_INC(textDetail, pixelsVisited, 1);
+                const uint8_t index = indices & 0xF;
+                if (x < 0 || x >= 256)
+                {
+                    GPU2D_DETAIL_INC(textDetail, clipped, 1);
+                }
+                else if (!index)
+                {
+                    GPU2D_DETAIL_INC(textDetail, transparent, 1);
+                }
+                else
+                {
+                    GPU2D_DETAIL_INC(textDetail, paletteReads, 1);
+                    GPU2D_DETAIL_INC(textDetail, writes, 1);
+                    putBgPixel(x, U8TO16(pal, index * 2) | BIT(15));
+                }
             }
         }
     }
