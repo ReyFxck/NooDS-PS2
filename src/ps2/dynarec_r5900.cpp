@@ -4973,7 +4973,10 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     uint8_t unionCommitRegCount = 0;
     bool buildingUnionCommit = false;
     R5900CompiledBlock *pipelineHint = nullptr;
-    constexpr uint32_t MAX_INTERNAL_CHAIN_BLOCKS = 8;
+    // Read-only, already-verified blocks may stay internal a little longer.
+    // cycleBudget still caps the chain before the next ARM7/task boundary, and
+    // stores/THUMB transitions terminate it immediately.
+    constexpr uint32_t MAX_INTERNAL_CHAIN_BLOCKS = 12;
     R5900CompiledBlock *current = block;
 
     while (current && executedBlocks < MAX_INTERNAL_CHAIN_BLOCKS)
