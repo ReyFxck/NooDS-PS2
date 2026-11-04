@@ -3897,25 +3897,26 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         block->activeReady = true;
     }
 
-    // Active blocks are read-only by policy, so do not zero the 16-entry
-    // transactional write journal on every dispatch. Initialize only the ABI
-    // fields generated code can touch plus the precomputed live registers.
+    // Initialize only the first block's live registers. When an already-safe
+    // read-only successor is chained, lazily import any additional registers
+    // it needs from the still-unmodified Interpreter state. Registers written
+    // by earlier blocks are already resident in state.r and never reloaded.
     ArmAluState state;
-    for (uint8_t i = 0; i < block->liveRegCount; i++)
+    uint16_t initializedMask = static_cast<uint16_t>(
+        (block->readMask | block->writeMask) & 0x7FFFu);
+    uint16_t unionWriteMask = static_cast<uint16_t>(block->writeMask & 0x7FFFu);
+    for (uint8_t reg = 0; reg < 15; reg++)
     {
-        uint8_t reg = block->liveRegs[i];
-        state.r[reg] = CpuBackendAccess::readReg(cpu, reg);
+        if (initializedMask & static_cast<uint16_t>(1u << reg))
+            state.r[reg] = CpuBackendAccess::readReg(cpu, reg);
     }
+
     uint32_t liveCpsr = CpuBackendAccess::readCpsr(cpu);
     state.cpsr = liveCpsr;
-    state.nextPc = block->guestEndPc;
     state.memory = memory;
     state.memoryFault = 0;
     state.writeCount = 0;
     state.cycles = 0;
-    // Direct data pages are stable for the block's mapGeneration. Preserve
-    // the last successful page across dispatches so recurring polling/copy
-    // blocks skip even the first helper lookup after warm-up.
     state.readCacheTag = block->cachedReadTag;
     state.readCachePage = block->cachedReadPage;
     state.writeCacheTag = block->cachedWriteTag;
@@ -3923,34 +3924,85 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     state.cycleLimit = cycleBudget;
     state.guestExecuted = 0;
 
-    typedef void (*ArmAluBlockFunction)(ArmAluState *);
-    ArmAluBlockFunction function =
-        reinterpret_cast<ArmAluBlockFunction>(block->hostCode);
     ArmMemoryWriteGuard liveWrites(&state);
-    function(&state);
+    uint32_t executedGuestInstructions = 0;
+    uint32_t executedBlocks = 0;
+    constexpr uint32_t MAX_INTERNAL_CHAIN_BLOCKS = 8;
+    R5900CompiledBlock *current = block;
 
-    if (state.readCacheTag && state.readCachePage)
+    while (current && executedBlocks < MAX_INTERNAL_CHAIN_BLOCKS)
     {
-        block->cachedReadTag = state.readCacheTag;
-        block->cachedReadPage = state.readCachePage;
-    }
-    if (state.writeCacheTag && state.writeCachePage)
-    {
-        block->cachedWriteTag = state.writeCacheTag;
-        block->cachedWritePage = state.writeCachePage;
-    }
+        state.nextPc = current->guestEndPc;
+        state.guestExecuted = 0;
 
-    uint32_t executedGuestInstructions = state.guestExecuted
-        ? state.guestExecuted
-        : block->guestInstructions;
+        typedef void (*ArmAluBlockFunction)(ArmAluState *);
+        ArmAluBlockFunction function =
+            reinterpret_cast<ArmAluBlockFunction>(current->hostCode);
+        uint32_t cyclesBefore = state.cycles;
+        function(&state);
 
-    // No guest state has been committed yet, so every failure below is a
-    // lossless interpreter fallback.
-    if (state.memoryFault ||
-        ((state.cpsr ^ liveCpsr) & 0x1Fu))
-    {
-        profile.activeStateFallbacks++;
-        return 0;
+        if (state.readCacheTag && state.readCachePage)
+        {
+            current->cachedReadTag = state.readCacheTag;
+            current->cachedReadPage = state.readCachePage;
+        }
+        if (state.writeCacheTag && state.writeCachePage)
+        {
+            current->cachedWriteTag = state.writeCacheTag;
+            current->cachedWritePage = state.writeCachePage;
+        }
+
+        uint32_t blockGuest = state.guestExecuted
+            ? state.guestExecuted
+            : current->guestInstructions;
+        executedGuestInstructions += blockGuest;
+        executedBlocks++;
+
+        // No architectural CPU state has been committed yet. Any generated
+        // failure discards the whole internal chain and the write guard rolls
+        // memory back to the exact entry state.
+        if (state.memoryFault || ((state.cpsr ^ liveCpsr) & 0x1Fu) ||
+            state.cycles <= cyclesBefore || state.cycles > cycleBudget)
+        {
+            if (state.cycles > cycleBudget)
+                profile.activeBudgetFallbacks++;
+            else
+                profile.activeStateFallbacks++;
+            return state.cycles > cycleBudget
+                ? -static_cast<int>(state.cycles)
+                : 0;
+        }
+
+        unionWriteMask |= static_cast<uint16_t>(
+            current->writeMask & 0x7FFFu);
+
+        // Stores are committed at this boundary. They are fully differential-
+        // gated, but chaining through them would make code/data visibility
+        // between blocks harder to reason about and would consume the bounded
+        // transaction journal faster.
+        if (current->writesMemory || (state.cpsr & BIT(5)))
+            break;
+
+        uint32_t remaining = cycleBudget - state.cycles;
+        R5900CompiledBlock *next = findMutableBlock(state.nextPc, false);
+        if (!next || !next->activeReady || next->writesMemory ||
+            next->guestInstructions < MIN_ACTIVE_GUEST_INSTRUCTIONS ||
+            !next->cycles || next->cycles > remaining)
+            break;
+
+        uint16_t nextLiveMask = static_cast<uint16_t>(
+            (next->readMask | next->writeMask) & 0x7FFFu);
+        uint16_t missingMask = static_cast<uint16_t>(
+            nextLiveMask & ~initializedMask);
+        for (uint8_t reg = 0; reg < 15; reg++)
+        {
+            uint16_t bit = static_cast<uint16_t>(1u << reg);
+            if (missingMask & bit)
+                state.r[reg] = CpuBackendAccess::readReg(cpu, reg);
+        }
+        initializedMask |= nextLiveMask;
+        current = next;
+        profile.activeInternalChainBlocks++;
     }
 
     if (!state.cycles)
@@ -3958,32 +4010,30 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         profile.activeStateFallbacks++;
         return 0;
     }
-    if (state.cycles > cycleBudget)
+
+    // Build one sparse commit list for the union of registers written by all
+    // blocks in the internal chain.
+    uint8_t commitRegs[15] = {};
+    uint8_t commitRegCount = 0;
+    for (uint8_t reg = 0; reg < 15; reg++)
     {
-        profile.activeBudgetFallbacks++;
-        return -static_cast<int>(state.cycles);
+        if (unionWriteMask & static_cast<uint16_t>(1u << reg))
+            commitRegs[commitRegCount++] = reg;
     }
 
     bool committed = false;
     R5900CompiledBlock *pipelineBlock = nullptr;
     if (!(state.cpsr & BIT(5)))
     {
-        if (block->guestInstructions >= 2 && state.nextPc == block->guestPc)
-        {
-            pipelineBlock = block;
-        }
-        else
-        {
-            R5900CompiledBlock *next = findMutableBlock(state.nextPc, false);
-            if (next && next->guestInstructions >= 2)
-                pipelineBlock = next;
-        }
+        R5900CompiledBlock *next = findMutableBlock(state.nextPc, false);
+        if (next && next->guestInstructions >= 2)
+            pipelineBlock = next;
     }
 
     if (pipelineBlock)
     {
         committed = CpuBackendAccess::commitBlockStateSparseKnownArmPipeline(
-            cpu, state.r, block->writeRegs, block->writeRegCount, state.cpsr,
+            cpu, state.r, commitRegs, commitRegCount, state.cpsr,
             state.nextPc, pipelineBlock->entryOpcode0,
             pipelineBlock->entryOpcode1);
         if (committed)
@@ -3992,7 +4042,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     else
     {
         committed = CpuBackendAccess::commitBlockStateSparse(cpu, state.r,
-            block->writeRegs, block->writeRegCount, state.cpsr, state.nextPc);
+            commitRegs, commitRegCount, state.cpsr, state.nextPc);
     }
 
     if (!committed)
@@ -4003,7 +4053,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
 
     liveWrites.dismiss();
 
-    profile.activeExecutions++;
+    profile.activeExecutions += executedBlocks;
     profile.activeGuestInstructions += executedGuestInstructions;
     profile.activeCycles += state.cycles;
     if (guestInstructions)
