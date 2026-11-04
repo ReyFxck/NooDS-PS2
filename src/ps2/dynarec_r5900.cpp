@@ -391,6 +391,24 @@ bool applyArmAluHelper(ArmAluState *state, uint32_t opcode)
     return applyArmAlu(opcode, state);
 }
 
+uint8_t *getArm9CachedReadPage(ArmAluState *state, uint32_t address)
+{
+    if (!state || !state->memory)
+        return nullptr;
+
+    uint32_t tag = (address >> 12) + 1u;
+    if (state->readCacheTag == tag && state->readCachePage)
+        return state->readCachePage;
+
+    uint8_t *page = state->memory->getDirectReadPageCached(0, address);
+    if (!page)
+        return nullptr;
+
+    state->readCacheTag = tag;
+    state->readCachePage = page;
+    return page;
+}
+
 bool readDirectArm9Halfword(void *context, uint32_t address, uint16_t *value)
 {
     ArmAluState *state = static_cast<ArmAluState*>(context);
@@ -399,7 +417,7 @@ bool readDirectArm9Halfword(void *context, uint32_t address, uint16_t *value)
     if (!memory || !value || offset == 0xFFFu)
         return false;
 
-    uint8_t *page = memory->getDirectReadPageCached(0, address);
+    uint8_t *page = getArm9CachedReadPage(state, address);
     if (!page)
         return false;
     *value = static_cast<uint16_t>(page[offset] |
@@ -638,7 +656,7 @@ bool readDirectArm9Byte(void *context, uint32_t address, uint8_t *value)
     Memory *memory = state ? state->memory : nullptr;
     if (!memory || !value)
         return false;
-    uint8_t *page = memory->getDirectReadPageCached(0, address);
+    uint8_t *page = getArm9CachedReadPage(state, address);
     if (!page)
         return false;
     *value = page[address & 0xFFFu];
@@ -673,7 +691,7 @@ bool readDirectArm9Word(void *context, uint32_t address, uint32_t *value)
     if (!memory || !value || (address & 3u) || offset > 0xFFCu)
         return false;
 
-    uint8_t *page = memory->getDirectReadPageCached(0, address);
+    uint8_t *page = getArm9CachedReadPage(state, address);
     if (!page)
         return false;
     *value = static_cast<uint32_t>(page[offset]) |
