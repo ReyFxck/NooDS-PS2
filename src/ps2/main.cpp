@@ -1374,6 +1374,31 @@ int main(int argc, char **argv)
         else
             PS2_LOG("[PS2][WARN] R5900 dynarec infrastructure unavailable; interpreter remains active.\n");
 
+        DynarecR5900 *arm7ShadowDynarec =
+            new (std::nothrow) DynarecR5900(&core->memory);
+        bool arm7ShadowReady = false;
+        bool arm7ShadowGatePassed = false;
+        bool arm7ShadowHardFailure = false;
+        uint32_t arm7ShadowAttempts = 0;
+        if (arm7ShadowDynarec && arm7ShadowDynarec->init(256 * 1024))
+        {
+            uint32_t arm7Probe = 0;
+            arm7ShadowReady = arm7ShadowDynarec->runProbe(&arm7Probe);
+            if (arm7ShadowReady)
+            {
+                PS2_LOG("[PS2][OK] ARM7 R5900 shadow backend ready: probe=%08lX cache=%u bytes (ALU/branch only, execution disabled).\n",
+                    static_cast<unsigned long>(arm7Probe),
+                    static_cast<unsigned int>(
+                        arm7ShadowDynarec->codeCacheCapacity()));
+            }
+        }
+        if (!arm7ShadowReady)
+        {
+            PS2_LOG("[PS2][WARN] ARM7 R5900 shadow backend unavailable; ARM7 remains interpreter-only.\n");
+            delete arm7ShadowDynarec;
+            arm7ShadowDynarec = nullptr;
+        }
+
         bool arm9ActiveExecutorEnabled = false;
         auto enableArm9ActiveExecutor = [&]()
         {
@@ -1464,6 +1489,78 @@ int main(int argc, char **argv)
                 arm9GateHardFailure = true;
                 PS2_LOG("[PS2][WARN] ARM9 interpreter<->dynarec differential mismatch during deferred sample %lu; scheduler remains interpreter-only.\n",
                     static_cast<unsigned long>(arm9DeferredGateAttempts));
+            }
+        };
+
+        auto runDeferredArm7ShadowGate = [&]()
+        {
+            if (!arm7ShadowReady || arm7ShadowGatePassed ||
+                arm7ShadowHardFailure || arm7ShadowAttempts >= 16)
+                return;
+
+            arm7ShadowAttempts++;
+            if (CpuBackendAccess::isThumb(core->interpreter[1]))
+            {
+                if (arm7ShadowAttempts == 1 || arm7ShadowAttempts == 4 ||
+                    arm7ShadowAttempts == 8 || arm7ShadowAttempts == 16)
+                {
+                    PS2_LOG("[PS2] ARM7 shadow gate sample %lu/16: current PC is THUMB; waiting for an ARM-mode frame boundary.\n",
+                        static_cast<unsigned long>(arm7ShadowAttempts));
+                }
+                return;
+            }
+
+            uint32_t blockPc = 0;
+            uint32_t blockInstructions = 0;
+            uint32_t blockHash = 0;
+            int shadow = arm7ShadowDynarec->runArm7AluBranchShadowSelfTest(
+                core->interpreter[1], &blockPc, &blockInstructions, &blockHash,
+                16);
+            if (shadow == 0)
+            {
+                if (arm7ShadowAttempts == 1 || arm7ShadowAttempts == 4 ||
+                    arm7ShadowAttempts == 8 || arm7ShadowAttempts == 16)
+                {
+                    PS2_LOG("[PS2] ARM7 shadow gate sample %lu/16: no ALU/branch-only ARM block at the current frame boundary.\n",
+                        static_cast<unsigned long>(arm7ShadowAttempts));
+                }
+                return;
+            }
+            if (shadow < 0)
+            {
+                arm7ShadowHardFailure = true;
+                PS2_LOG("[PS2][WARN] ARM7 ALU/branch R5900 shadow mismatch at sample %lu; ARM7 stays interpreter-only.\n",
+                    static_cast<unsigned long>(arm7ShadowAttempts));
+                return;
+            }
+
+            uint32_t diffPc = 0;
+            uint32_t diffInstructions = 0;
+            uint32_t diffHash = 0;
+            int differential =
+                arm7ShadowDynarec->runArm7AluBranchDifferentialSelfTest(
+                    core->interpreter[1], &diffPc, &diffInstructions,
+                    &diffHash);
+            if (differential > 0)
+            {
+                arm7ShadowGatePassed = true;
+                PS2_LOG("[PS2][OK] ARM7 ALU/branch shadow+differential gate passed: pc=%08lX instructions=%lu shadowHash=%08lX diffHash=%08lX; execution remains disabled.\n",
+                    static_cast<unsigned long>(blockPc),
+                    static_cast<unsigned long>(blockInstructions),
+                    static_cast<unsigned long>(blockHash),
+                    static_cast<unsigned long>(diffHash));
+            }
+            else if (differential == 0)
+            {
+                PS2_LOG("[PS2] ARM7 differential gate skipped at sample %lu; retrying a later frame boundary.\n",
+                    static_cast<unsigned long>(arm7ShadowAttempts));
+            }
+            else
+            {
+                arm7ShadowHardFailure = true;
+                PS2_LOG("[PS2][WARN] ARM7 interpreter<->R5900 differential mismatch: pc=%08lX instructions=%lu; ARM7 stays interpreter-only.\n",
+                    static_cast<unsigned long>(diffPc),
+                    static_cast<unsigned long>(diffInstructions));
             }
         };
 
@@ -1983,6 +2080,7 @@ int main(int argc, char **argv)
                 // Its temporary interpreter execution is then discarded by the
                 // profile reset below and cannot distort the measured window.
                 runDeferredArm9Gate();
+                runDeferredArm7ShadowGate();
 
 #if NOODS_PROFILE_LEVEL >= 2
                 if (arm9ActiveExecutorEnabled && selectiveHotCount)
@@ -2014,6 +2112,7 @@ int main(int argc, char **argv)
                 // RELEASE/DEBUG have no profile-window reset, so retry the
                 // gate at the same 60-frame cadence without enabling execution.
                 runDeferredArm9Gate();
+                runDeferredArm7ShadowGate();
 #endif
 
                 uint32_t topHash = 2166136261u;

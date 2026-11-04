@@ -5402,6 +5402,255 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
 }
 
 
+
+int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
+    uint32_t *guestPcOut, uint32_t *instructionCount, uint32_t *stateHash,
+    size_t maxInstructions)
+{
+    if (CpuBackendAccess::isArm9(cpu) || CpuBackendAccess::isThumb(cpu) ||
+        !memory || !maxInstructions)
+        return 0;
+
+    synchronizeMemoryMap();
+
+    constexpr size_t MAX_BLOCK_INSTRUCTIONS = 24;
+    maxInstructions = std::min(maxInstructions, MAX_BLOCK_INSTRUCTIONS);
+
+    uint32_t opcodes[MAX_BLOCK_INSTRUCTIONS] = {};
+    size_t count = 0;
+    uint32_t guestPc = CpuBackendAccess::nextInstructionAddress(cpu);
+
+    for (size_t i = 0; i < maxInstructions; i++)
+    {
+        uint32_t opcode = 0;
+        if (i == 0)
+        {
+            opcode = CpuBackendAccess::pipelineOpcode(cpu, 0);
+        }
+        else if (i == 1)
+        {
+            opcode = CpuBackendAccess::pipelineOpcode(cpu, 1);
+        }
+        else
+        {
+            uint32_t address =
+                guestPc + static_cast<uint32_t>(i * 4);
+            uint32_t offset = address & 0xFFFu;
+            uint8_t *page = memory->getDirectReadPage(1, address);
+            if (!page || offset > 0xFFCu)
+                break;
+            opcode = static_cast<uint32_t>(page[offset]) |
+                (static_cast<uint32_t>(page[offset + 1]) << 8) |
+                (static_cast<uint32_t>(page[offset + 2]) << 16) |
+                (static_cast<uint32_t>(page[offset + 3]) << 24);
+        }
+
+        Ps2ArmAlu::Decoded decoded;
+        if (Ps2ArmAlu::decode(opcode, &decoded))
+        {
+            Ps2ArmAlu::InstructionInfo info;
+            Ps2ArmAlu::inspect(opcode,
+                guestPc + static_cast<uint32_t>(i * 4), &info);
+
+            // Keep the first ARM7 gate independent from the interpreter's
+            // pipeline-visible R15 value. Literal/memory forms are not part of
+            // this subset either.
+            if ((info.readMask | info.writeMask) & 0x8000u)
+                break;
+
+            opcodes[count++] = opcode;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedBranchExchange branchExchange;
+        if (Ps2ArmAlu::decodeBranchExchange(opcode, &branchExchange))
+        {
+            if (branchExchange.rm == 15)
+                break;
+            opcodes[count++] = opcode;
+            break;
+        }
+
+        Ps2ArmAlu::DecodedBranch branch;
+        if (Ps2ArmAlu::decodeBranch(opcode, &branch))
+        {
+            opcodes[count++] = opcode;
+            break;
+        }
+
+        // MUL/MLA and every memory form stay out: their ARM7 timing differs
+        // from ARM9 and will get a separate correctness/timing gate.
+        break;
+    }
+
+    if (!count)
+        return 0;
+
+    ArmAluState source = {};
+    for (int i = 0; i < 16; i++)
+        source.r[i] = CpuBackendAccess::readReg(cpu, i);
+    source.cpsr = CpuBackendAccess::readCpsr(cpu);
+    source.nextPc = guestPc + static_cast<uint32_t>(count * 4);
+    source.memory = memory;
+    source.cpuId = 1;
+
+    ArmAluState expected = source;
+    for (size_t i = 0; i < count; i++)
+    {
+        Ps2ArmAlu::Decoded decoded;
+        if (Ps2ArmAlu::decode(opcodes[i], &decoded))
+        {
+            if (!applyArmAlu(opcodes[i], &expected))
+                return -1;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedBranchExchange branchExchange;
+        if (Ps2ArmAlu::decodeBranchExchange(opcodes[i], &branchExchange))
+        {
+            if (!applyArmBranchExchange(&expected, opcodes[i]))
+                return -1;
+            continue;
+        }
+
+        if (!applyArmBranch(&expected, opcodes[i],
+            guestPc + static_cast<uint32_t>(i * 4)))
+            return -1;
+    }
+
+    uint32_t *entry = nullptr;
+    uint32_t hostWords = 0;
+    if (!emitArmAluSequence(opcodes, count, guestPc, &entry, &hostWords))
+        return -1;
+
+    ArmAluState actual = source;
+    typedef void (*Arm7ShadowFunction)(ArmAluState *);
+    Arm7ShadowFunction function =
+        reinterpret_cast<Arm7ShadowFunction>(entry);
+    function(&actual);
+
+    if (actual.memoryFault || actual.writeCount)
+        return -1;
+
+    uint32_t hash = 2166136261u;
+    for (int i = 0; i < 16; i++)
+    {
+        if (actual.r[i] != expected.r[i])
+            return -1;
+        hash ^= actual.r[i];
+        hash *= 16777619u;
+    }
+    if (actual.cpsr != expected.cpsr ||
+        actual.nextPc != expected.nextPc ||
+        actual.cycles != expected.cycles)
+        return -1;
+
+    hash ^= actual.cpsr;
+    hash *= 16777619u;
+    hash ^= actual.nextPc;
+    hash *= 16777619u;
+    hash ^= actual.cycles;
+    hash *= 16777619u;
+    hash ^= static_cast<uint32_t>(count);
+    hash *= 16777619u;
+    hash ^= hostWords;
+    hash *= 16777619u;
+
+    if (guestPcOut)
+        *guestPcOut = guestPc;
+    if (instructionCount)
+        *instructionCount = static_cast<uint32_t>(count);
+    if (stateHash)
+        *stateHash = hash;
+    return 1;
+}
+
+
+int DynarecR5900::runArm7AluBranchDifferentialSelfTest(Interpreter &cpu,
+    uint32_t *guestPcOut, uint32_t *instructionCount, uint32_t *stateHash)
+{
+    if (CpuBackendAccess::isArm9(cpu) || CpuBackendAccess::isThumb(cpu))
+        return 0;
+
+    uint32_t guestPc = CpuBackendAccess::nextInstructionAddress(cpu);
+    R5900CompiledBlock *block = findMutableBlock(guestPc, false);
+    if (!block || !block->hostCode || !block->guestInstructions ||
+        block->writesMemory)
+        return 0;
+
+    uint32_t savedRegs[16] = {};
+    for (int i = 0; i < 16; i++)
+        savedRegs[i] = CpuBackendAccess::readReg(cpu, i);
+    uint32_t savedCpsr = CpuBackendAccess::readCpsr(cpu);
+    uint32_t savedPipeline0 = CpuBackendAccess::pipelineOpcode(cpu, 0);
+    uint32_t savedPipeline1 = CpuBackendAccess::pipelineOpcode(cpu, 1);
+
+    ArmAluState generated = {};
+    for (int i = 0; i < 16; i++)
+        generated.r[i] = savedRegs[i];
+    generated.cpsr = savedCpsr;
+    generated.nextPc = block->guestEndPc;
+    generated.memory = memory;
+    generated.cpuId = 1;
+
+    typedef void (*Arm7DifferentialFunction)(ArmAluState *);
+    Arm7DifferentialFunction function =
+        reinterpret_cast<Arm7DifferentialFunction>(block->hostCode);
+    function(&generated);
+    if (generated.memoryFault || generated.writeCount)
+        return -1;
+
+    bool interpreterOk = true;
+    uint32_t interpreterCycles = 0;
+    for (uint32_t i = 0; i < block->guestInstructions; i++)
+    {
+        int cycles = cpu.runOpcode();
+        if (cycles <= 0)
+        {
+            interpreterOk = false;
+            break;
+        }
+        interpreterCycles += static_cast<uint32_t>(cycles);
+    }
+
+    bool match = interpreterOk &&
+        CpuBackendAccess::readCpsr(cpu) == generated.cpsr &&
+        CpuBackendAccess::nextInstructionAddress(cpu) == generated.nextPc &&
+        interpreterCycles == generated.cycles;
+
+    uint32_t hash = 2166136261u;
+    for (int i = 0; i < 15; i++)
+    {
+        uint32_t value = CpuBackendAccess::readReg(cpu, i);
+        if (value != generated.r[i])
+            match = false;
+        hash ^= value;
+        hash *= 16777619u;
+    }
+    hash ^= CpuBackendAccess::readCpsr(cpu);
+    hash *= 16777619u;
+    hash ^= CpuBackendAccess::nextInstructionAddress(cpu);
+    hash *= 16777619u;
+    hash ^= interpreterCycles;
+    hash *= 16777619u;
+    hash ^= block->guestInstructions;
+    hash *= 16777619u;
+
+    CpuBackendAccess::restoreStraightLineState(cpu, savedRegs, savedCpsr,
+        savedPipeline0, savedPipeline1);
+
+    if (guestPcOut)
+        *guestPcOut = guestPc;
+    if (instructionCount)
+        *instructionCount = block->guestInstructions;
+    if (stateHash)
+        *stateHash = hash;
+
+    block->differentialVerified = match;
+    return match ? 1 : -1;
+}
+
+
 int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
     uint32_t *guestPcOut, uint32_t *instructionCount, uint32_t *stateHash)
 {

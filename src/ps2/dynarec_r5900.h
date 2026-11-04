@@ -152,6 +152,17 @@ class DynarecR5900
             uint32_t *guestPc = nullptr, uint32_t *instructionCount = nullptr,
             uint32_t *stateHash = nullptr, size_t maxInstructions = 16);
 
+        // ARM7 bring-up gate. This deliberately accepts only ARM
+        // data-processing plus terminal B/BL/BX instructions: ARM7 memory and
+        // multiply timings differ from ARM9 and stay interpreter-only until
+        // separately modelled and gated.
+        int runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
+            uint32_t *guestPc = nullptr, uint32_t *instructionCount = nullptr,
+            uint32_t *stateHash = nullptr, size_t maxInstructions = 16);
+        int runArm7AluBranchDifferentialSelfTest(Interpreter &cpu,
+            uint32_t *guestPc = nullptr, uint32_t *instructionCount = nullptr,
+            uint32_t *stateHash = nullptr);
+
         // Differential gate against NooDS' own interpreter. Direct-memory
         // store blocks are transactionally journaled on both paths, compared,
         // and rolled back before the live CPU resumes.
