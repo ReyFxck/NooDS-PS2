@@ -630,10 +630,21 @@ bool applyArmSingleBlockTransfer(ArmAluState *state, uint32_t opcode)
     return false;
 }
 
-size_t emitArmCycleAdd(uint32_t amount, uint32_t *code)
+size_t emitArmCycleAdd(uint32_t amount, uint32_t *code,
+    bool registerCycles = false)
 {
     if (!code || !amount || amount > 0x7FFFu)
         return 0;
+
+    // Multi-instruction blocks keep their cycle accumulator in caller-saved
+    // t8. Standalone self-test snippets retain the old memory-backed form.
+    if (registerCycles)
+    {
+        code[0] = R5900::addiu(R5900::R_T8, R5900::R_T8,
+            static_cast<int16_t>(amount));
+        return 1;
+    }
+
     size_t words = 0;
     code[words++] = R5900::lw(R5900::R_T6, 84, R5900::R_A0);
     code[words++] = R5900::addiu(R5900::R_T6, R5900::R_T6,
@@ -738,7 +749,8 @@ size_t emitArmCondition(uint8_t condition, uint32_t *code)
     return words;
 }
 
-size_t emitArmBranchInstruction(uint32_t opcode, uint32_t pc, uint32_t *code)
+size_t emitArmBranchInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
+    bool registerCycles = false)
 {
     if (!code)
         return 0;
@@ -752,8 +764,9 @@ size_t emitArmBranchInstruction(uint32_t opcode, uint32_t pc, uint32_t *code)
     size_t words = 0;
 
     // Every ARM instruction consumes one cycle even when its condition fails.
-    words += emitArmCycleAdd(1, code + words);
+    words += emitArmCycleAdd(1, code + words, registerCycles);
 
+    size_t conditionBranch = static_cast<size_t>(-1);
     if (decoded.condition != 0xEu)
     {
         code[words++] = R5900::lui(R5900::R_T2,
@@ -762,23 +775,35 @@ size_t emitArmBranchInstruction(uint32_t opcode, uint32_t pc, uint32_t *code)
             static_cast<uint16_t>(fallthrough));
         words += emitArmCondition(decoded.condition, code + words);
 
-        // Failed condition skips the taken-branch +2 cycle charge and target
-        // load, then stores the fallthrough PC.
-        code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 6);
+        // Patch this after cycle emission: register-backed accounting is one
+        // host instruction while the standalone memory-backed form is three.
+        conditionBranch = words;
+        code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
         code[words++] = R5900::nop();
-        words += emitArmCycleAdd(2, code + words);
+        words += emitArmCycleAdd(2, code + words, registerCycles);
     }
     else
     {
         // Taken B costs three ARM9 cycles total.
-        words += emitArmCycleAdd(2, code + words);
+        words += emitArmCycleAdd(2, code + words, registerCycles);
     }
 
     code[words++] = R5900::lui(R5900::R_T2,
         static_cast<uint16_t>(target >> 16));
     code[words++] = R5900::ori(R5900::R_T2, R5900::R_T2,
         static_cast<uint16_t>(target));
+
+    size_t nextPcStore = words;
     code[words++] = R5900::sw(R5900::R_T2, 68, R5900::R_A0);
+
+    if (conditionBranch != static_cast<size_t>(-1))
+    {
+        size_t distance = nextPcStore - (conditionBranch + 1);
+        if (distance > 0x7FFFu)
+            return 0;
+        code[conditionBranch] = R5900::beq(R5900::R_T7,
+            R5900::R_ZERO, static_cast<int16_t>(distance));
+    }
     return words;
 }
 
@@ -897,7 +922,8 @@ size_t emitArmAluHelperInstruction(uint32_t opcode, uint32_t *code)
     return words;
 }
 
-size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code)
+size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
+    bool registerCycles = false)
 {
     if (!code)
         return 0;
@@ -906,10 +932,21 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code)
     if (!Ps2ArmAlu::decode(opcode, &decoded))
         return 0;
     if (logicalShiftNeedsHelper(decoded))
-        return emitArmAluHelperInstruction(opcode, code);
+    {
+        size_t words = 0;
+        if (registerCycles)
+            code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
+        size_t emitted = emitArmAluHelperInstruction(opcode, code + words);
+        if (!emitted)
+            return 0;
+        words += emitted;
+        if (registerCycles)
+            code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
+        return words;
+    }
 
     size_t words = 0;
-    words += emitArmCycleAdd(1, code + words);
+    words += emitArmCycleAdd(1, code + words, registerCycles);
     size_t conditionBranch = static_cast<size_t>(-1);
     if (decoded.condition != 0xEu)
     {
@@ -1201,30 +1238,70 @@ size_t emitArmBranchExchangeInstruction(uint32_t opcode, uint32_t *code)
     return words;
 }
 
-size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code)
+size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
+    bool registerCycles = false)
 {
     Ps2ArmAlu::Decoded decoded;
     if (Ps2ArmAlu::decode(opcode, &decoded))
-        return emitArmAluInstruction(opcode, code);
+        return emitArmAluInstruction(opcode, code, registerCycles);
+
+    // C++ transfer/BX helpers update state->cycles themselves. Keep t8 and the
+    // memory ABI coherent across those calls; t8 is caller-saved and may be
+    // clobbered by the helper, so reload it afterwards.
+    size_t words = 0;
+    if (registerCycles)
+        code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
+
+    size_t emitted = 0;
     Ps2ArmAlu::DecodedHalfwordTransfer transfer;
     if (Ps2ArmAlu::decodeHalfwordTransfer(opcode, &transfer))
-        return emitArmHalfwordTransferInstruction(opcode, code);
-    Ps2ArmAlu::DecodedByteTransfer byteTransfer;
-    if (Ps2ArmAlu::decodeByteTransfer(opcode, &byteTransfer))
-        return emitArmByteTransferInstruction(opcode, code);
-    Ps2ArmAlu::DecodedLiteralLoad literalLoad;
-    if (Ps2ArmAlu::decodeLiteralLoad(opcode, &literalLoad))
-        return emitArmLiteralLoadInstruction(opcode, pc, code);
-    Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
-    if (Ps2ArmAlu::decodeSingleTransfer(opcode, &singleTransfer))
-        return emitArmSingleTransferInstruction(opcode, code);
-    Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
-    if (Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &blockTransfer))
-        return emitArmSingleBlockTransferInstruction(opcode, code);
-    Ps2ArmAlu::DecodedBranchExchange branchExchange;
-    if (Ps2ArmAlu::decodeBranchExchange(opcode, &branchExchange))
-        return emitArmBranchExchangeInstruction(opcode, code);
-    return emitArmBranchInstruction(opcode, pc, code);
+        emitted = emitArmHalfwordTransferInstruction(opcode, code + words);
+    else
+    {
+        Ps2ArmAlu::DecodedByteTransfer byteTransfer;
+        if (Ps2ArmAlu::decodeByteTransfer(opcode, &byteTransfer))
+            emitted = emitArmByteTransferInstruction(opcode, code + words);
+        else
+        {
+            Ps2ArmAlu::DecodedLiteralLoad literalLoad;
+            if (Ps2ArmAlu::decodeLiteralLoad(opcode, &literalLoad))
+                emitted = emitArmLiteralLoadInstruction(opcode, pc, code + words);
+            else
+            {
+                Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
+                if (Ps2ArmAlu::decodeSingleTransfer(opcode, &singleTransfer))
+                    emitted = emitArmSingleTransferInstruction(opcode, code + words);
+                else
+                {
+                    Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
+                    if (Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &blockTransfer))
+                        emitted = emitArmSingleBlockTransferInstruction(opcode, code + words);
+                    else
+                    {
+                        Ps2ArmAlu::DecodedBranchExchange branchExchange;
+                        if (Ps2ArmAlu::decodeBranchExchange(opcode, &branchExchange))
+                            emitted = emitArmBranchExchangeInstruction(opcode, code + words);
+                        else
+                        {
+                            // Direct B does its own register-backed accounting;
+                            // undo the helper sync slot reserved above.
+                            if (registerCycles)
+                                words--;
+                            return emitArmBranchInstruction(opcode, pc, code,
+                                registerCycles);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (!emitted)
+        return 0;
+    words += emitted;
+    if (registerCycles)
+        code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
+    return words;
 }
 }
 
@@ -1262,23 +1339,26 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         return false;
 
     // Conditions plus exact NZCV generation are deliberately explicit for the
-    // correctness gate. A supported B may terminate the sequence; register
-    // caching can compact this after scheduler use.
-    const size_t maxWords = count * 64 + 2;
+    // correctness gate. A supported B may terminate the sequence. Keep exact
+    // cycle accounting in caller-saved t8 for the whole block, synchronizing
+    // only around C++ helpers and once at block exit.
+    const size_t maxWords = count * 68 + 4;
     uint32_t *code = cache.reserveWords(maxWords);
     if (!code)
         return false;
 
     size_t words = 0;
+    code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
     for (size_t i = 0; i < count; i++)
     {
         size_t emitted = emitArmInstruction(opcodes[i],
-            guestPc + static_cast<uint32_t>(i * 4), code + words);
+            guestPc + static_cast<uint32_t>(i * 4), code + words, true);
         if (!emitted)
             return false;
         words += emitted;
     }
 
+    code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
     code[words++] = R5900::jr(R5900::R_RA);
     code[words++] = R5900::nop();
 
