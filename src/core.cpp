@@ -521,12 +521,12 @@ void Core::runNdsFrame()
                                     runProfile.arm7BlockExecutions++;
 #endif
 
-                                // Stay in this ARM7 scheduler slot while other
-                                // already-hot blocks fit before the same ARM9
-                                // or task deadline. Each backend call commits
-                                // independently, so memory/pipeline semantics
-                                // remain identical to separate Core iterations.
-                                constexpr uint32_t MAX_ARM7_CHAINED_BLOCKS = 8;
+                                // Recovery mode: make exactly one ARM7 backend
+                                // commit per Core scheduler slot. The live path is
+                                // still globally quarantined; removing scheduler-side
+                                // chaining gives the first controlled re-enable test
+                                // one architectural boundary per backend call.
+                                constexpr uint32_t MAX_ARM7_CHAINED_BLOCKS = 1;
                                 uint32_t chainedBlocks = 1;
                                 uint32_t usedCycles =
                                     static_cast<uint32_t>(arm7StepCycles);
