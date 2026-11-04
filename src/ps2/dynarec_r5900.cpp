@@ -1144,7 +1144,8 @@ size_t emitArmEqNeBranchFromResult(uint32_t opcode, uint32_t pc,
 }
 
 size_t emitArmBranchInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
-    bool registerCycles = false, bool registerCpsr = false)
+    bool registerCycles = false, bool registerCpsr = false,
+    bool reuseCondition = false)
 {
     if (!code)
         return 0;
@@ -1167,8 +1168,9 @@ size_t emitArmBranchInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
             static_cast<uint16_t>(fallthrough >> 16));
         code[words++] = R5900::ori(R5900::R_T2, R5900::R_T2,
             static_cast<uint16_t>(fallthrough));
-        words += emitArmCondition(decoded.condition, code + words,
-            registerCpsr);
+        if (!reuseCondition)
+            words += emitArmCondition(decoded.condition, code + words,
+                registerCpsr);
 
         // Patch this after cycle emission: register-backed accounting is one
         // host instruction while the standalone memory-backed form is three.
@@ -1320,8 +1322,9 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
     size_t conditionBranch = static_cast<size_t>(-1);
     if (decoded.condition != 0xEu)
     {
-        words += emitArmCondition(decoded.condition, code + words,
-            registerCpsr);
+        if (!reuseCondition)
+            words += emitArmCondition(decoded.condition, code + words,
+                registerCpsr);
         conditionBranch = words;
         code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
         code[words++] = R5900::nop();
@@ -1707,6 +1710,9 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
         code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
     if (registerCpsr)
         code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
+    if (decoded.condition != 0xEu)
+        words += emitArmCondition(decoded.condition, code + words,
+            registerCpsr);
 
     size_t done = words;
 
@@ -2809,7 +2815,8 @@ size_t emitArmSingleTransferInstruction(uint32_t opcode, uint32_t *code)
 
 size_t emitArmSingleBlockTransferFastInstruction(uint32_t opcode,
     uint32_t *code, bool registerCycles, bool registerCpsr,
-    int forwardedGuestReg = -1, uint8_t forwardedCondition = 0xEu)
+    int forwardedGuestReg = -1, uint8_t forwardedCondition = 0xEu,
+    bool reuseCondition = false)
 {
     Ps2ArmAlu::DecodedSingleBlockTransfer decoded;
     if (!code || !Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &decoded))
@@ -2907,14 +2914,14 @@ size_t emitArmSingleBlockTransferFastInstruction(uint32_t opcode,
 
         // ArmMemoryWrite is 16 bytes and starts at state+112.
         code[words++] = R5900::sll(R5900::R_T6, R5900::R_T5, 4);
-        code[words++] = R5900::addiu(R5900::R_T7, R5900::R_A0, 112);
-        code[words++] = R5900::addu(R5900::R_T7, R5900::R_T7, R5900::R_T6);
+        code[words++] = R5900::addiu(R5900::R_V0, R5900::R_A0, 112);
+        code[words++] = R5900::addu(R5900::R_V0, R5900::R_V0, R5900::R_T6);
         code[words++] = R5900::lw(R5900::R_T6, 0, R5900::R_T3);
-        code[words++] = R5900::sw(R5900::R_T0, 0, R5900::R_T7);
-        code[words++] = R5900::sw(R5900::R_T6, 4, R5900::R_T7);
-        code[words++] = R5900::sw(R5900::R_T1, 8, R5900::R_T7);
+        code[words++] = R5900::sw(R5900::R_T0, 0, R5900::R_V0);
+        code[words++] = R5900::sw(R5900::R_T6, 4, R5900::R_V0);
+        code[words++] = R5900::sw(R5900::R_T1, 8, R5900::R_V0);
         code[words++] = R5900::addiu(R5900::R_T6, R5900::R_ZERO, 4);
-        code[words++] = R5900::sw(R5900::R_T6, 12, R5900::R_T7);
+        code[words++] = R5900::sw(R5900::R_T6, 12, R5900::R_V0);
         code[words++] = R5900::sw(R5900::R_T1, 0, R5900::R_T3);
         code[words++] = R5900::addiu(R5900::R_T5, R5900::R_T5, 1);
         code[words++] = R5900::sw(R5900::R_T5, 80, R5900::R_A0);
@@ -3230,7 +3237,8 @@ size_t emitArmMultiplyInstruction(uint32_t opcode, uint32_t *code,
 size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
     bool registerCycles = false, bool registerCpsr = false,
     Memory *directMemory = nullptr, int forwardedGuestReg = -1,
-    bool suppressResultStore = false, uint8_t forwardedCondition = 0xEu)
+    bool suppressResultStore = false, uint8_t forwardedCondition = 0xEu,
+    bool reuseCondition = false)
 {
     Ps2ArmAlu::Decoded decoded;
     if (Ps2ArmAlu::decode(opcode, &decoded))
@@ -3349,7 +3357,8 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
                     {
                         return emitArmSingleBlockTransferFastInstruction(opcode,
                             code, registerCycles, registerCpsr,
-                            forwardedGuestReg, forwardedCondition);
+                            forwardedGuestReg, forwardedCondition,
+                            reuseCondition);
                     }
                     else
                     {
@@ -3363,7 +3372,7 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
                         else
                         {
                             return emitArmBranchInstruction(opcode, pc, code,
-                                registerCycles, registerCpsr);
+                                registerCycles, registerCpsr, reuseCondition);
                         }
                     }
                 }
@@ -3591,6 +3600,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     size_t bodyStart = words;
     int forwardedGuestReg = -1;
     uint8_t forwardedCondition = 0xFFu;
+    int reusableCondition = -1;
     for (size_t i = 0; i < count; i++)
     {
         Ps2ArmAlu::Decoded currentAlu;
@@ -3687,13 +3697,33 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             }
         }
 
+        Ps2ArmAlu::DecodedSingleBlockTransfer conditionTransfer;
+        Ps2ArmAlu::DecodedBranch conditionBranchDecoded;
+        bool isConditionalTransfer =
+            Ps2ArmAlu::decodeSingleBlockTransfer(opcodes[i],
+                &conditionTransfer) &&
+            conditionTransfer.condition != 0xEu;
+        bool isConditionalBranch =
+            Ps2ArmAlu::decodeBranch(opcodes[i], &conditionBranchDecoded) &&
+            conditionBranchDecoded.condition != 0xEu;
+        uint8_t currentCondition = isConditionalTransfer
+            ? conditionTransfer.condition
+            : (isConditionalBranch ? conditionBranchDecoded.condition : 0xFFu);
+        bool reuseCurrentCondition = reusableCondition >= 0 &&
+            currentCondition == static_cast<uint8_t>(reusableCondition);
+
         size_t emitted = emitArmInstruction(opcodes[i],
             guestPc + static_cast<uint32_t>(i * 4), code + words, true,
             registerCpsr, memory, forwardedGuestReg, suppressCurrentStore,
-            forwardedCondition);
+            forwardedCondition, reuseCurrentCondition);
         if (!emitted)
             return false;
         words += emitted;
+
+        if (isConditionalTransfer)
+            reusableCondition = currentCondition;
+        else
+            reusableCondition = -1;
 
         forwardedGuestReg = producedGuestReg;
         forwardedCondition = producedCondition;
