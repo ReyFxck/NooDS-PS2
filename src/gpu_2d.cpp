@@ -593,15 +593,21 @@ FORCE_INLINE void Gpu2D::drawBgPixelNoWindow(int bg, int x,
 {
     if (priority <= priorities[0][x])
     {
-        layers[1][x] = layers[0][x];
-        priorities[1][x] = priorities[0][x];
-        blendBits[1][x] = blendBits[0][x];
+        // With blending disabled only the top visible layer can affect the
+        // final framebuffer. Avoid maintaining the second layer for every BG
+        // pixel; it is cleared again before any later scanline can use it.
+        if (bldCnt != 0)
+        {
+            layers[1][x] = layers[0][x];
+            priorities[1][x] = priorities[0][x];
+            blendBits[1][x] = blendBits[0][x];
+        }
 
         layers[0][x] = pixel;
         priorities[0][x] = priority;
         blendBits[0][x] = bg;
     }
-    else if (priority <= priorities[1][x])
+    else if (bldCnt != 0 && priority <= priorities[1][x])
     {
         layers[1][x] = pixel;
         priorities[1][x] = priority;
@@ -626,24 +632,30 @@ void Gpu2D::drawBgPixel(int bg, int line, int x, uint32_t pixel)
         if (!(enabled & BIT(bg))) return;
     }
 
-    // Draw the pixel to one of 2 layers, depending on priority, for later blending
-    if ((bgCnt[bg] & 0x3) <= priorities[0][x]) // Higher than topmost
+    // Draw the pixel to one of 2 layers, depending on priority, for later
+    // blending. If BLDCNT is zero the lower layer is unobservable, so skip
+    // those stores while keeping identical top-layer priority semantics.
+    const int8_t priority = bgCnt[bg] & 0x3;
+    if (priority <= priorities[0][x]) // Higher than topmost
     {
-        // Move the topmost pixel to the second topmost
-        layers[1][x] = layers[0][x];
-        priorities[1][x] = priorities[0][x];
-        blendBits[1][x] = blendBits[0][x];
+        if (bldCnt != 0)
+        {
+            // Move the topmost pixel to the second topmost
+            layers[1][x] = layers[0][x];
+            priorities[1][x] = priorities[0][x];
+            blendBits[1][x] = blendBits[0][x];
+        }
 
         // Update the topmost pixel
         layers[0][x] = pixel;
-        priorities[0][x] = bgCnt[bg] & 0x3;
+        priorities[0][x] = priority;
         blendBits[0][x] = bg;
     }
-    else if ((bgCnt[bg] & 0x3) <= priorities[1][x]) // Higher than second topmost
+    else if (bldCnt != 0 && priority <= priorities[1][x])
     {
-        // Update the second topmost pixel
+        // Update the second topmost
         layers[1][x] = pixel;
-        priorities[1][x] = bgCnt[bg] & 0x3;
+        priorities[1][x] = priority;
         blendBits[1][x] = bg;
     }
 }
