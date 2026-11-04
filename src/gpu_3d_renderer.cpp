@@ -299,7 +299,10 @@ void Gpu3DRenderer::finishScanline(int line)
     if (disp3DCnt & BIT(7))
     {
         uint32_t fog = rgba5ToRgba6(((fogColor & 0x001F0000) >> 1) | (fogColor & 0x00007FFF));
-        int fogStep = 0x400 >> ((disp3DCnt & 0x0F00) >> 8);
+        const int fogControl = (disp3DCnt & 0x0F00) >> 8;
+        const int fogShift = 10 - fogControl;
+        const bool validFogStep = fogShift >= 0;
+        const int fogStep = validFogStep ? (1 << fogShift) : 0;
 
         for (int layer = 0; layer < ((disp3DCnt & BIT(4)) ? 2 : 1); layer++) // Apply to the back layer as well if anti-aliased
         {
@@ -307,9 +310,17 @@ void Gpu3DRenderer::finishScanline(int line)
             {
                 if (attribBuffer[layer][i] & BIT(13)) // Fog bit
                 {
-                    // Determine the fog table index for the current pixel's depth
+                    // Determine the fog table index for the current pixel's
+                    // depth. fogStep is a power of two, so reproduce signed
+                    // division toward zero with shifts instead of R5900 DIV.
                     int32_t offset = ((depthBuffer[layer][i] / 0x200) - fogOffset);
-                    int n = (fogStep > 0) ? (offset / fogStep) : ((offset > 0) ? 31 : 0);
+                    int n;
+                    if (validFogStep)
+                        n = (offset >= 0)
+                            ? (offset >> fogShift)
+                            : -((-offset) >> fogShift);
+                    else
+                        n = (offset > 0) ? 31 : 0;
 
                     // Get the fog density from the table
                     uint8_t density;
@@ -317,14 +328,18 @@ void Gpu3DRenderer::finishScanline(int line)
                     {
                         density = fogTable[31];
                     }
-                    else if (n < 0 || fogStep == 0) // Minimum
+                    else if (n < 0 || !validFogStep) // Minimum
                     {
                         density = fogTable[0];
                     }
                     else // Linear interpolation
                     {
-                        int m = offset % fogStep;
-                        density = ((m >= 0) ? ((fogTable[n + 1] * m + fogTable[n] * (fogStep - m)) / fogStep) : fogTable[0]);
+                        // n is non-negative here, so the remainder is too.
+                        const int m = offset - (n << fogShift);
+                        const int numerator =
+                            fogTable[n + 1] * m +
+                            fogTable[n] * (fogStep - m);
+                        density = static_cast<uint8_t>(numerator >> fogShift);
                     }
 
                     // Blend the fog with the pixel
