@@ -3324,16 +3324,29 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         block.readsFlags |= branch.condition != 0xEu;
     }
 
-    // Precompute compact register lists for the live executor. Unconditional
-    // write-only destinations do not need their old Interpreter values at
-    // block entry. If the block reads flags, keep all write destinations as
-    // inputs too because a conditional instruction may preserve the old value.
+    // Precompute compact register lists for the live executor. Derive the
+    // true block-entry inputs with a backwards liveness pass: an unconditional
+    // write kills the need for the older value, while a conditional write does
+    // not. Starting from writeMask also models the commit boundary, where every
+    // architectural destination must contain its final value.
     uint16_t liveMask = static_cast<uint16_t>(
         (block.readMask | block.writeMask) & 0x7FFFu);
     uint16_t writeMask = static_cast<uint16_t>(block.writeMask & 0x7FFFu);
-    uint16_t inputMask = static_cast<uint16_t>(block.readMask & 0x7FFFu);
-    if (block.readsFlags)
-        inputMask |= writeMask;
+    uint16_t inputMask = writeMask;
+    for (size_t i = count; i-- > 0;)
+    {
+        Ps2ArmAlu::InstructionInfo info;
+        Ps2ArmAlu::inspect(opcodes[i],
+            guestPc + static_cast<uint32_t>(i * 4), &info);
+        uint16_t reads = static_cast<uint16_t>(info.readMask & 0x7FFFu);
+        uint16_t writes = static_cast<uint16_t>(info.writeMask & 0x7FFFu);
+
+        if (info.condition == 0xEu)
+            inputMask = static_cast<uint16_t>(
+                reads | (inputMask & ~writes));
+        else
+            inputMask = static_cast<uint16_t>(reads | inputMask);
+    }
     block.inputMask = inputMask;
 
     for (uint8_t reg = 0; reg < 15; reg++)
