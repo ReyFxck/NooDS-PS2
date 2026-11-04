@@ -977,17 +977,18 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
     // All edge attributes use the same perspective factor for a given side
     // of the polygon. Build one exact interpolator per edge so W, RGB and ST
     // share that division instead of recomputing it six times.
+    struct EdgeInterpolationState
+    {
+        uint32_t xStart, xPos, xEnd;
+        uint32_t factor;
+        bool atStart, atEnd, linear;
+    };
+
     auto makeEdgeInterpolator = [&](uint32_t xStart, uint32_t xPos,
         uint32_t xEnd, uint32_t weight1, uint32_t weight2)
+        -> EdgeInterpolationState
     {
-        struct EdgeState
-        {
-            uint32_t xStart, xPos, xEnd;
-            uint32_t factor;
-            bool atStart, atEnd, linear;
-        };
-
-        EdgeState state = {};
+        EdgeInterpolationState state = {};
         state.xStart = xStart;
         state.xPos = xPos;
         state.xEnd = xEnd;
@@ -1011,12 +1012,12 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
         return state;
     };
 
-    const auto leftEdge = makeEdgeInterpolator(
+    const EdgeInterpolationState leftEdge = makeEdgeInterpolator(
         lx1, lx, lx2, ws[0], ws[1]);
-    const auto rightEdge = makeEdgeInterpolator(
+    const EdgeInterpolationState rightEdge = makeEdgeInterpolator(
         rx1, rx, rx2, ws[2], ws[3]);
 
-    auto interpolateEdgeValue = [&](const auto &edge,
+    auto interpolateEdgeValue = [&](const EdgeInterpolationState &edge,
         uint32_t v1, uint32_t v2) -> uint32_t
     {
         if (edge.atStart) return v1;
