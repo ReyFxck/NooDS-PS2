@@ -21,6 +21,7 @@
 #define CORE_H
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -78,6 +79,9 @@ struct CoreRunProfile
 {
     uint64_t arm9Opcodes = 0;
     uint64_t arm7Opcodes = 0;
+    uint64_t arm9BlockFilterHits = 0;
+    uint64_t arm9BlockExecutions = 0;
+    uint64_t arm9BlockFilterDrops = 0;
     uint64_t taskExecutions = 0;
     uint64_t scheduleCalls = 0;
     uint64_t estimatedLegacyFrontMoves = 0;
@@ -122,6 +126,11 @@ class Core
         {
             arm9BlockRunner = runner;
         }
+
+        // Add architecture-neutral hot block entry PCs. The scheduler checks
+        // this tiny direct-mapped filter before calling a platform backend, so
+        // a dynarec cannot impose a function-call/lookup tax on every opcode.
+        void addArm9BlockHotPcs(const uint32_t *pcs, size_t count);
 
 #ifdef NOODS_PROFILE
         uint32_t getCyclesUntilNextEvent() const
@@ -191,6 +200,16 @@ class Core
         bool profileEnabled = false;
         CoreRunProfile runProfile;
         Arm9BlockRunner arm9BlockRunner;
+
+        static constexpr size_t ARM9_BLOCK_FILTER_SLOTS = 32;
+        uint32_t arm9BlockHotPc[ARM9_BLOCK_FILTER_SLOTS] = {};
+        uint8_t arm9BlockHotFailures[ARM9_BLOCK_FILTER_SLOTS] = {};
+        uint8_t arm9BlockHotCount = 0;
+
+        size_t arm9BlockFilterSlot(uint32_t pc) const
+        {
+            return ((pc >> 2) ^ (pc >> 11)) & (ARM9_BLOCK_FILTER_SLOTS - 1);
+        }
 
         uint32_t frameCycles = 0, globalCycles = 0;
         uint32_t arm9Cycles = 0, arm7Cycles = 0;

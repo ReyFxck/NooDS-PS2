@@ -194,6 +194,22 @@ bool DynarecR5900::analyzeArmBlock(uint32_t pc, R5900BlockAnalysis *analysis,
         Ps2ArmAlu::inspect(instruction.opcode, address, &instruction.info);
         instruction.reason = Ps2ArmAlu::rejectionReason(instruction.opcode);
 
+        Ps2ArmAlu::DecodedHalfwordTransfer halfTransfer;
+        Ps2ArmAlu::DecodedByteTransfer byteTransfer;
+        Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
+        Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
+        if ((Ps2ArmAlu::decodeHalfwordTransfer(instruction.opcode,
+                &halfTransfer) && !halfTransfer.load) ||
+            (Ps2ArmAlu::decodeByteTransfer(instruction.opcode,
+                &byteTransfer) && !byteTransfer.load) ||
+            (Ps2ArmAlu::decodeSingleTransfer(instruction.opcode,
+                &singleTransfer) && !singleTransfer.load) ||
+            (Ps2ArmAlu::decodeSingleBlockTransfer(instruction.opcode,
+                &blockTransfer) && !blockTransfer.load))
+        {
+            analysis->writesMemory = true;
+        }
+
         analysis->instructionCount++;
         analysis->readMask |= instruction.info.readMask;
         analysis->writeMask |= instruction.info.writeMask;

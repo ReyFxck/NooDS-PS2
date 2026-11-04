@@ -29,6 +29,7 @@ struct R5900BlockAnalysis
     uint8_t supportedInstructions = 0;
     uint8_t firstUnsupported = 0xFFu;
     bool backEdge = false;
+    bool writesMemory = false;
     R5900AnalyzedInstruction instructions[R5900_ANALYSIS_MAX_INSTRUCTIONS] = {};
 };
 

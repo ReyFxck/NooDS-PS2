@@ -23,6 +23,7 @@
 #include <thread>
 
 #include "core.h"
+#include "cpu_backend.h"
 #include "settings.h"
 
 Core::Core(std::string ndsPath, std::string gbaPath):
@@ -235,22 +236,58 @@ void Core::runNdsFrame()
                 int arm9StepCycles = 0;
                 uint32_t arm9StepInstructions = 0;
 
-                if (arm9BlockRunner)
+                if (arm9BlockRunner && arm9BlockHotCount)
                 {
-                    uint32_t cycleBudget = tasks.front().cycles - globalCycles;
-                    if (interpreter[1].shouldRun())
+                    uint32_t guestPc =
+                        CpuBackendAccess::nextInstructionAddress(interpreter[0]);
+                    size_t hotSlot = arm9BlockFilterSlot(guestPc);
+                    if (arm9BlockHotPc[hotSlot] == guestPc)
                     {
-                        if (arm7Cycles <= globalCycles)
-                            cycleBudget = 0;
-                        else
-                            cycleBudget = std::min(cycleBudget,
-                                arm7Cycles - globalCycles);
-                    }
+#ifdef NOODS_PROFILE
+                        if (profileEnabled)
+                            runProfile.arm9BlockFilterHits++;
+#endif
+                        uint32_t cycleBudget = tasks.front().cycles - globalCycles;
+                        if (interpreter[1].shouldRun())
+                        {
+                            if (arm7Cycles <= globalCycles)
+                                cycleBudget = 0;
+                            else
+                                cycleBudget = std::min(cycleBudget,
+                                    arm7Cycles - globalCycles);
+                        }
 
-                    if (cycleBudget)
-                    {
-                        arm9StepCycles = arm9BlockRunner(interpreter[0],
-                            cycleBudget, &arm9StepInstructions);
+                        if (cycleBudget)
+                        {
+                            arm9StepCycles = arm9BlockRunner(interpreter[0],
+                                cycleBudget, &arm9StepInstructions);
+                            if (arm9StepCycles > 0)
+                            {
+                                arm9BlockHotFailures[hotSlot] = 0;
+#ifdef NOODS_PROFILE
+                                if (profileEnabled)
+                                    runProfile.arm9BlockExecutions++;
+#endif
+                            }
+                            else
+                            {
+                                uint8_t &failures = arm9BlockHotFailures[hotSlot];
+                                if (failures < 0xFFu)
+                                    failures++;
+
+                                if (failures >= 8)
+                                {
+                                    arm9BlockHotPc[hotSlot] = 0;
+                                    failures = 0;
+                                    if (arm9BlockHotCount)
+                                        arm9BlockHotCount--;
+#ifdef NOODS_PROFILE
+                                    if (profileEnabled)
+                                        runProfile.arm9BlockFilterDrops++;
+#endif
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -351,6 +388,25 @@ void Core::runNdsFrame()
         fps = fpsCount;
         fpsCount = 0;
         lastFpsTime = std::chrono::steady_clock::now();
+    }
+}
+
+void Core::addArm9BlockHotPcs(const uint32_t *pcs, size_t count)
+{
+    if (!pcs)
+        return;
+
+    for (size_t i = 0; i < count; i++)
+    {
+        uint32_t pc = pcs[i];
+        if (!pc)
+            continue;
+
+        size_t slot = arm9BlockFilterSlot(pc);
+        if (!arm9BlockHotPc[slot])
+            arm9BlockHotCount++;
+        arm9BlockHotPc[slot] = pc;
+        arm9BlockHotFailures[slot] = 0;
     }
 }
 

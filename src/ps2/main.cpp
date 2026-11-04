@@ -669,9 +669,11 @@ void logInterpreterProfile(const char *label, const InterpreterProfile &profile)
 }
 
 #if NOODS_PROFILE_LEVEL >= 2
-void logDynarecHotBlocks(DynarecR5900 &dynarec,
-    const InterpreterProfile &interpreterProfile)
+size_t logDynarecHotBlocks(DynarecR5900 &dynarec,
+    const InterpreterProfile &interpreterProfile,
+    uint32_t *activeHotPcs = nullptr, size_t activeHotCapacity = 0)
 {
+    size_t activeHotCount = 0;
     InterpreterHotPc top[6] = {};
     collectTopHotPc(interpreterProfile, top, 6);
 
@@ -712,6 +714,18 @@ void logDynarecHotBlocks(DynarecR5900 &dynarec,
             static_cast<unsigned long>(unsupported ? unsupported->pc : 0),
             static_cast<unsigned long>(unsupported ? unsupported->opcode : 0),
             reason);
+
+        if (activeHotPcs && activeHotCount < activeHotCapacity &&
+            !top[hot].thumb && top[hot].samples >= 32 &&
+            analysis.instructionCount >= 3 &&
+            analysis.instructionCount <= 16 &&
+            analysis.supportedInstructions == analysis.instructionCount &&
+            !analysis.writesMemory &&
+            analysis.instructions[analysis.instructionCount - 1]
+                .info.terminatesBlock)
+        {
+            activeHotPcs[activeHotCount++] = analysis.startPc;
+        }
 
         // One bounded detailed snapshot per window; the remaining hot PCs get
         // only the compact support line above.
@@ -943,6 +957,8 @@ void logDynarecHotBlocks(DynarecR5900 &dynarec,
             Ps2ArmAlu::rejectionReasonName(
                 Ps2ArmAlu::rejectionReason(fallback.opcode)));
     }
+
+    return activeHotCount;
 }
 #endif
 
@@ -1126,10 +1142,10 @@ int main(int argc, char **argv)
 #else
     PS2_LOG(" Instrumentation: disabled\n");
 #endif
-    #ifdef NOODS_PS2_EXPERIMENTAL_ACTIVE_DYNAREC
-    PS2_LOG(" Dynarec: ARM-ALU-v9 guarded-active-fastcache (experimental)\n");
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+    PS2_LOG(" Dynarec: ARM-ALU-v10 selective-hot-active (profile L2)\n");
 #else
-    PS2_LOG(" Dynarec: ARM-ALU-v9 shadow-gated (active executor held off)\n");
+    PS2_LOG(" Dynarec: ARM-ALU-v10 shadow-gated\n");
 #endif
     PS2_LOG("============================================================\n");
 
@@ -1355,7 +1371,7 @@ int main(int argc, char **argv)
         else
             PS2_LOG("[PS2][WARN] R5900 dynarec infrastructure unavailable; interpreter remains active.\n");
 
-#ifdef NOODS_PS2_EXPERIMENTAL_ACTIVE_DYNAREC
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
         bool arm9ActiveExecutorEnabled = false;
         auto enableArm9ActiveExecutor = [&]()
         {
@@ -1372,7 +1388,7 @@ int main(int argc, char **argv)
                         guestInstructions);
                 });
             arm9ActiveExecutorEnabled = true;
-            PS2_LOG("[PS2][OK] ARM9 guarded active dynarec enabled: experimental build, per-block shadow+differential, read-only commit, scheduler-budgeted.\n");
+            PS2_LOG("[PS2][OK] ARM9 selective active dynarec armed: only sampled hot entry PCs can call the backend.\n");
         };
 #else
         bool arm9ActiveHoldLogged = false;
@@ -1384,7 +1400,7 @@ int main(int argc, char **argv)
                 return;
 
             arm9ActiveHoldLogged = true;
-            PS2_LOG("[PS2][OK] ARM9 active dynarec gates passed; live execution held in shadow mode because Run182/183 dispatch/helper overhead regressed PS2 performance.\n");
+            PS2_LOG("[PS2][OK] ARM9 active dynarec gates passed; non-L2 builds remain shadow-only.\n");
         };
 #endif
 
@@ -1771,7 +1787,7 @@ int main(int argc, char **argv)
                     profKnownMs / profFrameDiv);
 
                 const CoreRunProfile &runProfile = core->getRunProfile();
-                PS2_LOG("[PS2][PROF] scheduler: ARM9=%llu ARM7=%llu tasks=%llu schedules=%llu maxDepth=%lu legacyEstimatedMoves=%llu cursorCompactions=%llu cursorMoves=%llu\n",
+                PS2_LOG("[PS2][PROF] scheduler: ARM9=%llu ARM7=%llu tasks=%llu schedules=%llu maxDepth=%lu legacyEstimatedMoves=%llu cursorCompactions=%llu cursorMoves=%llu blockFilterHit=%llu blockExec=%llu blockDrop=%llu\n",
                     static_cast<unsigned long long>(runProfile.arm9Opcodes),
                     static_cast<unsigned long long>(runProfile.arm7Opcodes),
                     static_cast<unsigned long long>(runProfile.taskExecutions),
@@ -1779,7 +1795,10 @@ int main(int argc, char **argv)
                     static_cast<unsigned long>(runProfile.maxTaskDepth),
                     static_cast<unsigned long long>(runProfile.estimatedLegacyFrontMoves),
                     static_cast<unsigned long long>(runProfile.queueCompactions),
-                    static_cast<unsigned long long>(runProfile.queueCompactionMoves));
+                    static_cast<unsigned long long>(runProfile.queueCompactionMoves),
+                    static_cast<unsigned long long>(runProfile.arm9BlockFilterHits),
+                    static_cast<unsigned long long>(runProfile.arm9BlockExecutions),
+                    static_cast<unsigned long long>(runProfile.arm9BlockFilterDrops));
 
                 double schedulerInsertUs = runProfile.schedulerInsertSamples
                     ? static_cast<double>(runProfile.schedulerInsertTicks) *
@@ -1917,7 +1936,9 @@ int main(int argc, char **argv)
                     core->interpreter[0].getProfile();
                 logInterpreterProfile("ARM9", arm9Profile);
 #if NOODS_PROFILE_LEVEL >= 2
-                logDynarecHotBlocks(dynarec, arm9Profile);
+                uint32_t selectiveHotPcs[3] = {};
+                size_t selectiveHotCount = logDynarecHotBlocks(
+                    dynarec, arm9Profile, selectiveHotPcs, 3);
 #endif
                 const InterpreterProfile &arm7Profile =
                     core->interpreter[1].getProfile();
@@ -1971,6 +1992,19 @@ int main(int argc, char **argv)
                 // Its temporary interpreter execution is then discarded by the
                 // profile reset below and cannot distort the measured window.
                 runDeferredArm9Gate();
+
+#if NOODS_PROFILE_LEVEL >= 2
+                if (arm9ActiveExecutorEnabled && selectiveHotCount)
+                {
+                    core->addArm9BlockHotPcs(selectiveHotPcs,
+                        selectiveHotCount);
+                    PS2_LOG("[PS2][JIT] selective hot filter add count=%u pcs=%08lX,%08lX,%08lX\n",
+                        static_cast<unsigned>(selectiveHotCount),
+                        static_cast<unsigned long>(selectiveHotPcs[0]),
+                        static_cast<unsigned long>(selectiveHotPcs[1]),
+                        static_cast<unsigned long>(selectiveHotPcs[2]));
+                }
+#endif
 
                 core->resetProfile();
                 dynarec.resetProfile();
