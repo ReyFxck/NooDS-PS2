@@ -5237,6 +5237,68 @@ bool DynarecR5900::runArmAluSelfTest()
     if (restoredWord != beforeWordStore)
         return false;
 
+    uint8_t *arm7StorePage = memory->getDirectWritePage(1, loadAddress);
+    if (!arm7StorePage)
+        return false;
+    uint32_t arm7StoreBefore = static_cast<uint32_t>(arm7StorePage[0]) |
+        (static_cast<uint32_t>(arm7StorePage[1]) << 8) |
+        (static_cast<uint32_t>(arm7StorePage[2]) << 16) |
+        (static_cast<uint32_t>(arm7StorePage[3]) << 24);
+
+    uint32_t *arm7StoreCode = cache.reserveWords(128);
+    if (!arm7StoreCode)
+        return false;
+    size_t arm7StoreWords = emitArmImmediateStoreFastInstruction(
+        0x05801000u, arm7StoreCode, false, false, 1);
+        // STR.EQ r1,[r0]
+    if (!arm7StoreWords)
+        return false;
+    arm7StoreCode[arm7StoreWords++] = R5900::jr(R5900::R_RA);
+    arm7StoreCode[arm7StoreWords++] = R5900::nop();
+    cache.commitWords(arm7StoreWords);
+    cache.syncExecutable(arm7StoreCode, arm7StoreCode + arm7StoreWords);
+
+    ArmLoadFunction arm7StoreFunction =
+        reinterpret_cast<ArmLoadFunction>(arm7StoreCode);
+    {
+        ArmAluState notTaken = {};
+        notTaken.r[0] = loadAddress;
+        notTaken.r[1] = 0x13579BDFu;
+        notTaken.cpsr = 0x00000013u; // Z clear
+        notTaken.memory = memory;
+        notTaken.cpuId = 1;
+        notTaken.writeCacheTag = (loadAddress >> 12) + 1u;
+        notTaken.writeCachePage = arm7StorePage;
+        arm7StoreFunction(&notTaken);
+        if (notTaken.memoryFault || notTaken.writeCount != 0 ||
+            notTaken.cycles != 1u)
+            return false;
+    }
+    {
+        ArmAluState taken = {};
+        taken.r[0] = loadAddress;
+        taken.r[1] = 0x13579BDFu;
+        taken.cpsr = 0x40000013u; // Z set
+        taken.memory = memory;
+        taken.cpuId = 1;
+        taken.writeCacheTag = (loadAddress >> 12) + 1u;
+        taken.writeCachePage = arm7StorePage;
+        ArmMemoryWriteGuard writes(&taken);
+        arm7StoreFunction(&taken);
+        if (taken.memoryFault || taken.writeCount != 1 ||
+            taken.cycles != 2u ||
+            arm7StorePage[0] != 0xDFu || arm7StorePage[1] != 0x9Bu ||
+            arm7StorePage[2] != 0x57u || arm7StorePage[3] != 0x13u)
+            return false;
+    }
+    uint32_t arm7StoreRestored =
+        static_cast<uint32_t>(arm7StorePage[0]) |
+        (static_cast<uint32_t>(arm7StorePage[1]) << 8) |
+        (static_cast<uint32_t>(arm7StorePage[2]) << 16) |
+        (static_cast<uint32_t>(arm7StorePage[3]) << 24);
+    if (arm7StoreRestored != arm7StoreBefore)
+        return false;
+
     return true;
 }
 
