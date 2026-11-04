@@ -1410,6 +1410,22 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             return false;
         block.readsFlags |= branch.condition != 0xEu;
     }
+
+    // Precompute the tiny register lists used by the live executor. This turns
+    // every active dispatch from two r0-r14 mask scans into compact loops over
+    // only the registers this block can actually observe or modify.
+    uint16_t liveMask = static_cast<uint16_t>(
+        (block.readMask | block.writeMask) & 0x7FFFu);
+    uint16_t writeMask = static_cast<uint16_t>(block.writeMask & 0x7FFFu);
+    for (uint8_t reg = 0; reg < 15; reg++)
+    {
+        uint16_t bit = static_cast<uint16_t>(1u << reg);
+        if (liveMask & bit)
+            block.liveRegs[block.liveRegCount++] = reg;
+        if (writeMask & bit)
+            block.writeRegs[block.writeRegCount++] = reg;
+    }
+
     blocks.push_back(block);
 
     // Prefer the newest compilation for active dispatch. A PC may have been
@@ -2398,17 +2414,22 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         }
     }
 
-    ArmAluState state = {};
-    uint16_t liveMask = static_cast<uint16_t>(
-        (block->readMask | block->writeMask) & 0x7FFFu);
-    for (int i = 0; i < 15; i++)
+    // Active blocks are read-only by policy, so do not zero the 16-entry
+    // transactional write journal on every dispatch. Initialize only the ABI
+    // fields generated code can touch plus the precomputed live registers.
+    ArmAluState state;
+    for (uint8_t i = 0; i < block->liveRegCount; i++)
     {
-        if (liveMask & static_cast<uint16_t>(1u << i))
-            state.r[i] = CpuBackendAccess::readReg(cpu, i);
+        uint8_t reg = block->liveRegs[i];
+        state.r[reg] = CpuBackendAccess::readReg(cpu, reg);
     }
-    state.cpsr = CpuBackendAccess::readCpsr(cpu);
+    uint32_t liveCpsr = CpuBackendAccess::readCpsr(cpu);
+    state.cpsr = liveCpsr;
     state.nextPc = block->guestEndPc;
     state.memory = memory;
+    state.memoryFault = 0;
+    state.writeCount = 0;
+    state.cycles = 0;
 
     typedef void (*ArmAluBlockFunction)(ArmAluState *);
     ArmAluBlockFunction function =
@@ -2418,7 +2439,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     // No guest state has been committed yet, so every failure below is a
     // lossless interpreter fallback.
     if (state.memoryFault || state.writeCount ||
-        ((state.cpsr ^ CpuBackendAccess::readCpsr(cpu)) & 0x1Fu))
+        ((state.cpsr ^ liveCpsr) & 0x1Fu))
     {
         profile.activeStateFallbacks++;
         return 0;
@@ -2435,8 +2456,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         return -static_cast<int>(state.cycles);
     }
 
-    if (!CpuBackendAccess::commitBlockState(cpu, state.r, block->writeMask,
-        state.cpsr, state.nextPc))
+    if (!CpuBackendAccess::commitBlockStateSparse(cpu, state.r,
+        block->writeRegs, block->writeRegCount, state.cpsr, state.nextPc))
     {
         profile.activeStateFallbacks++;
         return 0;

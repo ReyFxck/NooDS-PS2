@@ -98,6 +98,31 @@ class CpuBackendAccess
             return commitBlockState(cpu, regs, 0x7FFFu, cpsr, nextPc);
         }
 
+        // Fast path for JIT blocks whose architectural write set was already
+        // decoded at compile time. Avoid scanning all 15 ARM GPRs on every
+        // short hot-block commit.
+        static bool commitBlockStateSparse(Interpreter &cpu,
+            const uint32_t regs[16], const uint8_t *writeRegs,
+            uint8_t writeRegCount, uint32_t cpsr, uint32_t nextPc)
+        {
+            if (!regs || (writeRegCount && !writeRegs) ||
+                ((cpsr ^ cpu.cpsr) & 0x1Fu))
+                return false;
+
+            for (uint8_t i = 0; i < writeRegCount; i++)
+            {
+                uint8_t reg = writeRegs[i];
+                if (reg >= 15)
+                    return false;
+                *cpu.registers[reg] = regs[reg];
+            }
+
+            cpu.cpsr = cpsr;
+            *cpu.registers[15] = nextPc;
+            cpu.flushPipeline();
+            return true;
+        }
+
         static void writeCpsr(Interpreter &cpu, uint32_t value, bool save = false)
         {
             cpu.setCpsr(value, save);

@@ -82,6 +82,10 @@ struct R5900CompiledBlock
     uint32_t cycles = 0;
     uint16_t readMask = 0;
     uint16_t writeMask = 0;
+    uint8_t liveRegCount = 0;
+    uint8_t writeRegCount = 0;
+    uint8_t liveRegs[15] = {};
+    uint8_t writeRegs[15] = {};
     bool readsFlags = false;
     bool writesFlags = false;
     bool writesMemory = false;
