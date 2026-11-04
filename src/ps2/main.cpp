@@ -1951,6 +1951,44 @@ int main(int argc, char **argv)
         uint64_t profLastRomReadBytes = core->cartridgeNds.getRomCacheReadBytes();
         uint32_t profLastRomSeeks = core->cartridgeNds.getRomCacheSeekCount();
         uint32_t profLastSequentialMisses = core->cartridgeNds.getRomCacheSequentialMisses();
+
+#if NOODS_PROFILE_LEVEL >= 2
+        struct SlowFrameSample
+        {
+            int frame = 0;
+            clock_t coreTicks = 0;
+            uint64_t arm9Instr = 0;
+            uint64_t arm7Instr = 0;
+            uint64_t arm9JitGuest = 0;
+            uint64_t arm7JitGuest = 0;
+            uint64_t taskCount = 0;
+            uint64_t gpu2dACalls = 0;
+            uint64_t gpu2dBCalls = 0;
+            uint64_t gpu3dCalls = 0;
+        };
+        SlowFrameSample profSlowFrames[3] = {};
+        uint64_t profPrevArm9Instr = 0;
+        uint64_t profPrevArm7Instr = 0;
+        uint64_t profPrevArm9JitGuest = 0;
+        uint64_t profPrevArm7JitGuest = 0;
+        uint64_t profPrevTaskCount = 0;
+        uint64_t profPrevGpu2dACalls = 0;
+        uint64_t profPrevGpu2dBCalls = 0;
+        uint64_t profPrevGpu3dCalls = 0;
+
+        auto recordSlowFrame = [&](const SlowFrameSample &sample)
+        {
+            for (int rank = 0; rank < 3; rank++)
+            {
+                if (sample.coreTicks <= profSlowFrames[rank].coreTicks)
+                    continue;
+                for (int move = 2; move > rank; move--)
+                    profSlowFrames[move] = profSlowFrames[move - 1];
+                profSlowFrames[rank] = sample;
+                break;
+            }
+        };
+#endif
 #endif
 
         while (1)
@@ -1963,7 +2001,57 @@ int main(int argc, char **argv)
 #endif
             core->runFrame();
 #ifdef NOODS_PROFILE
-            profCoreTicks += clock() - profTick;
+            const clock_t profFrameCoreTicks = clock() - profTick;
+            profCoreTicks += profFrameCoreTicks;
+#if NOODS_PROFILE_LEVEL >= 2
+            {
+                const CoreRunProfile &frameRunProfile = core->getRunProfile();
+                const GpuRunProfile &frameGpuProfile = core->gpu.getProfile();
+                const R5900DynarecProfile &frameArm9Jit = dynarec.getProfile();
+                uint64_t frameArm7JitGuest = 0;
+                if (arm7ShadowDynarec && arm7ActiveExecutorEnabled)
+                    frameArm7JitGuest =
+                        arm7ShadowDynarec->getProfile().activeGuestInstructions;
+
+                SlowFrameSample sample;
+                sample.frame = frameNo;
+                sample.coreTicks = profFrameCoreTicks;
+                sample.arm9Instr =
+                    frameRunProfile.arm9Opcodes - profPrevArm9Instr;
+                sample.arm7Instr =
+                    frameRunProfile.arm7Opcodes - profPrevArm7Instr;
+                sample.arm9JitGuest =
+                    frameArm9Jit.activeGuestInstructions -
+                    profPrevArm9JitGuest;
+                sample.arm7JitGuest =
+                    frameArm7JitGuest - profPrevArm7JitGuest;
+                sample.taskCount =
+                    frameRunProfile.taskExecutions - profPrevTaskCount;
+                sample.gpu2dACalls =
+                    frameGpuProfile.phaseCount[GPU_PROFILE_2D_A] -
+                    profPrevGpu2dACalls;
+                sample.gpu2dBCalls =
+                    frameGpuProfile.phaseCount[GPU_PROFILE_2D_B] -
+                    profPrevGpu2dBCalls;
+                sample.gpu3dCalls =
+                    frameGpuProfile.phaseCount[GPU_PROFILE_3D_RENDER] -
+                    profPrevGpu3dCalls;
+                recordSlowFrame(sample);
+
+                profPrevArm9Instr = frameRunProfile.arm9Opcodes;
+                profPrevArm7Instr = frameRunProfile.arm7Opcodes;
+                profPrevArm9JitGuest =
+                    frameArm9Jit.activeGuestInstructions;
+                profPrevArm7JitGuest = frameArm7JitGuest;
+                profPrevTaskCount = frameRunProfile.taskExecutions;
+                profPrevGpu2dACalls =
+                    frameGpuProfile.phaseCount[GPU_PROFILE_2D_A];
+                profPrevGpu2dBCalls =
+                    frameGpuProfile.phaseCount[GPU_PROFILE_2D_B];
+                profPrevGpu3dCalls =
+                    frameGpuProfile.phaseCount[GPU_PROFILE_3D_RENDER];
+            }
+#endif
 #endif
             benchFrames++;
 #ifdef NOODS_PROFILE
@@ -2269,6 +2357,28 @@ int main(int argc, char **argv)
                     static_cast<unsigned long long>(arm7JitGuest),
                     arm7JitGuestPerExec);
 
+#if NOODS_PROFILE_LEVEL >= 2
+                for (int slowRank = 0; slowRank < 3; slowRank++)
+                {
+                    const SlowFrameSample &slow = profSlowFrames[slowRank];
+                    if (!slow.coreTicks)
+                        continue;
+                    PS2_LOG("[PS2][SLOW] rank=%d frame=%d coreMs=%.2f arm9Instr=%llu arm7Instr=%llu arm9JitGuest=%llu arm7JitGuest=%llu tasks=%llu gpu2dA=%llu gpu2dB=%llu render3d=%llu\n",
+                        slowRank + 1,
+                        slow.frame,
+                        static_cast<double>(slow.coreTicks) * 1000.0 /
+                            CLOCKS_PER_SEC,
+                        static_cast<unsigned long long>(slow.arm9Instr),
+                        static_cast<unsigned long long>(slow.arm7Instr),
+                        static_cast<unsigned long long>(slow.arm9JitGuest),
+                        static_cast<unsigned long long>(slow.arm7JitGuest),
+                        static_cast<unsigned long long>(slow.taskCount),
+                        static_cast<unsigned long long>(slow.gpu2dACalls),
+                        static_cast<unsigned long long>(slow.gpu2dBCalls),
+                        static_cast<unsigned long long>(slow.gpu3dCalls));
+                }
+#endif
+
                 // Retry the correctness gate only after a complete profile window.
                 // Its temporary interpreter execution is then discarded by the
                 // profile reset below and cannot distort the measured window.
@@ -2302,6 +2412,18 @@ int main(int argc, char **argv)
                 profPresentTicks = 0;
                 profWindowStart = clock();
                 profFrames = 0;
+#if NOODS_PROFILE_LEVEL >= 2
+                for (int i = 0; i < 3; i++)
+                    profSlowFrames[i] = SlowFrameSample();
+                profPrevArm9Instr = 0;
+                profPrevArm7Instr = 0;
+                profPrevArm9JitGuest = 0;
+                profPrevArm7JitGuest = 0;
+                profPrevTaskCount = 0;
+                profPrevGpu2dACalls = 0;
+                profPrevGpu2dBCalls = 0;
+                profPrevGpu3dCalls = 0;
+#endif
 #endif
 #ifndef NOODS_PROFILE
                 // RELEASE/DEBUG have no profile-window reset, so retry the
