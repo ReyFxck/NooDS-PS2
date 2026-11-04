@@ -179,7 +179,10 @@ class DynarecR5900
         size_t blockCount() const { return blocks.size(); }
 
     private:
-        static constexpr size_t ACTIVE_CACHE_SLOTS = 2048;
+        // Keep the direct live lookup comfortably larger than the hard
+        // 2048-block metadata ceiling. This cuts hash collisions that would
+        // otherwise fall back to a linear blocks[] scan on hot dispatches.
+        static constexpr size_t ACTIVE_CACHE_SLOTS = 4096;
         enum ActiveRejectKind : uint8_t
         {
             ACTIVE_REJECT_NONE = 0,
