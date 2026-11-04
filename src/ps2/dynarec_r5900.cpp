@@ -4502,6 +4502,12 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         if (current->writesMemory || (state.cpsr & BIT(5)))
             break;
 
+        // Do not look up or import a ninth block when this dispatch has already
+        // reached the internal chain ceiling. The old path prepared that
+        // successor even though the loop condition prevented it from running.
+        if (executedBlocks >= MAX_INTERNAL_CHAIN_BLOCKS)
+            break;
+
         uint32_t remaining = cycleBudget - state.cycles;
         R5900CompiledBlock *next = findMutableBlock(state.nextPc, false);
         if (!next || !next->activeReady || next->writesMemory ||
