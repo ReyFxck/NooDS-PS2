@@ -4198,6 +4198,7 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
     return emitArmBranchInstruction(opcode, pc, code,
         registerCycles, registerCpsr, reuseCondition);
 }
+}
 
 bool DynarecR5900::emitArmAluBlock(uint32_t opcode, uint32_t **entry, uint8_t *rdOut)
 {
