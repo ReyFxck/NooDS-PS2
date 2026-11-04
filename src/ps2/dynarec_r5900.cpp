@@ -403,6 +403,21 @@ bool applyArmAlu(uint32_t opcode, ArmAluState *state)
     return true;
 }
 
+bool applyArmMultiply(uint32_t opcode, ArmAluState *state)
+{
+    Ps2ArmAlu::DecodedMultiply decoded;
+    if (!state || !Ps2ArmAlu::decodeMultiply(opcode, &decoded))
+        return false;
+
+    bool passed = Ps2ArmAlu::conditionPassed(decoded.condition, state->cpsr);
+    if (!Ps2ArmAlu::executeMultiply(opcode, state->r, &state->cpsr))
+        return false;
+
+    // Match Interpreter::mul/mla/muls/mlas on ARM9.
+    state->cycles += passed ? (decoded.setFlags ? 4u : 2u) : 1u;
+    return true;
+}
+
 uint8_t *getArm9CachedReadPage(ArmAluState *state, uint32_t address)
 {
     if (!state || !state->memory)
@@ -3041,6 +3056,84 @@ size_t emitArmBranchExchangeInstruction(uint32_t opcode, uint32_t *code)
     return words;
 }
 
+size_t emitArmMultiplyInstruction(uint32_t opcode, uint32_t *code,
+    bool registerCycles, bool registerCpsr, bool suppressResultStore = false)
+{
+    Ps2ArmAlu::DecodedMultiply decoded;
+    if (!code || !Ps2ArmAlu::decodeMultiply(opcode, &decoded))
+        return 0;
+
+    size_t words = 0;
+
+    // Every ARM instruction consumes one cycle even when its condition fails.
+    words += emitArmCycleAdd(1, code + words, registerCycles);
+
+    size_t conditionBranch = static_cast<size_t>(-1);
+    if (decoded.condition != 0xEu)
+    {
+        words += emitArmCondition(decoded.condition, code + words,
+            registerCpsr);
+        conditionBranch = words;
+        code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+    }
+
+    // Successful ARM9 MUL/MLA = 2 cycles; S variants = 4 cycles.
+    words += emitArmCycleAdd(decoded.setFlags ? 3u : 1u,
+        code + words, registerCycles);
+
+    code[words++] = R5900::lw(R5900::R_T0,
+        static_cast<int16_t>(decoded.rm * 4), R5900::R_A0);
+    code[words++] = R5900::lw(R5900::R_T1,
+        static_cast<int16_t>(decoded.rs * 4), R5900::R_A0);
+    code[words++] = R5900::multu(R5900::R_T2,
+        R5900::R_T0, R5900::R_T1);
+
+    if (decoded.accumulate)
+    {
+        code[words++] = R5900::lw(R5900::R_T3,
+            static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+        code[words++] = R5900::addu(R5900::R_T2,
+            R5900::R_T2, R5900::R_T3);
+    }
+
+    if (!suppressResultStore)
+        code[words++] = R5900::sw(R5900::R_T2,
+            static_cast<int16_t>(decoded.rd * 4), R5900::R_A0);
+
+    if (decoded.setFlags)
+    {
+        int cpsrReg = registerCpsr ? R5900::R_V1 : R5900::R_T5;
+        if (!registerCpsr)
+            code[words++] = R5900::lw(cpsrReg, 64, R5900::R_A0);
+
+        // MULS/MLAS update N/Z and preserve C/V + low CPSR bits.
+        code[words++] = R5900::lui(R5900::R_T6, 0x3FFFu);
+        code[words++] = R5900::ori(R5900::R_T6, R5900::R_T6, 0xFFFFu);
+        code[words++] = R5900::and_(cpsrReg, cpsrReg, R5900::R_T6);
+        code[words++] = R5900::srl(R5900::R_T6, R5900::R_T2, 31);
+        code[words++] = R5900::sll(R5900::R_T6, R5900::R_T6, 31);
+        code[words++] = R5900::or_(cpsrReg, cpsrReg, R5900::R_T6);
+        code[words++] = R5900::sltiu(R5900::R_T6, R5900::R_T2, 1);
+        code[words++] = R5900::sll(R5900::R_T6, R5900::R_T6, 30);
+        code[words++] = R5900::or_(cpsrReg, cpsrReg, R5900::R_T6);
+
+        if (!registerCpsr)
+            code[words++] = R5900::sw(cpsrReg, 64, R5900::R_A0);
+    }
+
+    if (conditionBranch != static_cast<size_t>(-1))
+    {
+        size_t distance = words - (conditionBranch + 1);
+        if (distance > 0x7FFFu)
+            return 0;
+        code[conditionBranch] = R5900::beq(R5900::R_T7,
+            R5900::R_ZERO, static_cast<int16_t>(distance));
+    }
+
+    return words;
+}
+
 size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
     bool registerCycles = false, bool registerCpsr = false,
     Memory *directMemory = nullptr, int forwardedGuestReg = -1,
@@ -3054,6 +3147,11 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
         return emitArmAluInstruction(opcode, code, registerCycles,
             registerCpsr, usableForward, suppressResultStore);
     }
+
+    Ps2ArmAlu::DecodedMultiply multiply;
+    if (Ps2ArmAlu::decodeMultiply(opcode, &multiply))
+        return emitArmMultiplyInstruction(opcode, code,
+            registerCycles, registerCpsr, suppressResultStore);
 
     size_t words = 0;
     size_t emitted = 0;
@@ -3218,6 +3316,10 @@ uint32_t maxArmInstructionCycles(uint32_t opcode)
     if (Ps2ArmAlu::decode(opcode, &decoded))
         return decoded.registerShift ? 2u : 1u;
 
+    Ps2ArmAlu::DecodedMultiply multiply;
+    if (Ps2ArmAlu::decodeMultiply(opcode, &multiply))
+        return multiply.setFlags ? 4u : 2u;
+
     Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
     if (Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &blockTransfer))
         return 2u;
@@ -3236,6 +3338,11 @@ uint32_t minArmInstructionCycles(uint32_t opcode)
     Ps2ArmAlu::Decoded decoded;
     if (Ps2ArmAlu::decode(opcode, &decoded))
         return decoded.registerShift ? 2u : 1u;
+
+    Ps2ArmAlu::DecodedMultiply multiply;
+    if (Ps2ArmAlu::decodeMultiply(opcode, &multiply))
+        return multiply.condition == 0xEu
+            ? (multiply.setFlags ? 4u : 2u) : 1u;
 
     Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
     if (Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &blockTransfer))
@@ -3309,6 +3416,16 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             if (decoded.condition != 0xEu || decoded.setFlags)
                 registerCpsr = true;
             if (decoded.setFlags)
+                writesRegisterCpsr = true;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedMultiply multiply;
+        if (Ps2ArmAlu::decodeMultiply(opcodes[i], &multiply))
+        {
+            if (multiply.condition != 0xEu || multiply.setFlags)
+                registerCpsr = true;
+            if (multiply.setFlags)
                 writesRegisterCpsr = true;
             continue;
         }
@@ -3589,6 +3706,19 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
                 block.writeMask |= static_cast<uint16_t>(1u << decoded.rd);
             block.readsFlags |= decoded.condition != 0xEu;
             block.writesFlags |= decoded.setFlags;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedMultiply multiply;
+        if (Ps2ArmAlu::decodeMultiply(opcodes[i], &multiply))
+        {
+            block.readMask |= static_cast<uint16_t>(
+                (1u << multiply.rm) | (1u << multiply.rs));
+            if (multiply.accumulate)
+                block.readMask |= static_cast<uint16_t>(1u << multiply.rn);
+            block.writeMask |= static_cast<uint16_t>(1u << multiply.rd);
+            block.readsFlags |= multiply.condition != 0xEu;
+            block.writesFlags |= multiply.setFlags;
             continue;
         }
 
@@ -3923,6 +4053,52 @@ bool DynarecR5900::runArmAluSelfTest()
         function(&actual);
         if (std::memcmp(&actual, &expected, sizeof(actual)) != 0)
             return false;
+    }
+
+    // Gate short ARM MUL/MLA directly in generated R5900 code. Expected
+    // state and timing come from the portable implementation above.
+    {
+        const uint32_t multiplyOpcodes[] =
+        {
+            0xE0040291u, // MUL r4,r1,r2
+            0xE0253291u, // MLA r5,r1,r2,r3
+            0xE0140291u, // MULS r4,r1,r2
+            0x00040291u  // MUL.EQ r4,r1,r2 (failed condition below)
+        };
+        for (size_t i = 0;
+            i < sizeof(multiplyOpcodes) / sizeof(multiplyOpcodes[0]); i++)
+        {
+            ArmAluState source = {};
+            source.r[1] = (i == 2) ? 0u : 0xFFFFFFFEu;
+            source.r[2] = 3u;
+            source.r[3] = 10u;
+            source.r[4] = 0x11223344u;
+            source.cpsr = (i == 3) ? 0x00000013u : 0x30000013u;
+
+            ArmAluState expected = source;
+            if (!applyArmMultiply(multiplyOpcodes[i], &expected))
+                return false;
+
+            uint32_t *multiplyCode = cache.reserveWords(96);
+            if (!multiplyCode)
+                return false;
+            size_t multiplyWords = emitArmMultiplyInstruction(
+                multiplyOpcodes[i], multiplyCode, false, false, false);
+            if (!multiplyWords)
+                return false;
+            multiplyCode[multiplyWords++] = R5900::jr(R5900::R_RA);
+            multiplyCode[multiplyWords++] = R5900::nop();
+            cache.commitWords(multiplyWords);
+            cache.syncExecutable(multiplyCode, multiplyCode + multiplyWords);
+
+            ArmAluState actual = source;
+            typedef void (*ArmMultiplyFunction)(ArmAluState *);
+            ArmMultiplyFunction multiplyFunction =
+                reinterpret_cast<ArmMultiplyFunction>(multiplyCode);
+            multiplyFunction(&actual);
+            if (std::memcmp(&actual, &expected, sizeof(actual)) != 0)
+                return false;
+        }
     }
 
     // Gate the resident self-loop guest counter and scheduler budget.
@@ -4577,6 +4753,13 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
             continue;
         }
 
+        Ps2ArmAlu::DecodedMultiply multiply;
+        if (Ps2ArmAlu::decodeMultiply(opcode, &multiply))
+        {
+            opcodes[count++] = opcode;
+            continue;
+        }
+
         Ps2ArmAlu::DecodedHalfwordTransfer transfer;
         if (Ps2ArmAlu::decodeHalfwordTransfer(opcode, &transfer))
         {
@@ -4645,69 +4828,69 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
         {
             if (!applyArmAlu(opcodes[i], &expected))
                 return -1;
+            continue;
         }
-        else
+
+        Ps2ArmAlu::DecodedMultiply multiply;
+        if (Ps2ArmAlu::decodeMultiply(opcodes[i], &multiply))
         {
-            Ps2ArmAlu::DecodedHalfwordTransfer transfer;
-            if (Ps2ArmAlu::decodeHalfwordTransfer(opcodes[i], &transfer))
-            {
-                if (!applyArmHalfwordTransfer(&expected, opcodes[i]))
-                    return 0;
-            }
-            else
-            {
-                Ps2ArmAlu::DecodedByteTransfer byteTransfer;
-                if (Ps2ArmAlu::decodeByteTransfer(opcodes[i], &byteTransfer))
-                {
-                    if (!applyArmByteTransfer(&expected, opcodes[i]))
-                        return 0;
-                }
-                else
-                {
-                    Ps2ArmAlu::DecodedLiteralLoad literalLoad;
-                    if (Ps2ArmAlu::decodeLiteralLoad(opcodes[i], &literalLoad))
-                    {
-                        if (!applyArmLiteralLoad(&expected, opcodes[i],
-                            guestPc + static_cast<uint32_t>(i * 4)))
-                            return 0;
-                    }
-                    else
-                    {
-                        Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
-                        if (Ps2ArmAlu::decodeSingleTransfer(opcodes[i], &singleTransfer))
-                        {
-                            if (!applyArmSingleTransfer(&expected, opcodes[i]))
-                                return 0;
-                        }
-                        else
-                        {
-                            Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
-                            if (Ps2ArmAlu::decodeSingleBlockTransfer(opcodes[i],
-                                &blockTransfer))
-                            {
-                                if (!applyArmSingleBlockTransfer(&expected, opcodes[i]))
-                                    return 0;
-                            }
-                            else
-                            {
-                                Ps2ArmAlu::DecodedBranchExchange branchExchange;
-                                if (Ps2ArmAlu::decodeBranchExchange(opcodes[i],
-                                    &branchExchange))
-                                {
-                                    if (!applyArmBranchExchange(&expected, opcodes[i]))
-                                        return -1;
-                                }
-                                else if (!applyArmBranch(&expected, opcodes[i],
-                                    guestPc + static_cast<uint32_t>(i * 4)))
-                                {
-                                    return -1;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            if (!applyArmMultiply(opcodes[i], &expected))
+                return -1;
+            continue;
         }
+
+        Ps2ArmAlu::DecodedHalfwordTransfer transfer;
+        if (Ps2ArmAlu::decodeHalfwordTransfer(opcodes[i], &transfer))
+        {
+            if (!applyArmHalfwordTransfer(&expected, opcodes[i]))
+                return 0;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedByteTransfer byteTransfer;
+        if (Ps2ArmAlu::decodeByteTransfer(opcodes[i], &byteTransfer))
+        {
+            if (!applyArmByteTransfer(&expected, opcodes[i]))
+                return 0;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedLiteralLoad literalLoad;
+        if (Ps2ArmAlu::decodeLiteralLoad(opcodes[i], &literalLoad))
+        {
+            if (!applyArmLiteralLoad(&expected, opcodes[i],
+                guestPc + static_cast<uint32_t>(i * 4)))
+                return 0;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
+        if (Ps2ArmAlu::decodeSingleTransfer(opcodes[i], &singleTransfer))
+        {
+            if (!applyArmSingleTransfer(&expected, opcodes[i]))
+                return 0;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
+        if (Ps2ArmAlu::decodeSingleBlockTransfer(opcodes[i], &blockTransfer))
+        {
+            if (!applyArmSingleBlockTransfer(&expected, opcodes[i]))
+                return 0;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedBranchExchange branchExchange;
+        if (Ps2ArmAlu::decodeBranchExchange(opcodes[i], &branchExchange))
+        {
+            if (!applyArmBranchExchange(&expected, opcodes[i]))
+                return -1;
+            continue;
+        }
+
+        if (!applyArmBranch(&expected, opcodes[i],
+            guestPc + static_cast<uint32_t>(i * 4)))
+            return -1;
     }
 
     // Generated code must observe the same original bytes as the portable
