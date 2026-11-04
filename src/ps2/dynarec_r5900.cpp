@@ -1988,14 +1988,64 @@ size_t emitArmHalfwordTransferInstruction(uint32_t opcode, uint32_t *code)
     return words;
 }
 
+size_t emitArmRegisterOffsetAddress(uint8_t rn, uint8_t rm,
+    uint8_t shiftType, uint8_t shiftAmount, bool addOffset, uint32_t *code)
+{
+    if (!code)
+        return 0;
+
+    size_t words = 0;
+    code[words++] = R5900::lw(R5900::R_T0,
+        static_cast<int16_t>(rn * 4), R5900::R_A0);
+    code[words++] = R5900::lw(R5900::R_T1,
+        static_cast<int16_t>(rm * 4), R5900::R_A0);
+
+    switch (shiftType)
+    {
+        case 0: // LSL
+            if (shiftAmount)
+                code[words++] = R5900::sll(R5900::R_T1,
+                    R5900::R_T1, shiftAmount);
+            break;
+        case 1: // LSR #0 means LSR #32
+            if (shiftAmount)
+                code[words++] = R5900::srl(R5900::R_T1,
+                    R5900::R_T1, shiftAmount);
+            else
+                code[words++] = R5900::or_(R5900::R_T1,
+                    R5900::R_ZERO, R5900::R_ZERO);
+            break;
+        case 2: // ASR #0 means ASR #32
+            code[words++] = R5900::sra(R5900::R_T1, R5900::R_T1,
+                shiftAmount ? shiftAmount : 31);
+            break;
+        case 3: // RRX was rejected by the decoder; amount is 1..31 here.
+            if (!shiftAmount)
+                return 0;
+            code[words++] = R5900::srl(R5900::R_T2,
+                R5900::R_T1, shiftAmount);
+            code[words++] = R5900::sll(R5900::R_T3,
+                R5900::R_T1, 32u - shiftAmount);
+            code[words++] = R5900::or_(R5900::R_T1,
+                R5900::R_T2, R5900::R_T3);
+            break;
+        default:
+            return 0;
+    }
+
+    code[words++] = addOffset
+        ? R5900::addu(R5900::R_T0, R5900::R_T0, R5900::R_T1)
+        : R5900::subu(R5900::R_T0, R5900::R_T0, R5900::R_T1);
+    return words;
+}
+
 size_t emitArmByteLoadCachedInstruction(uint32_t opcode,
     uint32_t *code, bool registerCycles, bool registerCpsr,
     bool suppressResultStore = false)
 {
     Ps2ArmAlu::DecodedByteTransfer decoded;
     if (!code || !Ps2ArmAlu::decodeByteTransfer(opcode, &decoded) ||
-        !decoded.load || decoded.registerOffset || !decoded.preIndex ||
-        decoded.writeBack)
+        !decoded.load || !decoded.preIndex || decoded.writeBack)
         return 0;
 
     size_t words = 0;
@@ -2011,14 +2061,26 @@ size_t emitArmByteLoadCachedInstruction(uint32_t opcode,
         code[words++] = R5900::nop();
     }
 
-    code[words++] = R5900::lw(R5900::R_T0,
-        static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
-    int32_t delta = decoded.addOffset
-        ? static_cast<int32_t>(decoded.immediateOffset)
-        : -static_cast<int32_t>(decoded.immediateOffset);
-    if (delta)
-        code[words++] = R5900::addiu(R5900::R_T0, R5900::R_T0,
-            static_cast<int16_t>(delta));
+    if (decoded.registerOffset)
+    {
+        size_t addressWords = emitArmRegisterOffsetAddress(decoded.rn,
+            decoded.rm, decoded.shiftType, decoded.shiftAmount,
+            decoded.addOffset, code + words);
+        if (!addressWords)
+            return 0;
+        words += addressWords;
+    }
+    else
+    {
+        code[words++] = R5900::lw(R5900::R_T0,
+            static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+        int32_t delta = decoded.addOffset
+            ? static_cast<int32_t>(decoded.immediateOffset)
+            : -static_cast<int32_t>(decoded.immediateOffset);
+        if (delta)
+            code[words++] = R5900::addiu(R5900::R_T0, R5900::R_T0,
+                static_cast<int16_t>(delta));
+    }
 
     code[words++] = R5900::andi(R5900::R_T4, R5900::R_T0, 0x0FFFu);
     code[words++] = R5900::srl(R5900::R_T1, R5900::R_T0, 12);
@@ -2204,8 +2266,7 @@ size_t emitArmWordLoadCachedInstruction(uint32_t opcode,
 {
     Ps2ArmAlu::DecodedSingleTransfer decoded;
     if (!code || !Ps2ArmAlu::decodeSingleTransfer(opcode, &decoded) ||
-        !decoded.load || decoded.registerOffset || !decoded.preIndex ||
-        decoded.writeBack)
+        !decoded.load || !decoded.preIndex || decoded.writeBack)
         return 0;
 
     size_t words = 0;
@@ -2221,14 +2282,26 @@ size_t emitArmWordLoadCachedInstruction(uint32_t opcode,
         code[words++] = R5900::nop();
     }
 
-    code[words++] = R5900::lw(R5900::R_T0,
-        static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
-    int32_t delta = decoded.addOffset
-        ? static_cast<int32_t>(decoded.immediateOffset)
-        : -static_cast<int32_t>(decoded.immediateOffset);
-    if (delta)
-        code[words++] = R5900::addiu(R5900::R_T0, R5900::R_T0,
-            static_cast<int16_t>(delta));
+    if (decoded.registerOffset)
+    {
+        size_t addressWords = emitArmRegisterOffsetAddress(decoded.rn,
+            decoded.rm, decoded.shiftType, decoded.shiftAmount,
+            decoded.addOffset, code + words);
+        if (!addressWords)
+            return 0;
+        words += addressWords;
+    }
+    else
+    {
+        code[words++] = R5900::lw(R5900::R_T0,
+            static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+        int32_t delta = decoded.addOffset
+            ? static_cast<int32_t>(decoded.immediateOffset)
+            : -static_cast<int32_t>(decoded.immediateOffset);
+        if (delta)
+            code[words++] = R5900::addiu(R5900::R_T0, R5900::R_T0,
+                static_cast<int16_t>(delta));
+    }
 
     // Generic ARM9 word helper currently admits aligned accesses only.
     code[words++] = R5900::andi(R5900::R_T4, R5900::R_T0, 3);
@@ -2668,8 +2741,8 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
         Ps2ArmAlu::DecodedByteTransfer byteTransfer;
         if (Ps2ArmAlu::decodeByteTransfer(opcode, &byteTransfer))
         {
-            if (byteTransfer.load && !byteTransfer.registerOffset &&
-                byteTransfer.preIndex && !byteTransfer.writeBack)
+            if (byteTransfer.load && byteTransfer.preIndex &&
+                !byteTransfer.writeBack)
                 return emitArmByteLoadCachedInstruction(opcode, code,
                     registerCycles, registerCpsr, suppressResultStore);
             if (!byteTransfer.load && !byteTransfer.registerOffset)
@@ -2709,8 +2782,8 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
                 Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
                 if (Ps2ArmAlu::decodeSingleTransfer(opcode, &singleTransfer))
                 {
-                    if (singleTransfer.load && !singleTransfer.registerOffset &&
-                        singleTransfer.preIndex && !singleTransfer.writeBack)
+                    if (singleTransfer.load && singleTransfer.preIndex &&
+                        !singleTransfer.writeBack)
                         return emitArmWordLoadCachedInstruction(opcode, code,
                             registerCycles, registerCpsr, suppressResultStore);
                     if (!singleTransfer.load && !singleTransfer.registerOffset)
@@ -2936,13 +3009,13 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
                 producedGuestReg = half.rd;
             }
             else if (Ps2ArmAlu::decodeByteTransfer(opcodes[i], &byte) &&
-                byte.condition == 0xEu && byte.load && !byte.registerOffset &&
+                byte.condition == 0xEu && byte.load &&
                 byte.preIndex && !byte.writeBack)
             {
                 producedGuestReg = byte.rd;
             }
             else if (Ps2ArmAlu::decodeSingleTransfer(opcodes[i], &word) &&
-                word.condition == 0xEu && word.load && !word.registerOffset &&
+                word.condition == 0xEu && word.load &&
                 word.preIndex && !word.writeBack)
             {
                 producedGuestReg = word.rd;

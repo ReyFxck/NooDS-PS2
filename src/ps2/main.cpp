@@ -1142,7 +1142,7 @@ int main(int argc, char **argv)
     PS2_LOG(" Instrumentation: disabled\n");
 #endif
 #if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
-    PS2_LOG(" Dynarec: ARM-ALU-v49 inline-register-offset-strh (profile L2)\n");
+    PS2_LOG(" Dynarec: ARM-ALU-v50 inline-register-offset-loads (profile L2)\n");
 #else
     PS2_LOG(" Dynarec: ARM-ALU-v10 shadow-gated\n");
 #endif
