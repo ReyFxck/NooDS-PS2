@@ -6,6 +6,13 @@ on:
       - master
   workflow_dispatch:
 
+# Keep master development from piling up obsolete full PS2 toolchain builds.
+# Manual workflow_dispatch runs use a separate group so a push cannot cancel
+# an explicitly requested artifact build.
+concurrency:
+  group: ps2-poc-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
 jobs:
   test-core:
     runs-on: ubuntu-latest
