@@ -87,6 +87,18 @@ namespace Ps2ArmAlu
         uint8_t rm = 0;
     };
 
+    struct DecodedLongMultiply
+    {
+        uint8_t condition = 0xE;
+        bool signedMultiply = false;
+        bool accumulate = false;
+        bool setFlags = false;
+        uint8_t rdHi = 0;
+        uint8_t rdLo = 0;
+        uint8_t rs = 0;
+        uint8_t rm = 0;
+    };
+
     struct DecodedBranch
     {
         uint8_t condition = 0xE;
@@ -201,6 +213,7 @@ namespace Ps2ArmAlu
     bool conditionPassed(uint8_t condition, uint32_t cpsr);
     bool decode(uint32_t opcode, Decoded *decoded);
     bool decodeMultiply(uint32_t opcode, DecodedMultiply *decoded);
+    bool decodeLongMultiply(uint32_t opcode, DecodedLongMultiply *decoded);
     bool decodeBranch(uint32_t opcode, DecodedBranch *decoded);
     bool decodeBranchExchange(uint32_t opcode,
         DecodedBranchExchange *decoded);
@@ -216,6 +229,8 @@ namespace Ps2ArmAlu
     bool decodeMultiBlockTransfer(uint32_t opcode,
         DecodedMultiBlockTransfer *decoded);
     bool executeMultiply(uint32_t opcode, uint32_t registers[16],
+        uint32_t *cpsr = nullptr);
+    bool executeLongMultiply(uint32_t opcode, uint32_t registers[16],
         uint32_t *cpsr = nullptr);
     bool executeHalfwordTransfer(uint32_t opcode, uint32_t registers[16],
         uint32_t *cpsr, void *context, ReadHalfword read,
