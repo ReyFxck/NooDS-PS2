@@ -3836,6 +3836,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     block.entryOpcode0 = opcodes[0];
     block.entryOpcode1 = (count > 1) ? opcodes[1] : 0;
     block.thumb = false;
+    block.internalSelfLoop = internalSelfLoop;
     block.hostCode = code;
     block.hostWords = static_cast<uint32_t>(words);
 
@@ -5358,13 +5359,22 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
 
     uint32_t guestPc = CpuBackendAccess::nextInstructionAddress(cpu);
     constexpr uint32_t MIN_ACTIVE_GUEST_INSTRUCTIONS = 3;
+    auto activeBlockUseful = [](const R5900CompiledBlock *candidate)
+    {
+        return candidate &&
+            (candidate->guestInstructions >= MIN_ACTIVE_GUEST_INSTRUCTIONS ||
+             (candidate->internalSelfLoop &&
+              candidate->guestInstructions >= 2));
+    };
 
     // Do not even touch the block cache when this ARM7/task slot is too short
-    // for the smallest useful active block.
-    if (cycleBudget < MIN_ACTIVE_GUEST_INSTRUCTIONS)
+    // for the smallest useful active block. Two-instruction read-only
+    // self-loops are special: generated code repeats them internally, so their
+    // dispatch cost is amortized just like a longer block.
+    if (cycleBudget < 2u)
     {
         DYNAREC_PROFILE(profile.activeBudgetFallbacks++);
-        return -static_cast<int>(MIN_ACTIVE_GUEST_INSTRUCTIONS);
+        return -2;
     }
 
     R5900CompiledBlock *block = findMutableBlock(guestPc, false);
@@ -5388,7 +5398,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         }
     }
 
-    if (!block || block->guestInstructions < MIN_ACTIVE_GUEST_INSTRUCTIONS)
+    if (!activeBlockUseful(block))
     {
         // Keep enough room for realistic game code while still placing a hard
         // ceiling on metadata growth. The 2 MiB code cache remains the actual
@@ -5418,8 +5428,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         }
 
         block = findMutableBlock(guestPc, false);
-        if (!block ||
-            block->guestInstructions < MIN_ACTIVE_GUEST_INSTRUCTIONS)
+        if (!activeBlockUseful(block))
         {
             cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
             DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
@@ -5604,7 +5613,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         if (next && next->guestInstructions >= 2)
             pipelineHint = next;
         if (!next || !next->activeReady || next->writesMemory ||
-            next->guestInstructions < MIN_ACTIVE_GUEST_INSTRUCTIONS ||
+            !activeBlockUseful(next) ||
             !next->cycles || next->cycles > remaining)
             break;
 

@@ -100,6 +100,7 @@ struct R5900CompiledBlock
     bool writesFlags = false;
     bool writesMemory = false;
     bool thumb = false;
+    bool internalSelfLoop = false;
     bool differentialVerified = false;
     bool activeReady = false;
 
