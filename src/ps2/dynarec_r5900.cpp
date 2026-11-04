@@ -2135,7 +2135,8 @@ size_t emitArmRegisterStoreFastInstruction(uint32_t opcode,
 }
 
 size_t emitArmImmediateStoreFastInstruction(uint32_t opcode,
-    uint32_t *code, bool registerCycles, bool registerCpsr)
+    uint32_t *code, bool registerCycles, bool registerCpsr,
+    uint8_t targetCpuId = 0)
 {
     if (!code)
         return 0;
@@ -2202,6 +2203,11 @@ size_t emitArmImmediateStoreFastInstruction(uint32_t opcode,
         code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
         code[words++] = R5900::nop();
     }
+
+    // ARM7 direct word stores cost 2 cycles versus 1 on ARM9. Byte/halfword
+    // forms are not part of the guarded ARM7 subset yet.
+    if (targetCpuId && sizeCode == 2)
+        words += emitArmCycleAdd(1, code + words, registerCycles);
 
     // Compute the ARM effective address in t0. Post-index writeback is
     // recomputed only after a successful store, preserving fallback semantics.
@@ -3373,7 +3379,7 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
                             targetCpuId);
                     if (!singleTransfer.load && !singleTransfer.registerOffset)
                         return emitArmImmediateStoreFastInstruction(opcode, code,
-                            registerCycles, registerCpsr);
+                            registerCycles, registerCpsr, targetCpuId);
                     if (!singleTransfer.load && singleTransfer.registerOffset)
                         return emitArmRegisterStoreFastInstruction(opcode, code,
                             registerCycles, registerCpsr);
@@ -5554,8 +5560,8 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
 
         Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
         if (Ps2ArmAlu::decodeSingleTransfer(opcode, &singleTransfer) &&
-            singleTransfer.load && !singleTransfer.registerOffset &&
-            singleTransfer.preIndex && !singleTransfer.writeBack)
+            !singleTransfer.registerOffset && singleTransfer.preIndex &&
+            !singleTransfer.writeBack)
         {
             opcodes[count++] = opcode;
             continue;
@@ -5594,6 +5600,7 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
     source.cpuId = 1;
 
     ArmAluState expected = source;
+    ArmMemoryWriteGuard expectedWrites(&expected);
     for (size_t i = 0; i < count; i++)
     {
         Ps2ArmAlu::Decoded decoded;
@@ -5607,8 +5614,8 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
         Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
         if (Ps2ArmAlu::decodeSingleTransfer(opcodes[i], &singleTransfer))
         {
-            if (!singleTransfer.load || singleTransfer.registerOffset ||
-                !singleTransfer.preIndex || singleTransfer.writeBack)
+            if (singleTransfer.registerOffset || !singleTransfer.preIndex ||
+                singleTransfer.writeBack)
                 return 0;
             if (!applyArmSingleTransfer(&expected, opcodes[i]))
                 return 0;
@@ -5628,6 +5635,9 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
             return -1;
     }
 
+    // Generated code must observe the pre-store bytes too.
+    expectedWrites.restoreNow();
+
     uint32_t *entry = nullptr;
     uint32_t hostWords = 0;
     if (!emitArmAluSequence(opcodes, count, guestPc, &entry, &hostWords))
@@ -5638,13 +5648,24 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
         return -1;
 
     ArmAluState actual = source;
+    ArmMemoryWriteGuard actualWrites(&actual);
     typedef void (*Arm7ShadowFunction)(ArmAluState *);
     Arm7ShadowFunction function =
         reinterpret_cast<Arm7ShadowFunction>(entry);
     function(&actual);
 
-    if (actual.memoryFault || actual.writeCount)
+    if (actual.memoryFault)
+        return 0;
+    if (actual.writeCount != expected.writeCount)
         return -1;
+    for (uint32_t i = 0; i < actual.writeCount; i++)
+    {
+        if (actual.writes[i].address != expected.writes[i].address ||
+            actual.writes[i].before != expected.writes[i].before ||
+            actual.writes[i].after != expected.writes[i].after ||
+            actual.writes[i].size != expected.writes[i].size)
+            return -1;
+    }
 
     uint32_t hash = 2166136261u;
     for (int i = 0; i < 16; i++)
@@ -5690,8 +5711,7 @@ int DynarecR5900::runArm7AluBranchDifferentialSelfTest(Interpreter &cpu,
 
     uint32_t guestPc = CpuBackendAccess::nextInstructionAddress(cpu);
     R5900CompiledBlock *block = findMutableBlock(guestPc, false);
-    if (!block || !block->hostCode || !block->guestInstructions ||
-        block->writesMemory)
+    if (!block || !block->hostCode || !block->guestInstructions)
         return 0;
 
     uint32_t savedRegs[16] = {};
@@ -5712,9 +5732,25 @@ int DynarecR5900::runArm7AluBranchDifferentialSelfTest(Interpreter &cpu,
     typedef void (*Arm7DifferentialFunction)(ArmAluState *);
     Arm7DifferentialFunction function =
         reinterpret_cast<Arm7DifferentialFunction>(block->hostCode);
-    function(&generated);
-    if (generated.memoryFault || generated.writeCount)
-        return -1;
+
+    ArmMemoryWrite generatedWrites[16] = {};
+    uint32_t generatedWriteCount = 0;
+    {
+        ArmMemoryWriteGuard generatedGuard(&generated);
+        function(&generated);
+        if (generated.memoryFault)
+            return 0;
+
+        generatedWriteCount = generated.writeCount;
+        if (generatedWriteCount > 16)
+            return -1;
+        for (uint32_t i = 0; i < generatedWriteCount; i++)
+            generatedWrites[i] = generated.writes[i];
+        generatedGuard.restoreNow();
+    }
+
+    MemoryWriteJournal interpreterWrites;
+    memory->beginWriteJournal(&interpreterWrites, false);
 
     bool interpreterOk = true;
     uint32_t interpreterCycles = 0;
@@ -5728,8 +5764,28 @@ int DynarecR5900::runArm7AluBranchDifferentialSelfTest(Interpreter &cpu,
         }
         interpreterCycles += static_cast<uint32_t>(cycles);
     }
+    memory->endWriteJournal(&interpreterWrites);
 
-    bool match = interpreterOk &&
+    bool writesMatch = !interpreterWrites.overflow &&
+        interpreterWrites.count == generatedWriteCount;
+    if (writesMatch)
+    {
+        for (uint32_t i = 0; i < generatedWriteCount; i++)
+        {
+            const MemoryWriteJournalEntry &actual = interpreterWrites.entries[i];
+            const ArmMemoryWrite &expected = generatedWrites[i];
+            if (actual.address != expected.address ||
+                actual.before != expected.before ||
+                actual.after != expected.after ||
+                actual.size != expected.size)
+            {
+                writesMatch = false;
+                break;
+            }
+        }
+    }
+
+    bool match = interpreterOk && writesMatch &&
         CpuBackendAccess::readCpsr(cpu) == generated.cpsr &&
         CpuBackendAccess::nextInstructionAddress(cpu) == generated.nextPc &&
         interpreterCycles == generated.cycles;
@@ -5751,7 +5807,15 @@ int DynarecR5900::runArm7AluBranchDifferentialSelfTest(Interpreter &cpu,
     hash *= 16777619u;
     hash ^= block->guestInstructions;
     hash *= 16777619u;
+    for (uint32_t i = 0; i < generatedWriteCount; i++)
+    {
+        hash ^= generatedWrites[i].address;
+        hash *= 16777619u;
+        hash ^= generatedWrites[i].after;
+        hash *= 16777619u;
+    }
 
+    memory->rollbackWriteJournal(interpreterWrites);
     CpuBackendAccess::restoreStraightLineState(cpu, savedRegs, savedCpsr,
         savedPipeline0, savedPipeline1);
 
@@ -5835,7 +5899,8 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
 
     if (!block->activeReady)
     {
-        if (!block->arm7TimingSafe || block->writesMemory ||
+        if (!block->arm7TimingSafe ||
+            block->maxMemoryWrites > 16 ||
             ((block->readMask | block->writeMask) & 0x8000u))
         {
             cacheActiveReject(guestPc, ACTIVE_REJECT_STATE);
@@ -5883,12 +5948,13 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
     state.cycles = 0;
     state.readCacheTag = block->cachedReadTag;
     state.readCachePage = block->cachedReadPage;
-    state.writeCacheTag = 0;
-    state.writeCachePage = nullptr;
+    state.writeCacheTag = block->cachedWriteTag;
+    state.writeCachePage = block->cachedWritePage;
     state.cycleLimit = cycleBudget;
     state.guestExecuted = 0;
     state.cpuId = 1;
 
+    ArmMemoryWriteGuard liveWrites(&state);
     typedef void (*Arm7ActiveFunction)(ArmAluState *);
     Arm7ActiveFunction function =
         reinterpret_cast<Arm7ActiveFunction>(block->hostCode);
@@ -5899,8 +5965,13 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
         block->cachedReadTag = state.readCacheTag;
         block->cachedReadPage = state.readCachePage;
     }
+    if (state.writeCacheTag && state.writeCachePage)
+    {
+        block->cachedWriteTag = state.writeCacheTag;
+        block->cachedWritePage = state.writeCachePage;
+    }
 
-    if (state.memoryFault || state.writeCount ||
+    if (state.memoryFault || state.writeCount > 16 ||
         ((state.cpsr ^ liveCpsr) & 0x1Fu) ||
         !state.cycles || state.cycles > cycleBudget)
     {
@@ -5920,6 +5991,8 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
         DYNAREC_PROFILE(profile.activeStateFallbacks++);
         return 0;
     }
+
+    liveWrites.dismiss();
 
     uint32_t executedGuest = state.guestExecuted
         ? state.guestExecuted
