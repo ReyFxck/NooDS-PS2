@@ -1909,9 +1909,11 @@ int main(int argc, char **argv)
                     static_cast<unsigned long long>(runProfile.arm9BlockExecutions),
                     static_cast<unsigned long long>(runProfile.arm9BlockFilterDrops),
                     static_cast<unsigned long long>(runProfile.arm9BlockBudgetSkips));
-                PS2_LOG("[PS2][PROF] arm7-block: filterHit=%llu exec=%llu drop=%llu budgetSkip=%llu autoHot=%llu\n",
+                PS2_LOG("[PS2][PROF] arm7-block: filterHit=%llu exec=%llu chained=%llu drop=%llu budgetSkip=%llu autoHot=%llu\n",
                     static_cast<unsigned long long>(runProfile.arm7BlockFilterHits),
                     static_cast<unsigned long long>(runProfile.arm7BlockExecutions),
+                    static_cast<unsigned long long>(
+                        runProfile.arm7BlockChainedExecutions),
                     static_cast<unsigned long long>(runProfile.arm7BlockFilterDrops),
                     static_cast<unsigned long long>(runProfile.arm7BlockBudgetSkips),
                     static_cast<unsigned long long>(runProfile.arm7AutoHotPromotions));

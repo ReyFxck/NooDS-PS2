@@ -87,6 +87,7 @@ struct CoreRunProfile
     uint64_t arm9AutoHotPromotions = 0;
     uint64_t arm7BlockFilterHits = 0;
     uint64_t arm7BlockExecutions = 0;
+    uint64_t arm7BlockChainedExecutions = 0;
     uint64_t arm7BlockFilterDrops = 0;
     uint64_t arm7BlockBudgetSkips = 0;
     uint64_t arm7AutoHotPromotions = 0;

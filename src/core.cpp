@@ -261,7 +261,7 @@ void Core::runNdsFrame()
                         if (!minCycles)
                             minCycles = 1;
 
-                        if (!cycleBudget || cycleBudget < minCycles)
+                        if (!arm7CycleBudget || arm7CycleBudget < minCycles)
                         {
 #ifdef NOODS_PROFILE
                             if (profileEnabled)
@@ -471,6 +471,7 @@ void Core::runNdsFrame()
             {
                 int arm7StepCycles = 0;
                 uint32_t arm7StepInstructions = 0;
+                uint32_t arm7CycleBudget = 0;
 
                 if (arm7BlockRunner && arm7BlockHotCount)
                 {
@@ -494,7 +495,7 @@ void Core::runNdsFrame()
                                     arm9Cycles - globalCycles);
                         }
 
-                        uint32_t cycleBudget = globalBudget >> 1;
+                        arm7CycleBudget = globalBudget >> 1;
                         uint32_t minCycles = arm7BlockMinCycles[hotSlot];
                         if (!minCycles)
                             minCycles = 1;
@@ -510,7 +511,7 @@ void Core::runNdsFrame()
                         {
                             arm7StepCycles = arm7BlockRunner(
                                 arm7BlockRunnerContext, interpreter[1],
-                                cycleBudget, &arm7StepInstructions);
+                                arm7CycleBudget, &arm7StepInstructions);
 
                             if (arm7StepCycles > 0)
                             {
@@ -519,6 +520,124 @@ void Core::runNdsFrame()
                                 if (profileEnabled)
                                     runProfile.arm7BlockExecutions++;
 #endif
+
+                                // Stay in this ARM7 scheduler slot while other
+                                // already-hot blocks fit before the same ARM9
+                                // or task deadline. Each backend call commits
+                                // independently, so memory/pipeline semantics
+                                // remain identical to separate Core iterations.
+                                constexpr uint32_t MAX_ARM7_CHAINED_BLOCKS = 8;
+                                uint32_t chainedBlocks = 1;
+                                uint32_t usedCycles =
+                                    static_cast<uint32_t>(arm7StepCycles);
+
+                                while (chainedBlocks < MAX_ARM7_CHAINED_BLOCKS &&
+                                    usedCycles < arm7CycleBudget)
+                                {
+                                    uint32_t nextPc =
+                                        CpuBackendAccess::nextInstructionAddress(
+                                            interpreter[1]);
+                                    size_t nextSlot =
+                                        arm7BlockFilterSlot(nextPc);
+                                    if (arm7BlockHotPc[nextSlot] != nextPc)
+                                        break;
+
+#ifdef NOODS_PROFILE
+                                    if (profileEnabled)
+                                        runProfile.arm7BlockFilterHits++;
+#endif
+                                    uint32_t remaining =
+                                        arm7CycleBudget - usedCycles;
+                                    uint32_t nextMin =
+                                        arm7BlockMinCycles[nextSlot];
+                                    if (!nextMin)
+                                        nextMin = 1;
+                                    if (remaining < nextMin)
+                                        break;
+
+                                    uint32_t nextInstructions = 0;
+                                    int nextCycles = arm7BlockRunner(
+                                        arm7BlockRunnerContext,
+                                        interpreter[1], remaining,
+                                        &nextInstructions);
+
+                                    if (nextCycles > 0)
+                                    {
+                                        usedCycles +=
+                                            static_cast<uint32_t>(nextCycles);
+                                        arm7StepInstructions +=
+                                            nextInstructions
+                                                ? nextInstructions : 1;
+                                        arm7BlockHotFailures[nextSlot] = 0;
+                                        chainedBlocks++;
+#ifdef NOODS_PROFILE
+                                        if (profileEnabled)
+                                        {
+                                            runProfile.arm7BlockExecutions++;
+                                            runProfile
+                                                .arm7BlockChainedExecutions++;
+                                        }
+#endif
+                                        continue;
+                                    }
+
+                                    if (nextCycles ==
+                                        ARM9_BLOCK_RUNNER_PERMANENT_REJECT)
+                                    {
+                                        arm7BlockHotPc[nextSlot] = 0;
+                                        arm7BlockMinCycles[nextSlot] = 0;
+                                        arm7BlockHotFailures[nextSlot] = 0;
+                                        if (arm7BlockHotCount)
+                                            arm7BlockHotCount--;
+#ifdef NOODS_PROFILE
+                                        if (profileEnabled)
+                                            runProfile.arm7BlockFilterDrops++;
+#endif
+                                    }
+                                    else if (nextCycles < 0)
+                                    {
+                                        uint32_t required =
+                                            static_cast<uint32_t>(-nextCycles);
+                                        if (required > 0xFFu)
+                                            required = 0xFFu;
+                                        if (required >
+                                            arm7BlockMinCycles[nextSlot])
+                                        {
+                                            arm7BlockMinCycles[nextSlot] =
+                                                static_cast<uint8_t>(required);
+                                        }
+#ifdef NOODS_PROFILE
+                                        if (profileEnabled)
+                                            runProfile.arm7BlockBudgetSkips++;
+#endif
+                                    }
+                                    else
+                                    {
+                                        uint8_t &failures =
+                                            arm7BlockHotFailures[nextSlot];
+                                        if (failures < 0xFFu)
+                                            failures++;
+                                        if (failures >= 8)
+                                        {
+                                            arm7BlockHotPc[nextSlot] = 0;
+                                            arm7BlockMinCycles[nextSlot] = 0;
+                                            failures = 0;
+                                            if (arm7BlockHotCount)
+                                                arm7BlockHotCount--;
+#ifdef NOODS_PROFILE
+                                            if (profileEnabled)
+                                            {
+                                                runProfile
+                                                    .arm7BlockFilterDrops++;
+                                            }
+#endif
+                                        }
+                                    }
+                                    break;
+                                }
+
+                                arm7StepCycles =
+                                    static_cast<int>(usedCycles);
                             }
                             else if (arm7StepCycles ==
                                 ARM9_BLOCK_RUNNER_PERMANENT_REJECT)
