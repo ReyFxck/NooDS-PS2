@@ -261,7 +261,7 @@ void Core::runNdsFrame()
                         if (!minCycles)
                             minCycles = 1;
 
-                        if (!arm7CycleBudget || arm7CycleBudget < minCycles)
+                        if (!cycleBudget || cycleBudget < minCycles)
                         {
 #ifdef NOODS_PROFILE
                             if (profileEnabled)
@@ -500,7 +500,7 @@ void Core::runNdsFrame()
                         if (!minCycles)
                             minCycles = 1;
 
-                        if (!cycleBudget || cycleBudget < minCycles)
+                        if (!arm7CycleBudget || arm7CycleBudget < minCycles)
                         {
 #ifdef NOODS_PROFILE
                             if (profileEnabled)
