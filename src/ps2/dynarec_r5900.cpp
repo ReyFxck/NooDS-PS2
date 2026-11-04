@@ -3329,8 +3329,6 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     // write kills the need for the older value, while a conditional write does
     // not. Starting from writeMask also models the commit boundary, where every
     // architectural destination must contain its final value.
-    uint16_t liveMask = static_cast<uint16_t>(
-        (block.readMask | block.writeMask) & 0x7FFFu);
     uint16_t writeMask = static_cast<uint16_t>(block.writeMask & 0x7FFFu);
     uint16_t inputMask = writeMask;
     for (size_t i = count; i-- > 0;)
@@ -3352,8 +3350,6 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     for (uint8_t reg = 0; reg < 15; reg++)
     {
         uint16_t bit = static_cast<uint16_t>(1u << reg);
-        if (liveMask & bit)
-            block.liveRegs[block.liveRegCount++] = reg;
         if (inputMask & bit)
             block.inputRegs[block.inputRegCount++] = reg;
         if (writeMask & bit)
