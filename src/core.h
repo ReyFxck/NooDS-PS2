@@ -172,6 +172,7 @@ class Core
             gpu.setProfileEnabled(enabled);
             gpu2D[0].setProfileEnabled(enabled);
             gpu2D[1].setProfileEnabled(enabled);
+            gpu3DRenderer.setProfileEnabled(enabled);
 #endif
         }
 
@@ -185,6 +186,7 @@ class Core
             gpu.resetProfile();
             gpu2D[0].resetProfile();
             gpu2D[1].resetProfile();
+            gpu3DRenderer.resetProfile();
 #endif
         }
 
