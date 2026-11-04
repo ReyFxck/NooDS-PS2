@@ -627,6 +627,7 @@ bool applyArmRegisterStoreFast(ArmAluState *state, uint32_t packed)
     bool word = (packed & BIT(14)) != 0;
     uint8_t shiftType = static_cast<uint8_t>((packed >> 15) & 3u);
     uint8_t shiftAmount = static_cast<uint8_t>((packed >> 17) & 0x1Fu);
+    bool preIndex = (packed & BIT(22)) != 0;
 
     uint32_t offset = 0;
     if (!Ps2ArmAlu::applyImmediateShift(state->r[rm], shiftType,
@@ -637,7 +638,8 @@ bool applyArmRegisterStoreFast(ArmAluState *state, uint32_t packed)
     }
 
     uint32_t base = state->r[rn];
-    uint32_t address = addOffset ? base + offset : base - offset;
+    uint32_t adjusted = addOffset ? base + offset : base - offset;
+    uint32_t address = preIndex ? adjusted : base;
     bool ok = word
         ? writeDirectArm9Word(state, address, state->r[rd])
         : writeDirectArm9Byte(state, address,
@@ -649,7 +651,7 @@ bool applyArmRegisterStoreFast(ArmAluState *state, uint32_t packed)
     }
 
     if (writeBack)
-        state->r[rn] = address;
+        state->r[rn] = adjusted;
     return true;
 }
 
@@ -1836,29 +1838,31 @@ size_t emitArmRegisterStoreFastInstruction(uint32_t opcode,
 
     uint8_t rn = 0, rd = 0, rm = 0, condition = 0;
     uint8_t shiftType = 0, shiftAmount = 0;
-    bool addOffset = false, writeBack = false, word = false;
+    bool addOffset = false, preIndex = false, writeBack = false, word = false;
 
     Ps2ArmAlu::DecodedByteTransfer byte;
     Ps2ArmAlu::DecodedSingleTransfer single;
     if (Ps2ArmAlu::decodeByteTransfer(opcode, &byte) &&
-        !byte.load && byte.registerOffset && byte.preIndex)
+        !byte.load && byte.registerOffset)
     {
         rn = byte.rn; rd = byte.rd; rm = byte.rm;
         condition = byte.condition;
         shiftType = byte.shiftType;
         shiftAmount = byte.shiftAmount;
         addOffset = byte.addOffset;
+        preIndex = byte.preIndex;
         writeBack = byte.writeBack;
         word = false;
     }
     else if (Ps2ArmAlu::decodeSingleTransfer(opcode, &single) &&
-        !single.load && single.registerOffset && single.preIndex)
+        !single.load && single.registerOffset)
     {
         rn = single.rn; rd = single.rd; rm = single.rm;
         condition = single.condition;
         shiftType = single.shiftType;
         shiftAmount = single.shiftAmount;
         addOffset = single.addOffset;
+        preIndex = single.preIndex;
         writeBack = single.writeBack;
         word = true;
     }
@@ -1878,7 +1882,8 @@ size_t emitArmRegisterStoreFastInstruction(uint32_t opcode,
         (writeBack ? BIT(13) : 0u) |
         (word ? BIT(14) : 0u) |
         (static_cast<uint32_t>(shiftType) << 15) |
-        (static_cast<uint32_t>(shiftAmount) << 17);
+        (static_cast<uint32_t>(shiftAmount) << 17) |
+        (preIndex ? BIT(22) : 0u);
 
     size_t words = 0;
     words += emitArmCycleAdd(1, code + words, registerCycles);
@@ -1892,11 +1897,27 @@ size_t emitArmRegisterStoreFastInstruction(uint32_t opcode,
         code[words++] = R5900::nop();
     }
 
+    // Post-index stores use the original base as the memory address but
+    // still need the adjusted value for writeback after a successful store.
+    if (!preIndex)
+        code[words++] = R5900::lw(R5900::R_T2,
+            static_cast<int16_t>(rn * 4), R5900::R_A0);
+
     size_t addressWords = emitArmRegisterOffsetAddress(rn, rm,
         shiftType, shiftAmount, addOffset, code + words);
     if (!addressWords)
         return 0;
     words += addressWords;
+
+    if (!preIndex)
+    {
+        code[words++] = R5900::or_(R5900::R_T4,
+            R5900::R_T0, R5900::R_ZERO);
+        code[words++] = R5900::or_(R5900::R_T0,
+            R5900::R_T2, R5900::R_ZERO);
+        code[words++] = R5900::or_(R5900::R_T2,
+            R5900::R_T4, R5900::R_ZERO);
+    }
 
     size_t alignBranch = static_cast<size_t>(-1);
     if (word)
@@ -1949,7 +1970,7 @@ size_t emitArmRegisterStoreFastInstruction(uint32_t opcode,
     code[words++] = R5900::sw(R5900::R_T5, 80, R5900::R_A0);
 
     if (writeBack)
-        code[words++] = R5900::sw(R5900::R_T0,
+        code[words++] = R5900::sw(preIndex ? R5900::R_T0 : R5900::R_T2,
             static_cast<int16_t>(rn * 4), R5900::R_A0);
 
     size_t fastDoneBranch = words;
@@ -3051,8 +3072,7 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
             if (!byteTransfer.load && !byteTransfer.registerOffset)
                 return emitArmImmediateStoreFastInstruction(opcode, code,
                     registerCycles, registerCpsr);
-            if (!byteTransfer.load && byteTransfer.registerOffset &&
-                byteTransfer.preIndex)
+            if (!byteTransfer.load && byteTransfer.registerOffset)
                 return emitArmRegisterStoreFastInstruction(opcode, code,
                     registerCycles, registerCpsr);
 
@@ -3096,8 +3116,7 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
                     if (!singleTransfer.load && !singleTransfer.registerOffset)
                         return emitArmImmediateStoreFastInstruction(opcode, code,
                             registerCycles, registerCpsr);
-                    if (!singleTransfer.load && singleTransfer.registerOffset &&
-                        singleTransfer.preIndex)
+                    if (!singleTransfer.load && singleTransfer.registerOffset)
                         return emitArmRegisterStoreFastInstruction(opcode, code,
                             registerCycles, registerCpsr);
 
