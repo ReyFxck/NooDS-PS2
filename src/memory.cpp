@@ -452,7 +452,17 @@ template <typename T> T Memory::readFallback(bool cpu, uint32_t address)
         switch (address & 0xFF000000)
         {
             case 0x04000000: // I/O registers
+            {
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+                clock_t timingStart = 0;
+                bool timingSampled = beginMmioTiming(timingStart);
+                T result = ioRead9<T>(address);
+                endMmioTiming(false, timingStart, timingSampled);
+                return result;
+#else
                 return ioRead9<T>(address);
+#endif
+            }
 
             case 0x05000000: // Palettes
                 data = &palette[address & 0x7FF];
@@ -489,7 +499,17 @@ template <typename T> T Memory::readFallback(bool cpu, uint32_t address)
         switch (address & 0xFF000000)
         {
             case 0x04000000: // I/O registers
+            {
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+                clock_t timingStart = 0;
+                bool timingSampled = beginMmioTiming(timingStart);
+                T result = ioReadGba<T>(address);
+                endMmioTiming(false, timingStart, timingSampled);
+                return result;
+#else
                 return ioReadGba<T>(address);
+#endif
+            }
 
             case 0x05000000: // Palettes
                 data = &palette[address & 0x3FF];
@@ -516,7 +536,17 @@ template <typename T> T Memory::readFallback(bool cpu, uint32_t address)
         switch (address & 0xFF000000)
         {
             case 0x04000000: // I/O registers
+            {
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+                clock_t timingStart = 0;
+                bool timingSampled = beginMmioTiming(timingStart);
+                T result = ioRead7<T>(address);
+                endMmioTiming(false, timingStart, timingSampled);
+                return result;
+#else
                 return ioRead7<T>(address);
+#endif
+            }
 
             case 0x06000000: // VRAM
             {
@@ -583,8 +613,17 @@ template <typename T> void Memory::writeFallback(bool cpu, uint32_t address, T v
         switch (address & 0xFF000000)
         {
             case 0x04000000: // I/O registers
+            {
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+                clock_t timingStart = 0;
+                bool timingSampled = beginMmioTiming(timingStart);
                 ioWrite9<T>(address, value);
+                endMmioTiming(true, timingStart, timingSampled);
+#else
+                ioWrite9<T>(address, value);
+#endif
                 return;
+            }
 
             case 0x05000000: // Palettes
                 data = &palette[address & 0x7FF];
@@ -620,8 +659,17 @@ template <typename T> void Memory::writeFallback(bool cpu, uint32_t address, T v
         switch (address & 0xFF000000)
         {
             case 0x04000000: // I/O registers
+            {
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+                clock_t timingStart = 0;
+                bool timingSampled = beginMmioTiming(timingStart);
                 ioWriteGba<T>(address, value);
+                endMmioTiming(true, timingStart, timingSampled);
+#else
+                ioWriteGba<T>(address, value);
+#endif
                 return;
+            }
 
             case 0x05000000: // Palettes
                 data = &palette[address & 0x3FF];
@@ -646,8 +694,17 @@ template <typename T> void Memory::writeFallback(bool cpu, uint32_t address, T v
         switch (address & 0xFF000000)
         {
             case 0x04000000: // I/O registers
+            {
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+                clock_t timingStart = 0;
+                bool timingSampled = beginMmioTiming(timingStart);
                 ioWrite7<T>(address, value);
+                endMmioTiming(true, timingStart, timingSampled);
+#else
+                ioWrite7<T>(address, value);
+#endif
                 return;
+            }
 
             case 0x06000000: // VRAM
             {
