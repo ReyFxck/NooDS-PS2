@@ -5022,6 +5022,64 @@ bool DynarecR5900::runArmAluSelfTest()
     if (wordLoadState.memoryFault || wordLoadState.r[1] != expectedWord)
         return false;
 
+    // Gate ARM7-native timing on the exact cached LDR emitter used by the
+    // guarded backend. Conditional failure costs one cycle; a taken aligned
+    // direct word load costs three.
+    uint8_t *arm7LoadPage = memory->getDirectReadPage(1, loadAddress);
+    if (!arm7LoadPage)
+        return false;
+    uint32_t arm7ExpectedWord = static_cast<uint32_t>(arm7LoadPage[0]) |
+        (static_cast<uint32_t>(arm7LoadPage[1]) << 8) |
+        (static_cast<uint32_t>(arm7LoadPage[2]) << 16) |
+        (static_cast<uint32_t>(arm7LoadPage[3]) << 24);
+
+    uint32_t *arm7WordLoadCode = cache.reserveWords(96);
+    if (!arm7WordLoadCode)
+        return false;
+    size_t arm7WordLoadWords = emitArmWordLoadCachedInstruction(
+        0x05901000u, arm7WordLoadCode, false, false, false, 1);
+        // LDR.EQ r1,[r0]
+    if (!arm7WordLoadWords)
+        return false;
+    arm7WordLoadCode[arm7WordLoadWords++] = R5900::jr(R5900::R_RA);
+    arm7WordLoadCode[arm7WordLoadWords++] = R5900::nop();
+    cache.commitWords(arm7WordLoadWords);
+    cache.syncExecutable(arm7WordLoadCode,
+        arm7WordLoadCode + arm7WordLoadWords);
+
+    ArmLoadFunction arm7WordLoadFunction =
+        reinterpret_cast<ArmLoadFunction>(arm7WordLoadCode);
+    {
+        ArmAluState arm7NotTaken = {};
+        arm7NotTaken.r[0] = loadAddress;
+        arm7NotTaken.r[1] = 0xCAFEBABEu;
+        arm7NotTaken.cpsr = 0x00000013u; // Z clear
+        arm7NotTaken.memory = memory;
+        arm7NotTaken.cpuId = 1;
+        arm7NotTaken.readCacheTag = (loadAddress >> 12) + 1u;
+        arm7NotTaken.readCachePage = arm7LoadPage;
+        arm7WordLoadFunction(&arm7NotTaken);
+        if (arm7NotTaken.memoryFault ||
+            arm7NotTaken.r[1] != 0xCAFEBABEu ||
+            arm7NotTaken.cycles != 1u)
+            return false;
+    }
+    {
+        ArmAluState arm7Taken = {};
+        arm7Taken.r[0] = loadAddress;
+        arm7Taken.r[1] = 0xCAFEBABEu;
+        arm7Taken.cpsr = 0x40000013u; // Z set
+        arm7Taken.memory = memory;
+        arm7Taken.cpuId = 1;
+        arm7Taken.readCacheTag = (loadAddress >> 12) + 1u;
+        arm7Taken.readCachePage = arm7LoadPage;
+        arm7WordLoadFunction(&arm7Taken);
+        if (arm7Taken.memoryFault ||
+            arm7Taken.r[1] != arm7ExpectedWord ||
+            arm7Taken.cycles != 3u)
+            return false;
+    }
+
     uint32_t beforeWordStore = expectedWord;
     uint32_t *wordStoreCode = cache.reserveWords(32);
     if (!wordStoreCode)
