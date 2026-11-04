@@ -1143,7 +1143,7 @@ int main(int argc, char **argv)
     PS2_LOG(" Instrumentation: disabled\n");
 #endif
 #if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
-    PS2_LOG(" Dynarec: ARM-ALU-v29 runtime-hot-release-active (profile L2)\n");
+    PS2_LOG(" Dynarec: ARM-ALU-v30 raw-backend-dispatch (profile L2)\n");
 #else
     PS2_LOG(" Dynarec: ARM-ALU-v10 shadow-gated\n");
 #endif
@@ -1379,12 +1379,13 @@ int main(int argc, char **argv)
                 arm9GateHardFailure)
                 return;
 
-            core->setArm9BlockRunner(
-                [&dynarec](Interpreter &cpu, uint32_t cycleBudget,
+            core->setArm9BlockRunner(&dynarec,
+                [](void *context, Interpreter &cpu, uint32_t cycleBudget,
                     uint32_t *guestInstructions) -> int
                 {
-                    return dynarec.runArm9ActiveBlock(cpu, cycleBudget,
-                        guestInstructions);
+                    return static_cast<DynarecR5900*>(context)
+                        ->runArm9ActiveBlock(cpu, cycleBudget,
+                            guestInstructions);
                 });
             arm9ActiveExecutorEnabled = true;
             PS2_LOG("[PS2][OK] ARM9 selective active dynarec armed: runtime hot-PC sampler + guarded backend enabled.\n");

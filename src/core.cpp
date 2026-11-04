@@ -270,7 +270,8 @@ void Core::runNdsFrame()
                         }
                         else
                         {
-                            arm9StepCycles = arm9BlockRunner(interpreter[0],
+                            arm9StepCycles = arm9BlockRunner(
+                                arm9BlockRunnerContext, interpreter[0],
                                 cycleBudget, &arm9StepInstructions);
                             if (arm9StepCycles > 0)
                             {

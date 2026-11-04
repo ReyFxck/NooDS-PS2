@@ -124,9 +124,10 @@ class Core
         // value means the block is valid but needs at least abs(value) cycles
         // before the backend should be called again.
         using Arm9BlockRunner =
-            std::function<int(Interpreter&, uint32_t, uint32_t*)>;
-        void setArm9BlockRunner(const Arm9BlockRunner &runner)
+            int (*)(void*, Interpreter&, uint32_t, uint32_t*);
+        void setArm9BlockRunner(void *context, Arm9BlockRunner runner)
         {
+            arm9BlockRunnerContext = context;
             arm9BlockRunner = runner;
         }
 
@@ -202,7 +203,8 @@ class Core
         SchedulerQueue<Task> tasks;
         bool profileEnabled = false;
         CoreRunProfile runProfile;
-        Arm9BlockRunner arm9BlockRunner;
+        void *arm9BlockRunnerContext = nullptr;
+        Arm9BlockRunner arm9BlockRunner = nullptr;
 
         static constexpr size_t ARM9_BLOCK_FILTER_SLOTS = 64;
         uint32_t arm9BlockHotPc[ARM9_BLOCK_FILTER_SLOTS] = {};
