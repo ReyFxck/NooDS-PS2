@@ -6822,6 +6822,171 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
+    // Gate pre-index load writeback. Word exercises cache hit, cache miss
+    // (including t0 preservation across the refill helper) and a failed ARM
+    // condition. Byte/halfword verify the same CPU1 timing and Rn update.
+    {
+        const uint32_t base = (loadAddress + 0x90u) & ~3u;
+        const uint32_t target = base + 4u;
+        uint8_t *page = memory->getDirectReadPage(1, target);
+        if (!page)
+            return false;
+        uint32_t offset = target & 0xFFFu;
+        uint32_t expected =
+            static_cast<uint32_t>(page[offset]) |
+            (static_cast<uint32_t>(page[offset + 1]) << 8) |
+            (static_cast<uint32_t>(page[offset + 2]) << 16) |
+            (static_cast<uint32_t>(page[offset + 3]) << 24);
+
+        uint32_t *code = cache.reserveWords(160);
+        if (!code)
+            return false;
+        size_t words = emitArmWordLoadCachedInstruction(
+            0xE5B01004u, code, false, false, false, 1);
+            // LDR r1,[r0,#4]!
+        if (!words)
+            return false;
+        code[words++] = R5900::jr(R5900::R_RA);
+        code[words++] = R5900::nop();
+        cache.commitWords(words);
+        cache.syncExecutable(code, code + words);
+        ArmLoadFunction function =
+            reinterpret_cast<ArmLoadFunction>(code);
+
+        // Cache hit.
+        {
+            ArmAluState state = {};
+            state.r[0] = base;
+            state.r[1] = 0xCAFEBABEu;
+            state.memory = memory;
+            state.cpuId = 1;
+            state.readCacheTag = (target >> 12) + 1u;
+            state.readCachePage = page;
+            function(&state);
+            if (state.memoryFault || state.cycles != 3u ||
+                state.r[0] != target || state.r[1] != expected)
+                return false;
+        }
+
+        // Cache miss/refill must preserve the computed writeback address.
+        {
+            ArmAluState state = {};
+            state.r[0] = base;
+            state.r[1] = 0xCAFEBABEu;
+            state.memory = memory;
+            state.cpuId = 1;
+            function(&state);
+            if (state.memoryFault || state.cycles != 3u ||
+                state.r[0] != target || state.r[1] != expected ||
+                !state.readCacheTag || !state.readCachePage)
+                return false;
+        }
+
+        // Failed condition: no load and no writeback.
+        uint32_t *condCode = cache.reserveWords(160);
+        if (!condCode)
+            return false;
+        size_t condWords = emitArmWordLoadCachedInstruction(
+            0x05B01004u, condCode, false, false, false, 1);
+            // LDR.EQ r1,[r0,#4]!
+        if (!condWords)
+            return false;
+        condCode[condWords++] = R5900::jr(R5900::R_RA);
+        condCode[condWords++] = R5900::nop();
+        cache.commitWords(condWords);
+        cache.syncExecutable(condCode, condCode + condWords);
+        ArmLoadFunction condFunction =
+            reinterpret_cast<ArmLoadFunction>(condCode);
+
+        ArmAluState notTaken = {};
+        notTaken.r[0] = base;
+        notTaken.r[1] = 0xCAFEBABEu;
+        notTaken.cpsr = 0x00000013u;
+        notTaken.memory = memory;
+        notTaken.cpuId = 1;
+        notTaken.readCacheTag = (target >> 12) + 1u;
+        notTaken.readCachePage = page;
+        condFunction(&notTaken);
+        if (notTaken.memoryFault || notTaken.cycles != 1u ||
+            notTaken.r[0] != base || notTaken.r[1] != 0xCAFEBABEu)
+            return false;
+    }
+
+    {
+        const uint32_t base = loadAddress + 0xA0u;
+        const uint32_t target = base + 1u;
+        uint8_t *page = memory->getDirectReadPage(1, target);
+        if (!page)
+            return false;
+        uint8_t expected = page[target & 0xFFFu];
+
+        uint32_t *code = cache.reserveWords(144);
+        if (!code)
+            return false;
+        size_t words = emitArmByteLoadCachedInstruction(
+            0xE5F01001u, code, false, false, false, 1);
+            // LDRB r1,[r0,#1]!
+        if (!words)
+            return false;
+        code[words++] = R5900::jr(R5900::R_RA);
+        code[words++] = R5900::nop();
+        cache.commitWords(words);
+        cache.syncExecutable(code, code + words);
+
+        ArmAluState state = {};
+        state.r[0] = base;
+        state.r[1] = 0xCAFEBABEu;
+        state.memory = memory;
+        state.cpuId = 1;
+        state.readCacheTag = (target >> 12) + 1u;
+        state.readCachePage = page;
+        ArmLoadFunction function =
+            reinterpret_cast<ArmLoadFunction>(code);
+        function(&state);
+        if (state.memoryFault || state.cycles != 3u ||
+            state.r[0] != target || state.r[1] != expected)
+            return false;
+    }
+
+    {
+        const uint32_t base = (loadAddress + 0xB0u) & ~1u;
+        const uint32_t target = base + 2u;
+        uint8_t *page = memory->getDirectReadPage(1, target);
+        if (!page)
+            return false;
+        uint32_t offset = target & 0xFFFu;
+        uint16_t expected =
+            static_cast<uint16_t>(page[offset]) |
+            (static_cast<uint16_t>(page[offset + 1]) << 8);
+
+        uint32_t *code = cache.reserveWords(160);
+        if (!code)
+            return false;
+        size_t words = emitArmHalfwordLoadCachedInstruction(
+            0xE1F010B2u, code, false, false, false, 1);
+            // LDRH r1,[r0,#2]!
+        if (!words)
+            return false;
+        code[words++] = R5900::jr(R5900::R_RA);
+        code[words++] = R5900::nop();
+        cache.commitWords(words);
+        cache.syncExecutable(code, code + words);
+
+        ArmAluState state = {};
+        state.r[0] = base;
+        state.r[1] = 0xCAFEBABEu;
+        state.memory = memory;
+        state.cpuId = 1;
+        state.readCacheTag = (target >> 12) + 1u;
+        state.readCachePage = page;
+        ArmLoadFunction function =
+            reinterpret_cast<ArmLoadFunction>(code);
+        function(&state);
+        if (state.memoryFault || state.cycles != 3u ||
+            state.r[0] != target || state.r[1] != expected)
+            return false;
+    }
+
     return true;
 }
 
