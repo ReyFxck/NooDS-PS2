@@ -344,6 +344,8 @@ struct ArmAluState
     uint32_t cycles;
     uint32_t readCacheTag;
     uint8_t *readCachePage;
+    uint32_t cycleLimit;
+    uint32_t guestExecuted;
     ArmMemoryWrite writes[16];
 };
 static_assert(offsetof(ArmAluState, cpsr) == 64,
@@ -356,6 +358,10 @@ static_assert(offsetof(ArmAluState, readCacheTag) == 88,
     "R5900 ARM-state read-cache tag ABI offset");
 static_assert(offsetof(ArmAluState, readCachePage) == 92,
     "R5900 ARM-state read-cache page ABI offset");
+static_assert(offsetof(ArmAluState, cycleLimit) == 96,
+    "R5900 ARM-state cycle-limit ABI offset");
+static_assert(offsetof(ArmAluState, guestExecuted) == 100,
+    "R5900 ARM-state guest-executed ABI offset");
 
 bool applyArmAlu(uint32_t opcode, ArmAluState *state)
 {
@@ -1773,11 +1779,64 @@ bool DynarecR5900::emitArmAluBlock(uint32_t opcode, uint32_t **entry, uint8_t *r
     return true;
 }
 
+uint32_t maxArmInstructionCycles(uint32_t opcode)
+{
+    Ps2ArmAlu::Decoded decoded;
+    if (Ps2ArmAlu::decode(opcode, &decoded))
+        return decoded.registerShift ? 2u : 1u;
+
+    Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
+    if (Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &blockTransfer))
+        return 2u;
+
+    Ps2ArmAlu::DecodedBranch branch;
+    Ps2ArmAlu::DecodedBranchExchange branchExchange;
+    if (Ps2ArmAlu::decodeBranch(opcode, &branch) ||
+        Ps2ArmAlu::decodeBranchExchange(opcode, &branchExchange))
+        return 3u;
+
+    return 1u;
+}
+
+bool armSequenceIsReadOnlySelfLoop(const uint32_t *opcodes, size_t count,
+    uint32_t guestPc)
+{
+    if (!opcodes || !count)
+        return false;
+
+    for (size_t i = 0; i < count; i++)
+    {
+        Ps2ArmAlu::DecodedHalfwordTransfer half;
+        Ps2ArmAlu::DecodedByteTransfer byte;
+        Ps2ArmAlu::DecodedSingleTransfer single;
+        Ps2ArmAlu::DecodedSingleBlockTransfer block;
+        if ((Ps2ArmAlu::decodeHalfwordTransfer(opcodes[i], &half) && !half.load) ||
+            (Ps2ArmAlu::decodeByteTransfer(opcodes[i], &byte) && !byte.load) ||
+            (Ps2ArmAlu::decodeSingleTransfer(opcodes[i], &single) && !single.load) ||
+            (Ps2ArmAlu::decodeSingleBlockTransfer(opcodes[i], &block) && !block.load))
+            return false;
+    }
+
+    Ps2ArmAlu::DecodedBranch branch;
+    if (!Ps2ArmAlu::decodeBranch(opcodes[count - 1], &branch))
+        return false;
+
+    uint32_t branchPc = guestPc + static_cast<uint32_t>((count - 1) * 4);
+    uint32_t target = branchPc + 8u + static_cast<uint32_t>(branch.offset);
+    return target == guestPc;
+}
+
 bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     uint32_t guestPc, uint32_t **entry, uint32_t *hostWords)
 {
     if (!opcodes || !count || !entry || !hostWords)
         return false;
+
+    uint32_t sequenceMaxCycles = 0;
+    for (size_t i = 0; i < count; i++)
+        sequenceMaxCycles += maxArmInstructionCycles(opcodes[i]);
+    bool internalSelfLoop = sequenceMaxCycles &&
+        armSequenceIsReadOnlySelfLoop(opcodes, count, guestPc);
 
     // Conditions plus exact NZCV generation are deliberately explicit for the
     // correctness gate. Keep cycles in t8 and, when direct generated
@@ -1800,7 +1859,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             registerCpsr = true;
     }
 
-    const size_t maxWords = count * 70 + 6;
+    const size_t maxWords = count * 70 + (internalSelfLoop ? 40 : 6);
     uint32_t *code = cache.reserveWords(maxWords);
     if (!code)
         return false;
@@ -1809,6 +1868,8 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     if (registerCpsr)
         code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
     code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
+
+    size_t bodyStart = words;
     for (size_t i = 0; i < count; i++)
     {
         size_t emitted = emitArmInstruction(opcodes[i],
@@ -1819,11 +1880,86 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         words += emitted;
     }
 
+    size_t loopExitBranches[4] = {};
+    size_t loopExitCount = 0;
+    size_t loopBackBranch = static_cast<size_t>(-1);
+
+    if (internalSelfLoop)
+    {
+        // Count one completed guest block iteration.
+        code[words++] = R5900::lw(R5900::R_T0, 100, R5900::R_A0);
+        code[words++] = R5900::addiu(R5900::R_T0, R5900::R_T0,
+            static_cast<int16_t>(count));
+        code[words++] = R5900::sw(R5900::R_T0, 100, R5900::R_A0);
+
+        // Shadow/differential states leave cycleLimit=0, so they execute
+        // exactly one iteration. Live states may repeat at most 64 times.
+        code[words++] = R5900::lw(R5900::R_T1, 96, R5900::R_A0);
+        loopExitBranches[loopExitCount++] = words;
+        code[words++] = R5900::beq(R5900::R_T1, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+
+        code[words++] = R5900::sltiu(R5900::R_T2, R5900::R_T0,
+            static_cast<uint16_t>(count * 64u));
+        loopExitBranches[loopExitCount++] = words;
+        code[words++] = R5900::beq(R5900::R_T2, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+
+        // Only a taken terminal branch back to this exact block may repeat.
+        code[words++] = R5900::lw(R5900::R_T2, 68, R5900::R_A0);
+        code[words++] = R5900::lui(R5900::R_T3,
+            static_cast<uint16_t>(guestPc >> 16));
+        code[words++] = R5900::ori(R5900::R_T3, R5900::R_T3,
+            static_cast<uint16_t>(guestPc));
+        loopExitBranches[loopExitCount++] = words;
+        code[words++] = R5900::bne(R5900::R_T2, R5900::R_T3, 0);
+        code[words++] = R5900::nop();
+
+        // Require room for the entire worst-case next iteration.
+        code[words++] = R5900::addiu(R5900::R_T2, R5900::R_T8,
+            static_cast<int16_t>(sequenceMaxCycles));
+        code[words++] = R5900::sltu(R5900::R_T2, R5900::R_T1, R5900::R_T2);
+        loopExitBranches[loopExitCount++] = words;
+        code[words++] = R5900::bne(R5900::R_T2, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+
+        loopBackBranch = words;
+        code[words++] = R5900::beq(R5900::R_ZERO, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+    }
+
+    size_t epilogue = words;
     code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
     if (registerCpsr)
         code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
     code[words++] = R5900::jr(R5900::R_RA);
     code[words++] = R5900::nop();
+
+    for (size_t i = 0; i < loopExitCount; i++)
+    {
+        size_t branch = loopExitBranches[i];
+        size_t distance = epilogue - (branch + 1);
+        if (distance > 0x7FFFu)
+            return false;
+
+        uint32_t original = code[branch];
+        uint32_t opcode = original >> 26;
+        int rs = (original >> 21) & 31;
+        int rt = (original >> 16) & 31;
+        code[branch] = (opcode == 0x04)
+            ? R5900::beq(rs, rt, static_cast<int16_t>(distance))
+            : R5900::bne(rs, rt, static_cast<int16_t>(distance));
+    }
+
+    if (loopBackBranch != static_cast<size_t>(-1))
+    {
+        int32_t distance = static_cast<int32_t>(bodyStart) -
+            static_cast<int32_t>(loopBackBranch + 1);
+        if (distance < -32768 || distance > 32767)
+            return false;
+        code[loopBackBranch] = R5900::beq(R5900::R_ZERO, R5900::R_ZERO,
+            static_cast<int16_t>(distance));
+    }
 
     cache.commitWords(words);
     cache.syncExecutable(code, code + words);
@@ -1833,9 +1969,9 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     block.guestEndPc = guestPc + static_cast<uint32_t>(count * 4);
     block.mapGeneration = mappedGeneration;
     block.guestInstructions = static_cast<uint32_t>(count);
-    // Conservative per-iteration upper bound used only to decide whether a
-    // read-only self-loop may repeat without crossing the ARM7/task deadline.
-    block.cycles = 0;
+    // Conservative per-iteration upper bound, shared with the generated
+    // scheduler-budget loop guard.
+    block.cycles = sequenceMaxCycles;
     block.entryOpcode0 = opcodes[0];
     block.entryOpcode1 = (count > 1) ? opcodes[1] : 0;
     block.thumb = false;
@@ -1847,7 +1983,6 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         Ps2ArmAlu::Decoded decoded;
         if (Ps2ArmAlu::decode(opcodes[i], &decoded))
         {
-            block.cycles += decoded.registerShift ? 2u : 1u;
             if (decoded.operation != 13 && decoded.operation != 15)
                 block.readMask |= static_cast<uint16_t>(1u << decoded.rn);
             if (!decoded.immediate)
@@ -1864,7 +1999,6 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         Ps2ArmAlu::DecodedHalfwordTransfer transfer;
         if (Ps2ArmAlu::decodeHalfwordTransfer(opcodes[i], &transfer))
         {
-            block.cycles += 1u;
             block.readMask |= static_cast<uint16_t>(1u << transfer.rn);
             if (!transfer.immediate)
                 block.readMask |= static_cast<uint16_t>(1u << transfer.rm);
@@ -1884,7 +2018,6 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         Ps2ArmAlu::DecodedByteTransfer byteTransfer;
         if (Ps2ArmAlu::decodeByteTransfer(opcodes[i], &byteTransfer))
         {
-            block.cycles += 1u;
             block.readMask |= static_cast<uint16_t>(1u << byteTransfer.rn);
             if (byteTransfer.registerOffset)
                 block.readMask |= static_cast<uint16_t>(1u << byteTransfer.rm);
@@ -1904,7 +2037,6 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         Ps2ArmAlu::DecodedLiteralLoad literalLoad;
         if (Ps2ArmAlu::decodeLiteralLoad(opcodes[i], &literalLoad))
         {
-            block.cycles += 1u;
             block.writeMask |= static_cast<uint16_t>(1u << literalLoad.rd);
             block.readsFlags |= literalLoad.condition != 0xEu;
             continue;
@@ -1913,7 +2045,6 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
         if (Ps2ArmAlu::decodeSingleTransfer(opcodes[i], &singleTransfer))
         {
-            block.cycles += 1u;
             block.readMask |= static_cast<uint16_t>(1u << singleTransfer.rn);
             if (singleTransfer.registerOffset)
                 block.readMask |= static_cast<uint16_t>(1u << singleTransfer.rm);
@@ -1933,7 +2064,6 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
         if (Ps2ArmAlu::decodeSingleBlockTransfer(opcodes[i], &blockTransfer))
         {
-            block.cycles += 2u;
             block.readMask |= static_cast<uint16_t>(1u << blockTransfer.rn);
             if (blockTransfer.load)
                 block.writeMask |= static_cast<uint16_t>(1u << blockTransfer.reg);
@@ -1951,7 +2081,6 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         Ps2ArmAlu::DecodedBranchExchange branchExchange;
         if (Ps2ArmAlu::decodeBranchExchange(opcodes[i], &branchExchange))
         {
-            block.cycles += 3u;
             if (i + 1 != count)
                 return false;
             block.readMask |= static_cast<uint16_t>(1u << branchExchange.rm);
@@ -3024,36 +3153,17 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     state.cycles = 0;
     state.readCacheTag = 0;
     state.readCachePage = nullptr;
+    state.cycleLimit = cycleBudget;
+    state.guestExecuted = 0;
 
     typedef void (*ArmAluBlockFunction)(ArmAluState *);
     ArmAluBlockFunction function =
         reinterpret_cast<ArmAluBlockFunction>(block->hostCode);
     function(&state);
 
-    uint32_t executedGuestInstructions = block->guestInstructions;
-    constexpr uint32_t MAX_ACTIVE_SELF_LOOP_ITERATIONS = 64;
-    uint32_t selfLoopIterations = 1;
-
-    // A read-only block that branches exactly back to its own entry can repeat
-    // inside this scheduler slot without exposing any intermediate state: the
-    // cycleBudget already ends at the next ARM7 execution or scheduled task.
-    // Use the conservative max-cycle bound so the next iteration can never
-    // cross that deadline. Reset nextPc to the normal fallthrough before each
-    // call because a conditional branch helper may leave it unchanged when
-    // its condition fails.
-    while (selfLoopIterations < MAX_ACTIVE_SELF_LOOP_ITERATIONS &&
-        !state.memoryFault && !state.writeCount &&
-        !(state.cpsr & BIT(5)) &&
-        ((state.cpsr ^ liveCpsr) & 0x1Fu) == 0 &&
-        state.nextPc == block->guestPc && block->cycles &&
-        state.cycles <= cycleBudget &&
-        block->cycles <= cycleBudget - state.cycles)
-    {
-        state.nextPc = block->guestEndPc;
-        function(&state);
-        selfLoopIterations++;
-        executedGuestInstructions += block->guestInstructions;
-    }
+    uint32_t executedGuestInstructions = state.guestExecuted
+        ? state.guestExecuted
+        : block->guestInstructions;
 
     // No guest state has been committed yet, so every failure below is a
     // lossless interpreter fallback.
