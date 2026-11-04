@@ -5328,6 +5328,116 @@ bool DynarecR5900::runArmAluSelfTest()
     if (arm7StoreRestored != arm7StoreBefore)
         return false;
 
+    // Gate the ARM7 byte-transfer fast paths too. Byte accesses have no
+    // alignment ambiguity: taken LDRB=3 cycles, taken STRB=2, failed
+    // conditions=1, and stores must roll back exactly.
+    const uint32_t arm7ByteAddress = loadAddress + 7u;
+    uint8_t *arm7ByteReadPage =
+        memory->getDirectReadPage(1, arm7ByteAddress);
+    uint8_t *arm7ByteWritePage =
+        memory->getDirectWritePage(1, arm7ByteAddress);
+    if (!arm7ByteReadPage || !arm7ByteWritePage)
+        return false;
+    uint32_t arm7ByteOffset = arm7ByteAddress & 0xFFFu;
+    uint8_t arm7ExpectedByte = arm7ByteReadPage[arm7ByteOffset];
+    uint8_t arm7BeforeByte = arm7ByteWritePage[arm7ByteOffset];
+
+    uint32_t *arm7ByteLoadCode = cache.reserveWords(96);
+    if (!arm7ByteLoadCode)
+        return false;
+    size_t arm7ByteLoadWords = emitArmByteLoadCachedInstruction(
+        0x05D01000u, arm7ByteLoadCode, false, false, false, 1);
+        // LDRB.EQ r1,[r0]
+    if (!arm7ByteLoadWords)
+        return false;
+    arm7ByteLoadCode[arm7ByteLoadWords++] = R5900::jr(R5900::R_RA);
+    arm7ByteLoadCode[arm7ByteLoadWords++] = R5900::nop();
+    cache.commitWords(arm7ByteLoadWords);
+    cache.syncExecutable(arm7ByteLoadCode,
+        arm7ByteLoadCode + arm7ByteLoadWords);
+
+    ArmLoadFunction arm7ByteLoadFunction =
+        reinterpret_cast<ArmLoadFunction>(arm7ByteLoadCode);
+    {
+        ArmAluState notTaken = {};
+        notTaken.r[0] = arm7ByteAddress;
+        notTaken.r[1] = 0xCAFEBABEu;
+        notTaken.cpsr = 0x00000013u;
+        notTaken.memory = memory;
+        notTaken.cpuId = 1;
+        notTaken.readCacheTag = (arm7ByteAddress >> 12) + 1u;
+        notTaken.readCachePage = arm7ByteReadPage;
+        arm7ByteLoadFunction(&notTaken);
+        if (notTaken.memoryFault ||
+            notTaken.r[1] != 0xCAFEBABEu ||
+            notTaken.cycles != 1u)
+            return false;
+    }
+    {
+        ArmAluState taken = {};
+        taken.r[0] = arm7ByteAddress;
+        taken.r[1] = 0xCAFEBABEu;
+        taken.cpsr = 0x40000013u;
+        taken.memory = memory;
+        taken.cpuId = 1;
+        taken.readCacheTag = (arm7ByteAddress >> 12) + 1u;
+        taken.readCachePage = arm7ByteReadPage;
+        arm7ByteLoadFunction(&taken);
+        if (taken.memoryFault ||
+            taken.r[1] != arm7ExpectedByte ||
+            taken.cycles != 3u)
+            return false;
+    }
+
+    uint32_t *arm7ByteStoreCode = cache.reserveWords(128);
+    if (!arm7ByteStoreCode)
+        return false;
+    size_t arm7ByteStoreWords = emitArmImmediateStoreFastInstruction(
+        0x05C01000u, arm7ByteStoreCode, false, false, 1);
+        // STRB.EQ r1,[r0]
+    if (!arm7ByteStoreWords)
+        return false;
+    arm7ByteStoreCode[arm7ByteStoreWords++] = R5900::jr(R5900::R_RA);
+    arm7ByteStoreCode[arm7ByteStoreWords++] = R5900::nop();
+    cache.commitWords(arm7ByteStoreWords);
+    cache.syncExecutable(arm7ByteStoreCode,
+        arm7ByteStoreCode + arm7ByteStoreWords);
+
+    ArmLoadFunction arm7ByteStoreFunction =
+        reinterpret_cast<ArmLoadFunction>(arm7ByteStoreCode);
+    {
+        ArmAluState notTaken = {};
+        notTaken.r[0] = arm7ByteAddress;
+        notTaken.r[1] = 0xA5u;
+        notTaken.cpsr = 0x00000013u;
+        notTaken.memory = memory;
+        notTaken.cpuId = 1;
+        notTaken.writeCacheTag = (arm7ByteAddress >> 12) + 1u;
+        notTaken.writeCachePage = arm7ByteWritePage;
+        arm7ByteStoreFunction(&notTaken);
+        if (notTaken.memoryFault || notTaken.writeCount != 0 ||
+            notTaken.cycles != 1u)
+            return false;
+    }
+    {
+        ArmAluState taken = {};
+        taken.r[0] = arm7ByteAddress;
+        taken.r[1] = 0xA5u;
+        taken.cpsr = 0x40000013u;
+        taken.memory = memory;
+        taken.cpuId = 1;
+        taken.writeCacheTag = (arm7ByteAddress >> 12) + 1u;
+        taken.writeCachePage = arm7ByteWritePage;
+        ArmMemoryWriteGuard writes(&taken);
+        arm7ByteStoreFunction(&taken);
+        if (taken.memoryFault || taken.writeCount != 1 ||
+            taken.cycles != 2u ||
+            arm7ByteWritePage[arm7ByteOffset] != 0xA5u)
+            return false;
+    }
+    if (arm7ByteWritePage[arm7ByteOffset] != arm7BeforeByte)
+        return false;
+
     return true;
 }
 
