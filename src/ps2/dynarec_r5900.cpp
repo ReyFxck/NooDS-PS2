@@ -6833,8 +6833,8 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
 
         Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
         if (Ps2ArmAlu::decodeSingleTransfer(opcode, &singleTransfer) &&
-            !singleTransfer.registerOffset && singleTransfer.preIndex &&
-            !singleTransfer.writeBack)
+            singleTransfer.preIndex && !singleTransfer.writeBack &&
+            (!singleTransfer.registerOffset || singleTransfer.load))
         {
             opcodes[count++] = opcode;
             continue;
@@ -6842,8 +6842,8 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
 
         Ps2ArmAlu::DecodedByteTransfer byteTransfer;
         if (Ps2ArmAlu::decodeByteTransfer(opcode, &byteTransfer) &&
-            !byteTransfer.registerOffset && byteTransfer.preIndex &&
-            !byteTransfer.writeBack)
+            byteTransfer.preIndex && !byteTransfer.writeBack &&
+            (!byteTransfer.registerOffset || byteTransfer.load))
         {
             opcodes[count++] = opcode;
             continue;
@@ -6851,8 +6851,8 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
 
         Ps2ArmAlu::DecodedHalfwordTransfer halfwordTransfer;
         if (Ps2ArmAlu::decodeHalfwordTransfer(opcode, &halfwordTransfer) &&
-            halfwordTransfer.immediate && halfwordTransfer.preIndex &&
-            !halfwordTransfer.writeBack)
+            halfwordTransfer.preIndex && !halfwordTransfer.writeBack &&
+            (halfwordTransfer.immediate || halfwordTransfer.load))
         {
             opcodes[count++] = opcode;
             continue;
@@ -6937,8 +6937,8 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
         Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
         if (Ps2ArmAlu::decodeSingleTransfer(opcodes[i], &singleTransfer))
         {
-            if (singleTransfer.registerOffset || !singleTransfer.preIndex ||
-                singleTransfer.writeBack)
+            if (!singleTransfer.preIndex || singleTransfer.writeBack ||
+                (singleTransfer.registerOffset && !singleTransfer.load))
                 return 0;
             if (!applyArmSingleTransfer(&expected, opcodes[i]))
                 return 0;
@@ -6948,8 +6948,8 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
         Ps2ArmAlu::DecodedByteTransfer byteTransfer;
         if (Ps2ArmAlu::decodeByteTransfer(opcodes[i], &byteTransfer))
         {
-            if (byteTransfer.registerOffset || !byteTransfer.preIndex ||
-                byteTransfer.writeBack)
+            if (!byteTransfer.preIndex || byteTransfer.writeBack ||
+                (byteTransfer.registerOffset && !byteTransfer.load))
                 return 0;
             if (!applyArmByteTransfer(&expected, opcodes[i]))
                 return 0;
@@ -6959,8 +6959,8 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
         Ps2ArmAlu::DecodedHalfwordTransfer halfwordTransfer;
         if (Ps2ArmAlu::decodeHalfwordTransfer(opcodes[i], &halfwordTransfer))
         {
-            if (!halfwordTransfer.immediate || !halfwordTransfer.preIndex ||
-                halfwordTransfer.writeBack)
+            if (!halfwordTransfer.preIndex || halfwordTransfer.writeBack ||
+                (!halfwordTransfer.immediate && !halfwordTransfer.load))
                 return 0;
             if (!applyArmHalfwordTransfer(&expected, opcodes[i]))
                 return 0;
