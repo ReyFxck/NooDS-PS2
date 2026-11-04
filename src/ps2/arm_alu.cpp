@@ -335,16 +335,25 @@ bool Ps2ArmAlu::decodeBranchExchange(uint32_t opcode,
 bool Ps2ArmAlu::decodeHalfwordTransfer(uint32_t opcode,
     DecodedHalfwordTransfer *decoded)
 {
-    // ARM extra load/store encoding. Restrict this first memory subset to
-    // unsigned halfwords; signed byte/halfword and doubleword transfers have
-    // different result/writeback rules and remain in the interpreter.
-    if (!decoded || (opcode & 0x0E000090u) != 0x00000090u ||
-        ((opcode >> 5) & 0x3u) != 1u)
+    // ARM extra load/store encoding. Admit unsigned halfword transfers plus
+    // the load-only signed-byte/signed-halfword forms. Store encodings with
+    // S=1 are doubleword/reserved forms and stay outside this dynarec subset.
+    if (!decoded || (opcode & 0x0E000090u) != 0x00000090u)
+        return false;
+
+    uint8_t extraType = static_cast<uint8_t>((opcode >> 5) & 0x3u);
+    if (!extraType)
+        return false;
+
+    bool load = (opcode & BIT(20)) != 0;
+    if (extraType >= 2u && !load)
         return false;
 
     *decoded = DecodedHalfwordTransfer();
     decoded->condition = static_cast<uint8_t>(opcode >> 28);
-    decoded->load = (opcode & BIT(20)) != 0;
+    decoded->load = load;
+    decoded->signedLoad = extraType >= 2u;
+    decoded->byteLoad = extraType == 2u;
     decoded->immediate = (opcode & BIT(22)) != 0;
     decoded->preIndex = (opcode & BIT(24)) != 0;
     decoded->addOffset = (opcode & BIT(23)) != 0;
@@ -381,7 +390,7 @@ bool Ps2ArmAlu::executeHalfwordTransfer(uint32_t opcode,
         return false;
 
     DecodedHalfwordTransfer decoded;
-    if (!decodeHalfwordTransfer(opcode, &decoded) ||
+    if (!decodeHalfwordTransfer(opcode, &decoded) || decoded.signedLoad ||
         (decoded.condition != 0xEu && !cpsr))
         return false;
     if (cpsr && !conditionPassed(decoded.condition, *cpsr))
