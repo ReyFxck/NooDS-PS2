@@ -952,6 +952,26 @@ bool applyArmSingleBlockTransfer(ArmAluState *state, uint32_t opcode)
     return false;
 }
 
+bool applyArmMultiBlockTransfer(ArmAluState *state, uint32_t opcode)
+{
+    if (!state || !state->memory)
+        return false;
+
+    Ps2ArmAlu::DecodedMultiBlockTransfer decoded;
+    if (!Ps2ArmAlu::decodeMultiBlockTransfer(opcode, &decoded))
+        return false;
+    bool taken = Ps2ArmAlu::conditionPassed(decoded.condition, state->cpsr);
+    if (Ps2ArmAlu::executeMultiBlockTransfer(opcode, state->r, &state->cpsr,
+        state, readDirectArm9Word, writeDirectArm9Word))
+    {
+        state->cycles += taken ? decoded.count : 1u;
+        return true;
+    }
+
+    state->memoryFault = 1;
+    return false;
+}
+
 size_t emitArmCycleAdd(uint32_t amount, uint32_t *code,
     bool registerCycles = false)
 {
@@ -3068,6 +3088,45 @@ size_t emitArmBranchExchangeInstruction(uint32_t opcode, uint32_t *code)
     return words;
 }
 
+size_t emitArmMultiBlockTransferInstruction(uint32_t opcode,
+    uint32_t *code, bool registerCycles, bool registerCpsr)
+{
+    Ps2ArmAlu::DecodedMultiBlockTransfer decoded;
+    if (!code || !Ps2ArmAlu::decodeMultiBlockTransfer(opcode, &decoded))
+        return 0;
+
+    size_t words = 0;
+    bool needsCpsr = decoded.condition != 0xEu;
+    if (registerCpsr && needsCpsr)
+        code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
+    if (registerCycles)
+        code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
+
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, -32);
+    code[words++] = R5900::sw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::sw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lui(R5900::R_A1,
+        static_cast<uint16_t>(opcode >> 16));
+    code[words++] = R5900::ori(R5900::R_A1, R5900::R_A1,
+        static_cast<uint16_t>(opcode));
+    uintptr_t helper = reinterpret_cast<uintptr_t>(&applyArmMultiBlockTransfer);
+    code[words++] = R5900::lui(R5900::R_T9,
+        static_cast<uint16_t>(helper >> 16));
+    code[words++] = R5900::ori(R5900::R_T9, R5900::R_T9,
+        static_cast<uint16_t>(helper));
+    code[words++] = R5900::jalr(R5900::R_RA, R5900::R_T9);
+    code[words++] = R5900::nop();
+    code[words++] = R5900::lw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
+
+    if (registerCycles)
+        code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
+    if (registerCpsr && needsCpsr)
+        code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
+    return words;
+}
+
 size_t emitArmMultiplyInstruction(uint32_t opcode, uint32_t *code,
     bool registerCycles, bool registerCpsr, bool suppressResultStore = false)
 {
@@ -3164,6 +3223,11 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
     if (Ps2ArmAlu::decodeMultiply(opcode, &multiply))
         return emitArmMultiplyInstruction(opcode, code,
             registerCycles, registerCpsr, suppressResultStore);
+
+    Ps2ArmAlu::DecodedMultiBlockTransfer multiBlockTransfer;
+    if (Ps2ArmAlu::decodeMultiBlockTransfer(opcode, &multiBlockTransfer))
+        return emitArmMultiBlockTransferInstruction(opcode, code,
+            registerCycles, registerCpsr);
 
     size_t words = 0;
     size_t emitted = 0;
@@ -3334,6 +3398,10 @@ uint32_t maxArmInstructionCycles(uint32_t opcode)
     if (Ps2ArmAlu::decodeMultiply(opcode, &multiply))
         return multiply.setFlags ? 4u : 2u;
 
+    Ps2ArmAlu::DecodedMultiBlockTransfer multiBlockTransfer;
+    if (Ps2ArmAlu::decodeMultiBlockTransfer(opcode, &multiBlockTransfer))
+        return multiBlockTransfer.count;
+
     Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
     if (Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &blockTransfer))
         return 2u;
@@ -3357,6 +3425,11 @@ uint32_t minArmInstructionCycles(uint32_t opcode)
     if (Ps2ArmAlu::decodeMultiply(opcode, &multiply))
         return multiply.condition == 0xEu
             ? (multiply.setFlags ? 4u : 2u) : 1u;
+
+    Ps2ArmAlu::DecodedMultiBlockTransfer multiBlockTransfer;
+    if (Ps2ArmAlu::decodeMultiBlockTransfer(opcode, &multiBlockTransfer))
+        return multiBlockTransfer.condition == 0xEu
+            ? multiBlockTransfer.count : 1u;
 
     Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
     if (Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &blockTransfer))
@@ -3385,10 +3458,12 @@ bool armSequenceIsReadOnlySelfLoop(const uint32_t *opcodes, size_t count,
         Ps2ArmAlu::DecodedByteTransfer byte;
         Ps2ArmAlu::DecodedSingleTransfer single;
         Ps2ArmAlu::DecodedSingleBlockTransfer block;
+        Ps2ArmAlu::DecodedMultiBlockTransfer multi;
         if ((Ps2ArmAlu::decodeHalfwordTransfer(opcodes[i], &half) && !half.load) ||
             (Ps2ArmAlu::decodeByteTransfer(opcodes[i], &byte) && !byte.load) ||
             (Ps2ArmAlu::decodeSingleTransfer(opcodes[i], &single) && !single.load) ||
-            (Ps2ArmAlu::decodeSingleBlockTransfer(opcodes[i], &block) && !block.load))
+            (Ps2ArmAlu::decodeSingleBlockTransfer(opcodes[i], &block) && !block.load) ||
+            (Ps2ArmAlu::decodeMultiBlockTransfer(opcodes[i], &multi) && !multi.load))
             return false;
     }
 
@@ -3810,6 +3885,25 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             if (singleTransfer.writeBack)
                 block.writeMask |= static_cast<uint16_t>(1u << singleTransfer.rn);
             block.readsFlags |= singleTransfer.condition != 0xEu;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedMultiBlockTransfer multiBlockTransfer;
+        if (Ps2ArmAlu::decodeMultiBlockTransfer(opcodes[i], &multiBlockTransfer))
+        {
+            block.readMask |= static_cast<uint16_t>(
+                1u << multiBlockTransfer.rn);
+            if (multiBlockTransfer.load)
+                block.writeMask |= multiBlockTransfer.registerMask;
+            else
+            {
+                block.readMask |= multiBlockTransfer.registerMask;
+                block.writesMemory = true;
+            }
+            if (multiBlockTransfer.writeBack)
+                block.writeMask |= static_cast<uint16_t>(
+                    1u << multiBlockTransfer.rn);
+            block.readsFlags |= multiBlockTransfer.condition != 0xEu;
             continue;
         }
 
@@ -4864,6 +4958,13 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
             continue;
         }
 
+        Ps2ArmAlu::DecodedMultiBlockTransfer multiBlockTransfer;
+        if (Ps2ArmAlu::decodeMultiBlockTransfer(opcode, &multiBlockTransfer))
+        {
+            opcodes[count++] = opcode;
+            continue;
+        }
+
         Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
         if (Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &blockTransfer))
         {
@@ -4944,6 +5045,14 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
         if (Ps2ArmAlu::decodeSingleTransfer(opcodes[i], &singleTransfer))
         {
             if (!applyArmSingleTransfer(&expected, opcodes[i]))
+                return 0;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedMultiBlockTransfer multiBlockTransfer;
+        if (Ps2ArmAlu::decodeMultiBlockTransfer(opcodes[i], &multiBlockTransfer))
+        {
+            if (!applyArmMultiBlockTransfer(&expected, opcodes[i]))
                 return 0;
             continue;
         }

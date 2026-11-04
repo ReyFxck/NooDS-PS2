@@ -341,6 +341,38 @@ int main()
     assert(!Ps2ArmAlu::decodeMultiBlockTransfer(
         0xE8B00003u, &multiBlock)); // base-in-list excluded.
 
+    {
+        HalfwordMemory multiMemory = {};
+        uint32_t multiRegs[16] = {};
+        uint32_t multiCpsr = 0x00000013u;
+        multiRegs[0] = 0x20u;
+        writeWord(&multiMemory, 0x20u, 0x11111111u);
+        writeWord(&multiMemory, 0x24u, 0x22222222u);
+        writeWord(&multiMemory, 0x28u, 0x33333333u);
+        assert(Ps2ArmAlu::executeMultiBlockTransfer(
+            0xE8B0000Eu, multiRegs, &multiCpsr,
+            &multiMemory, readWord, writeWord));
+        assert(multiRegs[0] == 0x2Cu &&
+            multiRegs[1] == 0x11111111u &&
+            multiRegs[2] == 0x22222222u &&
+            multiRegs[3] == 0x33333333u);
+
+        std::memset(&multiMemory, 0, sizeof(multiMemory));
+        std::memset(multiRegs, 0, sizeof(multiRegs));
+        multiRegs[13] = 0x40u;
+        multiRegs[4] = 0x44444444u;
+        multiRegs[5] = 0x55555555u;
+        multiRegs[14] = 0xEEEEEEEEu;
+        assert(Ps2ArmAlu::executeMultiBlockTransfer(
+            0xE92D4030u, multiRegs, &multiCpsr,
+            &multiMemory, readWord, writeWord));
+        uint32_t value = 0;
+        assert(multiRegs[13] == 0x34u);
+        assert(readWord(&multiMemory, 0x34u, &value) && value == 0x44444444u);
+        assert(readWord(&multiMemory, 0x38u, &value) && value == 0x55555555u);
+        assert(readWord(&multiMemory, 0x3Cu, &value) && value == 0xEEEEEEEEu);
+    }
+
     Ps2ArmAlu::DecodedBranch branch;
     assert(Ps2ArmAlu::decodeBranch(0xBAFFFFFAu, &branch));
     assert(branch.condition == 0xB && !branch.link && branch.offset == -24);
