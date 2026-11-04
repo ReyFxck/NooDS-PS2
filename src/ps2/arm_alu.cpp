@@ -694,7 +694,10 @@ bool Ps2ArmAlu::decodeMultiBlockTransfer(uint32_t opcode,
 
     uint16_t list = static_cast<uint16_t>(opcode);
     uint8_t count = static_cast<uint8_t>(__builtin_popcount(list));
-    if (count < 2 || count > 4 || (list & BIT(15)))
+    // PC remains outside the direct subset. With PC and Rn excluded below,
+    // at most 14 general registers can participate; the generated journal has
+    // room for all of them.
+    if (count < 2 || count > 14 || (list & BIT(15)))
         return false;
 
     *decoded = DecodedMultiBlockTransfer();
