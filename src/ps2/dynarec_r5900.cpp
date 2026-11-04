@@ -2091,7 +2091,6 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         Ps2ArmAlu::DecodedBranch branch;
         if (!Ps2ArmAlu::decodeBranch(opcodes[i], &branch) || i + 1 != count)
             return false;
-        block.cycles += 3u;
         block.readsFlags |= branch.condition != 0xEu;
     }
 
