@@ -82,6 +82,7 @@ struct CoreRunProfile
     uint64_t arm9BlockFilterHits = 0;
     uint64_t arm9BlockExecutions = 0;
     uint64_t arm9BlockFilterDrops = 0;
+    uint64_t arm9BlockBudgetSkips = 0;
     uint64_t taskExecutions = 0;
     uint64_t scheduleCalls = 0;
     uint64_t estimatedLegacyFrontMoves = 0;
@@ -117,9 +118,10 @@ class Core
 
         uint32_t getGlobalCycles() { return globalCycles; }
 
-        // Optional architecture-neutral ARM9 block runner. A platform backend
-        // returns zero to fall back to the interpreter, or the exact emulated
-        // cycles consumed by a committed block.
+        // Optional architecture-neutral ARM9 block runner. Positive values are
+        // exact committed cycles. Zero is a non-budget fallback. A negative
+        // value means the block is valid but needs at least abs(value) cycles
+        // before the backend should be called again.
         using Arm9BlockRunner =
             std::function<int(Interpreter&, uint32_t, uint32_t*)>;
         void setArm9BlockRunner(const Arm9BlockRunner &runner)
@@ -204,6 +206,7 @@ class Core
         static constexpr size_t ARM9_BLOCK_FILTER_SLOTS = 32;
         uint32_t arm9BlockHotPc[ARM9_BLOCK_FILTER_SLOTS] = {};
         uint8_t arm9BlockHotFailures[ARM9_BLOCK_FILTER_SLOTS] = {};
+        uint8_t arm9BlockMinCycles[ARM9_BLOCK_FILTER_SLOTS] = {};
         uint8_t arm9BlockHotCount = 0;
 
         size_t arm9BlockFilterSlot(uint32_t pc) const

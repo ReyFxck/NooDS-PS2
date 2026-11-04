@@ -257,7 +257,18 @@ void Core::runNdsFrame()
                                     arm7Cycles - globalCycles);
                         }
 
-                        if (cycleBudget)
+                        uint32_t minCycles = arm9BlockMinCycles[hotSlot];
+                        if (!minCycles)
+                            minCycles = 1;
+
+                        if (!cycleBudget || cycleBudget < minCycles)
+                        {
+#ifdef NOODS_PROFILE
+                            if (profileEnabled)
+                                runProfile.arm9BlockBudgetSkips++;
+#endif
+                        }
+                        else
                         {
                             arm9StepCycles = arm9BlockRunner(interpreter[0],
                                 cycleBudget, &arm9StepInstructions);
@@ -269,6 +280,20 @@ void Core::runNdsFrame()
                                     runProfile.arm9BlockExecutions++;
 #endif
                             }
+                            else if (arm9StepCycles < 0)
+                            {
+                                uint32_t required = static_cast<uint32_t>(
+                                    -arm9StepCycles);
+                                if (required > 0xFFu)
+                                    required = 0xFFu;
+                                if (required > arm9BlockMinCycles[hotSlot])
+                                    arm9BlockMinCycles[hotSlot] =
+                                        static_cast<uint8_t>(required);
+#ifdef NOODS_PROFILE
+                                if (profileEnabled)
+                                    runProfile.arm9BlockBudgetSkips++;
+#endif
+                            }
                             else
                             {
                                 uint8_t &failures = arm9BlockHotFailures[hotSlot];
@@ -278,6 +303,7 @@ void Core::runNdsFrame()
                                 if (failures >= 8)
                                 {
                                     arm9BlockHotPc[hotSlot] = 0;
+                                    arm9BlockMinCycles[hotSlot] = 0;
                                     failures = 0;
                                     if (arm9BlockHotCount)
                                         arm9BlockHotCount--;
@@ -405,8 +431,14 @@ void Core::addArm9BlockHotPcs(const uint32_t *pcs, size_t count)
         size_t slot = arm9BlockFilterSlot(pc);
         if (!arm9BlockHotPc[slot])
             arm9BlockHotCount++;
+
+        if (arm9BlockHotPc[slot] != pc)
+        {
+            arm9BlockHotFailures[slot] = 0;
+            arm9BlockMinCycles[slot] = 1;
+        }
+
         arm9BlockHotPc[slot] = pc;
-        arm9BlockHotFailures[slot] = 0;
     }
 }
 

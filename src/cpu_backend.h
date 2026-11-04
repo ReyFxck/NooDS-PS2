@@ -68,20 +68,34 @@ class CpuBackendAccess
         // The current R5900 backend may update NZCV/T, but it must not change
         // the privileged CPU mode or banked-register selection.
         static bool commitBlockState(Interpreter &cpu, const uint32_t regs[16],
-            uint32_t cpsr, uint32_t nextPc)
+            uint16_t writeMask, uint32_t cpsr, uint32_t nextPc)
         {
             if (!regs || ((cpsr ^ cpu.cpsr) & 0x1Fu))
                 return false;
 
+            // Commit only architectural registers the generated block can
+            // change. Conditional destinations are included in writeMask and
+            // were initialized from live state before execution, so a failed
+            // condition still preserves their original values exactly.
+            uint16_t mask = writeMask & 0x7FFFu;
             for (int i = 0; i < 15; i++)
-                *cpu.registers[i] = regs[i];
+            {
+                if (mask & static_cast<uint16_t>(1u << i))
+                    *cpu.registers[i] = regs[i];
+            }
 
-            // Avoid setCpsr() here: committing ordinary ALU flags must not
-            // enqueue a duplicate interrupt check at every generated block.
+            // BX may change T even when no ALU flags are written, so commit the
+            // complete CPSR after the privileged-mode check above.
             cpu.cpsr = cpsr;
             *cpu.registers[15] = nextPc;
             cpu.flushPipeline();
             return true;
+        }
+
+        static bool commitBlockState(Interpreter &cpu, const uint32_t regs[16],
+            uint32_t cpsr, uint32_t nextPc)
+        {
+            return commitBlockState(cpu, regs, 0x7FFFu, cpsr, nextPc);
         }
 
         static void writeCpsr(Interpreter &cpu, uint32_t value, bool save = false)

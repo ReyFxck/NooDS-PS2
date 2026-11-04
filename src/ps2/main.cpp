@@ -1143,7 +1143,7 @@ int main(int argc, char **argv)
     PS2_LOG(" Instrumentation: disabled\n");
 #endif
 #if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
-    PS2_LOG(" Dynarec: ARM-ALU-v10 selective-hot-active (profile L2)\n");
+    PS2_LOG(" Dynarec: ARM-ALU-v11 selective-hot-masked (profile L2)\n");
 #else
     PS2_LOG(" Dynarec: ARM-ALU-v10 shadow-gated\n");
 #endif
@@ -1787,7 +1787,7 @@ int main(int argc, char **argv)
                     profKnownMs / profFrameDiv);
 
                 const CoreRunProfile &runProfile = core->getRunProfile();
-                PS2_LOG("[PS2][PROF] scheduler: ARM9=%llu ARM7=%llu tasks=%llu schedules=%llu maxDepth=%lu legacyEstimatedMoves=%llu cursorCompactions=%llu cursorMoves=%llu blockFilterHit=%llu blockExec=%llu blockDrop=%llu\n",
+                PS2_LOG("[PS2][PROF] scheduler: ARM9=%llu ARM7=%llu tasks=%llu schedules=%llu maxDepth=%lu legacyEstimatedMoves=%llu cursorCompactions=%llu cursorMoves=%llu blockFilterHit=%llu blockExec=%llu blockDrop=%llu blockBudgetSkip=%llu\n",
                     static_cast<unsigned long long>(runProfile.arm9Opcodes),
                     static_cast<unsigned long long>(runProfile.arm7Opcodes),
                     static_cast<unsigned long long>(runProfile.taskExecutions),
@@ -1798,7 +1798,8 @@ int main(int argc, char **argv)
                     static_cast<unsigned long long>(runProfile.queueCompactionMoves),
                     static_cast<unsigned long long>(runProfile.arm9BlockFilterHits),
                     static_cast<unsigned long long>(runProfile.arm9BlockExecutions),
-                    static_cast<unsigned long long>(runProfile.arm9BlockFilterDrops));
+                    static_cast<unsigned long long>(runProfile.arm9BlockFilterDrops),
+                    static_cast<unsigned long long>(runProfile.arm9BlockBudgetSkips));
 
                 double schedulerInsertUs = runProfile.schedulerInsertSamples
                     ? static_cast<double>(runProfile.schedulerInsertTicks) *

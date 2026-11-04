@@ -2313,7 +2313,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     if (cycleBudget < MIN_ACTIVE_GUEST_INSTRUCTIONS)
     {
         profile.activeBudgetFallbacks++;
-        return 0;
+        return -static_cast<int>(MIN_ACTIVE_GUEST_INSTRUCTIONS);
     }
 
     R5900CompiledBlock *block = findMutableBlock(guestPc, false);
@@ -2359,7 +2359,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     if (block->guestInstructions > cycleBudget)
     {
         profile.activeBudgetFallbacks++;
-        return 0;
+        return -static_cast<int>(block->guestInstructions);
     }
 
     // The first active milestone is intentionally transactional/read-only.
@@ -2399,8 +2399,13 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     }
 
     ArmAluState state = {};
-    for (int i = 0; i < 16; i++)
-        state.r[i] = CpuBackendAccess::readReg(cpu, i);
+    uint16_t liveMask = static_cast<uint16_t>(
+        (block->readMask | block->writeMask) & 0x7FFFu);
+    for (int i = 0; i < 15; i++)
+    {
+        if (liveMask & static_cast<uint16_t>(1u << i))
+            state.r[i] = CpuBackendAccess::readReg(cpu, i);
+    }
     state.cpsr = CpuBackendAccess::readCpsr(cpu);
     state.nextPc = block->guestEndPc;
     state.memory = memory;
@@ -2419,14 +2424,19 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         return 0;
     }
 
-    if (!state.cycles || state.cycles > cycleBudget)
+    if (!state.cycles)
     {
-        profile.activeBudgetFallbacks++;
+        profile.activeStateFallbacks++;
         return 0;
     }
+    if (state.cycles > cycleBudget)
+    {
+        profile.activeBudgetFallbacks++;
+        return -static_cast<int>(state.cycles);
+    }
 
-    if (!CpuBackendAccess::commitBlockState(cpu, state.r, state.cpsr,
-        state.nextPc))
+    if (!CpuBackendAccess::commitBlockState(cpu, state.r, block->writeMask,
+        state.cpsr, state.nextPc))
     {
         profile.activeStateFallbacks++;
         return 0;
