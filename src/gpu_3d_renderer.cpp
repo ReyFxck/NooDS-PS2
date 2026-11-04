@@ -23,6 +23,22 @@
 #include "core.h"
 #include "settings.h"
 
+namespace
+{
+inline uint16_t gpu3dLoad16(const uint8_t *data, size_t index)
+{
+    uint16_t value = 0;
+#if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && \
+    (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+    std::memcpy(&value, data + index, sizeof(value));
+#else
+    value = static_cast<uint16_t>(data[index]) |
+        (static_cast<uint16_t>(data[index + 1]) << 8);
+#endif
+    return value;
+}
+}
+
 Gpu3DRenderer::Gpu3DRenderer(Core *core): core(core)
 {
     // Mark the scanlines as ready to start
@@ -593,7 +609,7 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
             if (!palette) return 0;
 
             // Return the palette color
-            uint16_t color = U8TO16(palette, (index & 0x1F) * 2) & ~BIT(15);
+            uint16_t color = gpu3dLoad16(palette, (index & 0x1F) * 2) & ~BIT(15);
             uint8_t alpha = (index >> 5) * 4 + (index >> 5) / 2;
             return rgba5ToRgba6((alpha << 15) | color);
         }
@@ -615,7 +631,7 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
             if (!palette) return 0;
 
             // Return the palette color
-            return rgba5ToRgba6((0x1F << 15) | U8TO16(palette, index * 2));
+            return rgba5ToRgba6((0x1F << 15) | gpu3dLoad16(palette, index * 2));
         }
 
         case 3: // 16-color palette
@@ -635,7 +651,7 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
             if (!palette) return 0;
 
             // Return the palette color
-            return rgba5ToRgba6((0x1F << 15) | U8TO16(palette, index * 2));
+            return rgba5ToRgba6((0x1F << 15) | gpu3dLoad16(palette, index * 2));
         }
 
         case 4: // 256-color palette
@@ -655,7 +671,7 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
             if (!palette) return 0;
 
             // Return the palette color
-            return rgba5ToRgba6((0x1F << 15) | U8TO16(palette, index * 2));
+            return rgba5ToRgba6((0x1F << 15) | gpu3dLoad16(palette, index * 2));
         }
 
         case 5: // 4x4 compressed
@@ -669,7 +685,7 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
 
             // Get the palette, using the base for the tile stored in slot 1
             address = 0x20000 + ((polygon->textureAddr & 0x1FFFFu) >> 1) + (((polygon->textureAddr >> 17) == 2) ? 0x10000 : 0);
-            uint16_t palBase = U8TO16(getTexture(address), tile * 2);
+            uint16_t palBase = gpu3dLoad16(getTexture(address), tile * 2);
             uint8_t *palette = getPalette(polygon->paletteAddr + (palBase & 0x3FFF) * 4);
             if (!palette) return 0;
 
@@ -679,7 +695,7 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
                 case 0:
                 {
                     if (index == 3) return 0;
-                    return rgba5ToRgba6((0x1F << 15) | U8TO16(palette, index * 2));
+                    return rgba5ToRgba6((0x1F << 15) | gpu3dLoad16(palette, index * 2));
                 }
 
                 case 1:
@@ -688,8 +704,8 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
                     {
                         case 2:
                         {
-                            uint32_t c1 = rgba5ToRgba6((0x1F << 15) | U8TO16(palette, 0));
-                            uint32_t c2 = rgba5ToRgba6((0x1F << 15) | U8TO16(palette, 2));
+                            uint32_t c1 = rgba5ToRgba6((0x1F << 15) | gpu3dLoad16(palette, 0));
+                            uint32_t c2 = rgba5ToRgba6((0x1F << 15) | gpu3dLoad16(palette, 2));
                             return interpolateColor(c1, c2, 0, 1, 2);
                         }
 
@@ -700,14 +716,14 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
 
                         default:
                         {
-                            return rgba5ToRgba6((0x1F << 15) | U8TO16(palette, index * 2));
+                            return rgba5ToRgba6((0x1F << 15) | gpu3dLoad16(palette, index * 2));
                         }
                     }
                 }
 
                 case 2:
                 {
-                    return rgba5ToRgba6((0x1F << 15) | U8TO16(palette, index * 2));
+                    return rgba5ToRgba6((0x1F << 15) | gpu3dLoad16(palette, index * 2));
                 }
 
                 case 3:
@@ -716,21 +732,21 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
                     {
                         case 2:
                         {
-                            uint32_t c1 = rgba5ToRgba6((0x1F << 15) | U8TO16(palette, 0));
-                            uint32_t c2 = rgba5ToRgba6((0x1F << 15) | U8TO16(palette, 2));
+                            uint32_t c1 = rgba5ToRgba6((0x1F << 15) | gpu3dLoad16(palette, 0));
+                            uint32_t c2 = rgba5ToRgba6((0x1F << 15) | gpu3dLoad16(palette, 2));
                             return interpolateColor(c1, c2, 0, 3, 8);
                         }
 
                         case 3:
                         {
-                            uint32_t c1 = rgba5ToRgba6((0x1F << 15) | U8TO16(palette, 0));
-                            uint32_t c2 = rgba5ToRgba6((0x1F << 15) | U8TO16(palette, 2));
+                            uint32_t c1 = rgba5ToRgba6((0x1F << 15) | gpu3dLoad16(palette, 0));
+                            uint32_t c2 = rgba5ToRgba6((0x1F << 15) | gpu3dLoad16(palette, 2));
                             return interpolateColor(c1, c2, 0, 5, 8);
                         }
 
                         default:
                         {
-                            return rgba5ToRgba6((0x1F << 15) | U8TO16(palette, index * 2));
+                            return rgba5ToRgba6((0x1F << 15) | gpu3dLoad16(palette, index * 2));
                         }
                     }
                 }
@@ -750,7 +766,7 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
             if (!palette) return 0;
 
             // Return the palette color
-            uint16_t color = U8TO16(palette, (index & 0x07) * 2) & ~BIT(15);
+            uint16_t color = gpu3dLoad16(palette, (index & 0x07) * 2) & ~BIT(15);
             uint8_t alpha = index >> 3;
             return rgba5ToRgba6((alpha << 15) | color);
         }
@@ -762,7 +778,7 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
             if (!data) return 0;
 
             // Return the direct color
-            uint16_t color = U8TO16(data, (ut * polygon->sizeS + us) * 2);
+            uint16_t color = gpu3dLoad16(data, (ut * polygon->sizeS + us) * 2);
             uint8_t alpha = (color & BIT(15)) ? 0x1F : 0;
             return rgba5ToRgba6((alpha << 15) | color);
         }
