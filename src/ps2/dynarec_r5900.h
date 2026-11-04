@@ -40,6 +40,23 @@ struct R5900FallbackProfile
     uint32_t count = 0;
 };
 
+enum R5900ActiveFallbackReason : uint8_t
+{
+    R5900_ACTIVE_FALLBACK_COMPILE = 0,
+    R5900_ACTIVE_FALLBACK_BUDGET,
+    R5900_ACTIVE_FALLBACK_WRITE,
+    R5900_ACTIVE_FALLBACK_VERIFY,
+    R5900_ACTIVE_FALLBACK_STATE,
+    R5900_ACTIVE_FALLBACK_REASON_COUNT
+};
+
+struct R5900ActiveFallbackProfile
+{
+    uint32_t pc = 0;
+    uint32_t count = 0;
+    uint8_t reason = R5900_ACTIVE_FALLBACK_COMPILE;
+};
+
 struct R5900DynarecProfile
 {
     uint64_t compileAttempts = 0;
@@ -74,6 +91,7 @@ struct R5900DynarecProfile
     uint64_t rejectReason[Ps2ArmAlu::REJECT_REASON_COUNT] = {};
     uint32_t largestBlock = 0;
     R5900FallbackProfile topFallback[16] = {};
+    R5900ActiveFallbackProfile topActiveFallback[16] = {};
 };
 
 class Memory;
