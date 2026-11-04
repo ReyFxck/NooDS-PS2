@@ -1202,7 +1202,8 @@ size_t emitArmAluHelperInstruction(uint32_t opcode, uint32_t *code)
 }
 
 size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
-    bool registerCycles = false, bool registerCpsr = false)
+    bool registerCycles = false, bool registerCpsr = false,
+    int forwardedGuestReg = -1)
 {
     if (!code)
         return 0;
@@ -1241,8 +1242,19 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
         code[words++] = R5900::nop();
     }
     if (decoded.operation != 13 && decoded.operation != 15)
-        code[words++] = R5900::lw(R5900::R_T0,
-            static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+    {
+        if (forwardedGuestReg >= 0 &&
+            decoded.rn == static_cast<uint8_t>(forwardedGuestReg))
+        {
+            code[words++] = R5900::or_(R5900::R_T0,
+                R5900::R_T2, R5900::R_ZERO);
+        }
+        else
+        {
+            code[words++] = R5900::lw(R5900::R_T0,
+                static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+        }
+    }
 
     if (decoded.immediate)
     {
@@ -1253,13 +1265,31 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
     }
     else
     {
-        code[words++] = R5900::lw(R5900::R_T1,
-            static_cast<int16_t>(decoded.rm * 4), R5900::R_A0);
+        if (forwardedGuestReg >= 0 &&
+            decoded.rm == static_cast<uint8_t>(forwardedGuestReg))
+        {
+            code[words++] = R5900::or_(R5900::R_T1,
+                R5900::R_T2, R5900::R_ZERO);
+        }
+        else
+        {
+            code[words++] = R5900::lw(R5900::R_T1,
+                static_cast<int16_t>(decoded.rm * 4), R5900::R_A0);
+        }
 
         if (decoded.registerShift)
         {
-            code[words++] = R5900::lw(R5900::R_T3,
-                static_cast<int16_t>(decoded.rs * 4), R5900::R_A0);
+            if (forwardedGuestReg >= 0 &&
+                decoded.rs == static_cast<uint8_t>(forwardedGuestReg))
+            {
+                code[words++] = R5900::or_(R5900::R_T3,
+                    R5900::R_T2, R5900::R_ZERO);
+            }
+            else
+            {
+                code[words++] = R5900::lw(R5900::R_T3,
+                    static_cast<int16_t>(decoded.rs * 4), R5900::R_A0);
+            }
             code[words++] = R5900::andi(R5900::R_T3, R5900::R_T3, 0xFFu);
 
             switch (decoded.shiftType)
@@ -2395,11 +2425,16 @@ size_t emitArmBranchExchangeInstruction(uint32_t opcode, uint32_t *code)
 
 size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
     bool registerCycles = false, bool registerCpsr = false,
-    Memory *directMemory = nullptr)
+    Memory *directMemory = nullptr, int forwardedGuestReg = -1)
 {
     Ps2ArmAlu::Decoded decoded;
     if (Ps2ArmAlu::decode(opcode, &decoded))
-        return emitArmAluInstruction(opcode, code, registerCycles, registerCpsr);
+    {
+        int usableForward = (decoded.condition == 0xEu &&
+            !logicalShiftNeedsHelper(decoded)) ? forwardedGuestReg : -1;
+        return emitArmAluInstruction(opcode, code, registerCycles,
+            registerCpsr, usableForward);
+    }
 
     size_t words = 0;
     size_t emitted = 0;
@@ -2669,14 +2704,24 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
 
     size_t bodyStart = words;
+    int forwardedGuestReg = -1;
     for (size_t i = 0; i < count; i++)
     {
+        Ps2ArmAlu::Decoded currentAlu;
+        bool currentDirectAlu = Ps2ArmAlu::decode(opcodes[i], &currentAlu) &&
+            currentAlu.condition == 0xEu &&
+            !logicalShiftNeedsHelper(currentAlu);
+
         size_t emitted = emitArmInstruction(opcodes[i],
             guestPc + static_cast<uint32_t>(i * 4), code + words, true,
-            registerCpsr, memory);
+            registerCpsr, memory, forwardedGuestReg);
         if (!emitted)
             return false;
         words += emitted;
+
+        forwardedGuestReg = (currentDirectAlu && currentAlu.writesResult)
+            ? static_cast<int>(currentAlu.rd)
+            : -1;
 
         // Generic ALU-S -> B.EQ/B.NE fusion. The ALU emitter has already
         // committed architectural NZCV to v1/state, but its result is still
@@ -2699,8 +2744,13 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
                     return false;
                 words += fused;
                 i++;
+                forwardedGuestReg = -1;
             }
         }
+
+        // Any non-ALU instruction terminates host-register forwarding.
+        if (!currentDirectAlu)
+            forwardedGuestReg = -1;
     }
 
     size_t loopExitBranches[4] = {};
