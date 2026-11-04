@@ -647,6 +647,38 @@ bool Ps2ArmAlu::decodeSingleBlockTransfer(uint32_t opcode,
     return true;
 }
 
+bool Ps2ArmAlu::decodeMultiBlockTransfer(uint32_t opcode,
+    DecodedMultiBlockTransfer *decoded)
+{
+    if (!decoded || (opcode & 0x0E000000u) != 0x08000000u ||
+        (opcode & BIT(22)))
+        return false;
+
+    bool preIndex = (opcode & BIT(24)) != 0;
+    bool addOffset = (opcode & BIT(23)) != 0;
+    if (preIndex == addOffset) // Safe subset: IA or DB only.
+        return false;
+
+    uint16_t list = static_cast<uint16_t>(opcode);
+    uint8_t count = static_cast<uint8_t>(__builtin_popcount(list));
+    if (count < 2 || count > 4 || (list & BIT(15)))
+        return false;
+
+    *decoded = DecodedMultiBlockTransfer();
+    decoded->condition = static_cast<uint8_t>(opcode >> 28);
+    decoded->load = (opcode & BIT(20)) != 0;
+    decoded->decrementBefore = preIndex && !addOffset;
+    decoded->writeBack = (opcode & BIT(21)) != 0;
+    decoded->rn = static_cast<uint8_t>((opcode >> 16) & 0xFu);
+    decoded->count = count;
+    decoded->registerMask = list;
+
+    if (decoded->condition == 0xFu || decoded->rn == 15 ||
+        (list & static_cast<uint16_t>(1u << decoded->rn)))
+        return false;
+    return true;
+}
+
 bool Ps2ArmAlu::executeSingleBlockTransfer(uint32_t opcode,
     uint32_t registers[16], uint32_t *cpsr, void *context,
     ReadWord read, WriteWord write)
@@ -677,6 +709,52 @@ bool Ps2ArmAlu::executeSingleBlockTransfer(uint32_t opcode,
 
     if (decoded.writeBack)
         registers[decoded.rn] = address + 4u;
+    return true;
+}
+
+bool Ps2ArmAlu::executeMultiBlockTransfer(uint32_t opcode,
+    uint32_t registers[16], uint32_t *cpsr, void *context,
+    ReadWord read, WriteWord write)
+{
+    if (!registers)
+        return false;
+
+    DecodedMultiBlockTransfer decoded;
+    if (!decodeMultiBlockTransfer(opcode, &decoded) ||
+        (decoded.condition != 0xEu && !cpsr))
+        return false;
+    if (cpsr && !conditionPassed(decoded.condition, *cpsr))
+        return true;
+
+    uint32_t base = registers[decoded.rn];
+    uint32_t address = decoded.decrementBefore
+        ? base - static_cast<uint32_t>(decoded.count) * 4u
+        : base;
+    uint16_t mask = decoded.registerMask;
+    while (mask)
+    {
+        uint8_t reg = static_cast<uint8_t>(__builtin_ctz(mask));
+        if (decoded.load)
+        {
+            uint32_t value = 0;
+            if (!read || !read(context, address, &value))
+                return false;
+            registers[reg] = value;
+        }
+        else if (!write || !write(context, address, registers[reg]))
+        {
+            return false;
+        }
+        address += 4u;
+        mask = static_cast<uint16_t>(mask & (mask - 1));
+    }
+
+    if (decoded.writeBack)
+    {
+        uint32_t delta = static_cast<uint32_t>(decoded.count) * 4u;
+        registers[decoded.rn] = decoded.decrementBefore
+            ? base - delta : base + delta;
+    }
     return true;
 }
 
@@ -1032,6 +1110,9 @@ Ps2ArmAlu::RejectReason Ps2ArmAlu::rejectionReason(uint32_t opcode)
         return REJECT_NONE;
     DecodedSingleBlockTransfer blockTransfer;
     if (decodeSingleBlockTransfer(opcode, &blockTransfer))
+        return REJECT_NONE;
+    DecodedMultiBlockTransfer multiBlockTransfer;
+    if (decodeMultiBlockTransfer(opcode, &multiBlockTransfer))
         return REJECT_NONE;
 
     InstructionInfo info;

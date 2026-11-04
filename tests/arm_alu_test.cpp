@@ -325,6 +325,22 @@ int main()
     assert(info.writeMask == ((1u << 0) | (1u << 1)));
     assert(Ps2ArmAlu::rejectionReason(0x01A02001u) == Ps2ArmAlu::REJECT_NONE);
 
+    Ps2ArmAlu::DecodedMultiBlockTransfer multiBlock;
+    assert(Ps2ArmAlu::decodeMultiBlockTransfer(
+        0xE8B0000Eu, &multiBlock)); // LDMIA r0!,{r1-r3}
+    assert(multiBlock.load && multiBlock.writeBack &&
+        !multiBlock.decrementBefore && multiBlock.rn == 0 &&
+        multiBlock.count == 3 && multiBlock.registerMask == 0x000Eu);
+    assert(Ps2ArmAlu::decodeMultiBlockTransfer(
+        0xE92D4030u, &multiBlock)); // STMDB r13!,{r4,r5,r14}
+    assert(!multiBlock.load && multiBlock.writeBack &&
+        multiBlock.decrementBefore && multiBlock.rn == 13 &&
+        multiBlock.count == 3 && multiBlock.registerMask == 0x4030u);
+    assert(!Ps2ArmAlu::decodeMultiBlockTransfer(
+        0xE8BD8030u, &multiBlock)); // PC list excluded.
+    assert(!Ps2ArmAlu::decodeMultiBlockTransfer(
+        0xE8B00003u, &multiBlock)); // base-in-list excluded.
+
     Ps2ArmAlu::DecodedBranch branch;
     assert(Ps2ArmAlu::decodeBranch(0xBAFFFFFAu, &branch));
     assert(branch.condition == 0xB && !branch.link && branch.offset == -24);

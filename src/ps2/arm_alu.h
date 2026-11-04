@@ -164,6 +164,17 @@ namespace Ps2ArmAlu
         uint8_t reg = 0;
     };
 
+    struct DecodedMultiBlockTransfer
+    {
+        uint8_t condition = 0xE;
+        bool load = false;
+        bool decrementBefore = false;
+        bool writeBack = false;
+        uint8_t rn = 0;
+        uint8_t count = 0;
+        uint16_t registerMask = 0;
+    };
+
 
 
     typedef bool (*ReadHalfword)(void *context, uint32_t address,
@@ -200,6 +211,8 @@ namespace Ps2ArmAlu
     bool decodeLiteralLoad(uint32_t opcode, DecodedLiteralLoad *decoded);
     bool decodeSingleBlockTransfer(uint32_t opcode,
         DecodedSingleBlockTransfer *decoded);
+    bool decodeMultiBlockTransfer(uint32_t opcode,
+        DecodedMultiBlockTransfer *decoded);
     bool executeMultiply(uint32_t opcode, uint32_t registers[16],
         uint32_t *cpsr = nullptr);
     bool executeHalfwordTransfer(uint32_t opcode, uint32_t registers[16],
@@ -215,6 +228,9 @@ namespace Ps2ArmAlu
         uint32_t registers[16], uint32_t *cpsr, void *context,
         ReadWord read);
     bool executeSingleBlockTransfer(uint32_t opcode, uint32_t registers[16],
+        uint32_t *cpsr, void *context, ReadWord read,
+        WriteWord write = nullptr);
+    bool executeMultiBlockTransfer(uint32_t opcode, uint32_t registers[16],
         uint32_t *cpsr, void *context, ReadWord read,
         WriteWord write = nullptr);
     bool executeBranch(uint32_t opcode, uint32_t pc, uint32_t cpsr,
