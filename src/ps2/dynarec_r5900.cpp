@@ -6505,6 +6505,188 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
+    // Gate ARM7 register-offset stores with native timing and exact
+    // transactional rollback. The word case also proves failed-condition
+    // timing stays at one cycle.
+    {
+        const uint32_t base = loadAddress + 0x20u;
+        const uint32_t target = base + 4u;
+        uint8_t *page = memory->getDirectWritePage(1, target);
+        if (!page)
+            return false;
+        uint32_t offset = target & 0xFFFu;
+        uint32_t before =
+            static_cast<uint32_t>(page[offset]) |
+            (static_cast<uint32_t>(page[offset + 1]) << 8) |
+            (static_cast<uint32_t>(page[offset + 2]) << 16) |
+            (static_cast<uint32_t>(page[offset + 3]) << 24);
+
+        uint32_t *code = cache.reserveWords(192);
+        if (!code)
+            return false;
+        size_t words = emitArmRegisterStoreFastInstruction(
+            0x07801102u, code, false, false, 1);
+            // STR.EQ r1,[r0,r2,LSL #2]
+        if (!words)
+            return false;
+        code[words++] = R5900::jr(R5900::R_RA);
+        code[words++] = R5900::nop();
+        cache.commitWords(words);
+        cache.syncExecutable(code, code + words);
+        typedef void (*Arm7RegStoreFunction)(ArmAluState *);
+        Arm7RegStoreFunction function =
+            reinterpret_cast<Arm7RegStoreFunction>(code);
+
+        {
+            ArmAluState state = {};
+            state.r[0] = base;
+            state.r[1] = 0x89ABCDEFu;
+            state.r[2] = 1u;
+            state.cpsr = 0x00000013u; // Z clear => EQ fails
+            state.memory = memory;
+            state.cpuId = 1;
+            state.writeCacheTag = (target >> 12) + 1u;
+            state.writeCachePage = page;
+            function(&state);
+            if (state.memoryFault || state.writeCount != 0 ||
+                state.cycles != 1u)
+                return false;
+        }
+        if (static_cast<uint32_t>(page[offset]) |
+            (static_cast<uint32_t>(page[offset + 1]) << 8) |
+            (static_cast<uint32_t>(page[offset + 2]) << 16) |
+            (static_cast<uint32_t>(page[offset + 3]) << 24) != before)
+            return false;
+
+        {
+            ArmAluState state = {};
+            state.r[0] = base;
+            state.r[1] = 0x89ABCDEFu;
+            state.r[2] = 1u;
+            state.cpsr = 0x40000013u; // Z set => EQ executes
+            state.memory = memory;
+            state.cpuId = 1;
+            state.writeCacheTag = (target >> 12) + 1u;
+            state.writeCachePage = page;
+            ArmMemoryWriteGuard writes(&state);
+            function(&state);
+            uint32_t stored =
+                static_cast<uint32_t>(page[offset]) |
+                (static_cast<uint32_t>(page[offset + 1]) << 8) |
+                (static_cast<uint32_t>(page[offset + 2]) << 16) |
+                (static_cast<uint32_t>(page[offset + 3]) << 24);
+            if (state.memoryFault || state.writeCount != 1 ||
+                state.cycles != 2u || stored != 0x89ABCDEFu)
+                return false;
+        }
+        uint32_t restored =
+            static_cast<uint32_t>(page[offset]) |
+            (static_cast<uint32_t>(page[offset + 1]) << 8) |
+            (static_cast<uint32_t>(page[offset + 2]) << 16) |
+            (static_cast<uint32_t>(page[offset + 3]) << 24);
+        if (restored != before)
+            return false;
+    }
+
+    {
+        const uint32_t base = loadAddress + 0x30u;
+        const uint32_t target = base + 4u;
+        uint8_t *page = memory->getDirectWritePage(1, target);
+        if (!page)
+            return false;
+        uint32_t offset = target & 0xFFFu;
+        uint8_t before = page[offset];
+
+        uint32_t *code = cache.reserveWords(192);
+        if (!code)
+            return false;
+        size_t words = emitArmRegisterStoreFastInstruction(
+            0xE7C01002u, code, false, false, 1);
+            // STRB r1,[r0,r2]
+        if (!words)
+            return false;
+        code[words++] = R5900::jr(R5900::R_RA);
+        code[words++] = R5900::nop();
+        cache.commitWords(words);
+        cache.syncExecutable(code, code + words);
+        typedef void (*Arm7RegByteStoreFunction)(ArmAluState *);
+        Arm7RegByteStoreFunction function =
+            reinterpret_cast<Arm7RegByteStoreFunction>(code);
+
+        {
+            ArmAluState state = {};
+            state.r[0] = base;
+            state.r[1] = 0x5Au;
+            state.r[2] = 4u;
+            state.memory = memory;
+            state.cpuId = 1;
+            state.writeCacheTag = (target >> 12) + 1u;
+            state.writeCachePage = page;
+            ArmMemoryWriteGuard writes(&state);
+            function(&state);
+            if (state.memoryFault || state.writeCount != 1 ||
+                state.cycles != 2u || page[offset] != 0x5Au)
+                return false;
+        }
+        if (page[offset] != before)
+            return false;
+    }
+
+    {
+        const uint32_t base = (loadAddress + 0x40u) & ~1u;
+        const uint32_t target = base + 2u;
+        uint8_t *page = memory->getDirectWritePage(1, target);
+        if (!page)
+            return false;
+        uint32_t offset = target & 0xFFFu;
+        if (offset > 0xFFEu)
+            return false;
+        uint16_t before =
+            static_cast<uint16_t>(page[offset]) |
+            (static_cast<uint16_t>(page[offset + 1]) << 8);
+
+        uint32_t *code = cache.reserveWords(192);
+        if (!code)
+            return false;
+        size_t words = emitArmHalfwordRegisterStoreFastInstruction(
+            0xE18010B2u, code, false, false, 1);
+            // STRH r1,[r0,r2]
+        if (!words)
+            return false;
+        code[words++] = R5900::jr(R5900::R_RA);
+        code[words++] = R5900::nop();
+        cache.commitWords(words);
+        cache.syncExecutable(code, code + words);
+        typedef void (*Arm7RegHalfStoreFunction)(ArmAluState *);
+        Arm7RegHalfStoreFunction function =
+            reinterpret_cast<Arm7RegHalfStoreFunction>(code);
+
+        {
+            ArmAluState state = {};
+            state.r[0] = base;
+            state.r[1] = 0xA55Au;
+            state.r[2] = 2u;
+            state.memory = memory;
+            state.cpuId = 1;
+            state.writeCacheTag = (target >> 12) + 1u;
+            state.writeCachePage = page;
+            ArmMemoryWriteGuard writes(&state);
+            function(&state);
+            uint16_t stored =
+                static_cast<uint16_t>(page[offset]) |
+                (static_cast<uint16_t>(page[offset + 1]) << 8);
+            if (state.memoryFault || state.writeCount != 1 ||
+                state.cycles != 2u || stored != 0xA55Au)
+                return false;
+        }
+
+        uint16_t restored =
+            static_cast<uint16_t>(page[offset]) |
+            (static_cast<uint16_t>(page[offset + 1]) << 8);
+        if (restored != before)
+            return false;
+    }
+
     return true;
 }
 
