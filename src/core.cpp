@@ -521,12 +521,14 @@ void Core::runNdsFrame()
                                     runProfile.arm7BlockExecutions++;
 #endif
 
-                                // Recovery mode: make exactly one ARM7 backend
-                                // commit per Core scheduler slot. The live path is
-                                // still globally quarantined; removing scheduler-side
-                                // chaining gives the first controlled re-enable test
-                                // one architectural boundary per backend call.
-                                constexpr uint32_t MAX_ARM7_CHAINED_BLOCKS = 1;
+                                // The conservative ARM7 subset survived the
+                                // long run-389 test without the old black-screen
+                                // regression. Allow one additional independently
+                                // committed, already-hot block in the same scheduler
+                                // slot. Stores/self-loops/internal chaining remain
+                                // disabled, and the same event/ARM9 deadline budget
+                                // still bounds both calls.
+                                constexpr uint32_t MAX_ARM7_CHAINED_BLOCKS = 2;
                                 uint32_t chainedBlocks = 1;
                                 uint32_t usedCycles =
                                     static_cast<uint32_t>(arm7StepCycles);
