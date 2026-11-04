@@ -974,25 +974,101 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
     uint32_t z1 = interpolateLinear(vertices[v[0]]->z, vertices[v[1]]->z, lx1, lx, lx2);
     uint32_t z2 = interpolateLinear(vertices[v[2]]->z, vertices[v[3]]->z, rx1, rx, rx2);
 
+    // All edge attributes use the same perspective factor for a given side
+    // of the polygon. Build one exact interpolator per edge so W, RGB and ST
+    // share that division instead of recomputing it six times.
+    auto makeEdgeInterpolator = [&](uint32_t xStart, uint32_t xPos,
+        uint32_t xEnd, uint32_t weight1, uint32_t weight2)
+    {
+        struct EdgeState
+        {
+            uint32_t xStart, xPos, xEnd;
+            uint32_t factor;
+            bool atStart, atEnd, linear;
+        };
+
+        EdgeState state = {};
+        state.xStart = xStart;
+        state.xPos = xPos;
+        state.xEnd = xEnd;
+        state.atStart = xPos <= xStart;
+        state.atEnd = xPos >= xEnd;
+        state.linear = (weight1 == weight2 && !(weight1 & 0x00FE));
+
+        if (!state.atStart && !state.atEnd && !state.linear)
+        {
+            uint32_t weight1a = weight1 >> 1;
+            if ((weight1 & 1) && !(weight2 & 1))
+                weight1a++;
+            uint32_t half1 = weight1 >> 1;
+            uint32_t half2 = weight2 >> 1;
+            uint32_t left = half1 * (xPos - xStart);
+            uint32_t right = half2 * (xEnd - xPos);
+            state.factor = (left << 9) /
+                (right + weight1a * (xPos - xStart));
+        }
+
+        return state;
+    };
+
+    const auto leftEdge = makeEdgeInterpolator(
+        lx1, lx, lx2, ws[0], ws[1]);
+    const auto rightEdge = makeEdgeInterpolator(
+        rx1, rx, rx2, ws[2], ws[3]);
+
+    auto interpolateEdgeValue = [&](const auto &edge,
+        uint32_t v1, uint32_t v2) -> uint32_t
+    {
+        if (edge.atStart) return v1;
+        if (edge.atEnd) return v2;
+        if (edge.linear)
+            return interpolateLinear(v1, v2,
+                edge.xStart, edge.xPos, edge.xEnd);
+
+        if (v1 <= v2)
+            return v1 + (((v2 - v1) * edge.factor) >> 9);
+        return v2 + (((v1 - v2) * (0x200u - edge.factor)) >> 9);
+    };
+
     // Calculate the W values of the polygon edges on the current line
-    uint32_t w1 = interpolateEdge(ws[0], ws[1], lx1, lx, lx2, ws[0], ws[1]);
-    uint32_t w2 = interpolateEdge(ws[2], ws[3], rx1, rx, rx2, ws[2], ws[3]);
+    uint32_t w1 = interpolateEdgeValue(leftEdge, ws[0], ws[1]);
+    uint32_t w2 = interpolateEdgeValue(rightEdge, ws[2], ws[3]);
 
     // Interpolate the vertex color of the polygon edges on the current line
     // The color values are expanded to 9 bits during interpolation for extra precision
-    uint32_t r1 = interpolateEdge(((vertices[v[0]]->color >>  0) & 0x3F) << 3, ((vertices[v[1]]->color >>  0) & 0x3F) << 3, lx1, lx, lx2, ws[0], ws[1]);
-    uint32_t g1 = interpolateEdge(((vertices[v[0]]->color >>  6) & 0x3F) << 3, ((vertices[v[1]]->color >>  6) & 0x3F) << 3, lx1, lx, lx2, ws[0], ws[1]);
-    uint32_t b1 = interpolateEdge(((vertices[v[0]]->color >> 12) & 0x3F) << 3, ((vertices[v[1]]->color >> 12) & 0x3F) << 3, lx1, lx, lx2, ws[0], ws[1]);
-    uint32_t r2 = interpolateEdge(((vertices[v[2]]->color >>  0) & 0x3F) << 3, ((vertices[v[3]]->color >>  0) & 0x3F) << 3, rx1, rx, rx2, ws[2], ws[3]);
-    uint32_t g2 = interpolateEdge(((vertices[v[2]]->color >>  6) & 0x3F) << 3, ((vertices[v[3]]->color >>  6) & 0x3F) << 3, rx1, rx, rx2, ws[2], ws[3]);
-    uint32_t b2 = interpolateEdge(((vertices[v[2]]->color >> 12) & 0x3F) << 3, ((vertices[v[3]]->color >> 12) & 0x3F) << 3, rx1, rx, rx2, ws[2], ws[3]);
+    uint32_t r1 = interpolateEdgeValue(leftEdge,
+        ((vertices[v[0]]->color >> 0) & 0x3F) << 3,
+        ((vertices[v[1]]->color >> 0) & 0x3F) << 3);
+    uint32_t g1 = interpolateEdgeValue(leftEdge,
+        ((vertices[v[0]]->color >> 6) & 0x3F) << 3,
+        ((vertices[v[1]]->color >> 6) & 0x3F) << 3);
+    uint32_t b1 = interpolateEdgeValue(leftEdge,
+        ((vertices[v[0]]->color >> 12) & 0x3F) << 3,
+        ((vertices[v[1]]->color >> 12) & 0x3F) << 3);
+    uint32_t r2 = interpolateEdgeValue(rightEdge,
+        ((vertices[v[2]]->color >> 0) & 0x3F) << 3,
+        ((vertices[v[3]]->color >> 0) & 0x3F) << 3);
+    uint32_t g2 = interpolateEdgeValue(rightEdge,
+        ((vertices[v[2]]->color >> 6) & 0x3F) << 3,
+        ((vertices[v[3]]->color >> 6) & 0x3F) << 3);
+    uint32_t b2 = interpolateEdgeValue(rightEdge,
+        ((vertices[v[2]]->color >> 12) & 0x3F) << 3,
+        ((vertices[v[3]]->color >> 12) & 0x3F) << 3);
 
     // Interpolate the texture coordinates of the polygon edges on the current line
     // Interpolation is unsigned, so temporarily convert the signed values to unsigned
-    int32_t s1 = interpolateEdge((int32_t)vertices[v[0]]->s + 0xFFFF, (int32_t)vertices[v[1]]->s + 0xFFFF, lx1, lx, lx2, ws[0], ws[1]) - 0xFFFF;
-    int32_t t1 = interpolateEdge((int32_t)vertices[v[0]]->t + 0xFFFF, (int32_t)vertices[v[1]]->t + 0xFFFF, lx1, lx, lx2, ws[0], ws[1]) - 0xFFFF;
-    int32_t s2 = interpolateEdge((int32_t)vertices[v[2]]->s + 0xFFFF, (int32_t)vertices[v[3]]->s + 0xFFFF, rx1, rx, rx2, ws[2], ws[3]) - 0xFFFF;
-    int32_t t2 = interpolateEdge((int32_t)vertices[v[2]]->t + 0xFFFF, (int32_t)vertices[v[3]]->t + 0xFFFF, rx1, rx, rx2, ws[2], ws[3]) - 0xFFFF;
+    int32_t s1 = static_cast<int32_t>(interpolateEdgeValue(leftEdge,
+        static_cast<uint32_t>(static_cast<int32_t>(vertices[v[0]]->s) + 0xFFFF),
+        static_cast<uint32_t>(static_cast<int32_t>(vertices[v[1]]->s) + 0xFFFF))) - 0xFFFF;
+    int32_t t1 = static_cast<int32_t>(interpolateEdgeValue(leftEdge,
+        static_cast<uint32_t>(static_cast<int32_t>(vertices[v[0]]->t) + 0xFFFF),
+        static_cast<uint32_t>(static_cast<int32_t>(vertices[v[1]]->t) + 0xFFFF))) - 0xFFFF;
+    int32_t s2 = static_cast<int32_t>(interpolateEdgeValue(rightEdge,
+        static_cast<uint32_t>(static_cast<int32_t>(vertices[v[2]]->s) + 0xFFFF),
+        static_cast<uint32_t>(static_cast<int32_t>(vertices[v[3]]->s) + 0xFFFF))) - 0xFFFF;
+    int32_t t2 = static_cast<int32_t>(interpolateEdgeValue(rightEdge,
+        static_cast<uint32_t>(static_cast<int32_t>(vertices[v[2]]->t) + 0xFFFF),
+        static_cast<uint32_t>(static_cast<int32_t>(vertices[v[3]]->t) + 0xFFFF))) - 0xFFFF;
 
     // Keep track of shadow mask polygons
     if (polygon->mode == 3 && polygon->id == 0) // Shadow mask polygon
