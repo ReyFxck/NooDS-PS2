@@ -3944,6 +3944,94 @@ bool DynarecR5900::runArmAluSelfTest()
     if (bytePage[byteAddress & 0xFFFu] != byteBefore)
         return false;
 
+    // Gate cache-hit register-offset STRB directly in generated R5900 code.
+    const uint32_t regByteTarget = byteAddress + 4u;
+    uint8_t regByteBefore = bytePage[regByteTarget & 0xFFFu];
+    uint32_t *regByteCode = cache.reserveWords(96);
+    if (!regByteCode)
+        return false;
+    size_t regByteWords = emitArmRegisterStoreFastInstruction(
+        0xE7C01002u, regByteCode, false, false); // STRB r1,[r0,r2]
+    if (!regByteWords)
+        return false;
+    regByteCode[regByteWords++] = R5900::jr(R5900::R_RA);
+    regByteCode[regByteWords++] = R5900::nop();
+    cache.commitWords(regByteWords);
+    cache.syncExecutable(regByteCode, regByteCode + regByteWords);
+    {
+        ArmAluState regByteState = {};
+        regByteState.r[0] = byteAddress;
+        regByteState.r[1] = 0x5Au;
+        regByteState.r[2] = 4u;
+        regByteState.memory = memory;
+        regByteState.writeCacheTag = (regByteTarget >> 12) + 1u;
+        regByteState.writeCachePage = bytePage;
+        ArmMemoryWriteGuard regByteWrites(&regByteState);
+        typedef void (*ArmRegByteStoreFunction)(ArmAluState *);
+        ArmRegByteStoreFunction regByteFunction =
+            reinterpret_cast<ArmRegByteStoreFunction>(regByteCode);
+        regByteFunction(&regByteState);
+        if (regByteState.memoryFault || regByteState.writeCount != 1 ||
+            regByteState.cycles != 1u ||
+            bytePage[regByteTarget & 0xFFFu] != 0x5Au)
+            return false;
+    }
+    if (bytePage[regByteTarget & 0xFFFu] != regByteBefore)
+        return false;
+
+    // Gate shifted register-offset STR and its transactional rollback.
+    const uint32_t regWordBase = 0x02000020u;
+    const uint32_t regWordTarget = regWordBase + 4u;
+    uint8_t *regWordPage = memory->getDirectWritePage(0, regWordTarget);
+    if (!regWordPage)
+        return false;
+    uint32_t regWordOffset = regWordTarget & 0xFFFu;
+    uint32_t regWordBefore =
+        static_cast<uint32_t>(regWordPage[regWordOffset]) |
+        (static_cast<uint32_t>(regWordPage[regWordOffset + 1]) << 8) |
+        (static_cast<uint32_t>(regWordPage[regWordOffset + 2]) << 16) |
+        (static_cast<uint32_t>(regWordPage[regWordOffset + 3]) << 24);
+    uint32_t *regWordCode = cache.reserveWords(96);
+    if (!regWordCode)
+        return false;
+    size_t regWordWords = emitArmRegisterStoreFastInstruction(
+        0xE7801102u, regWordCode, false, false); // STR r1,[r0,r2,LSL #2]
+    if (!regWordWords)
+        return false;
+    regWordCode[regWordWords++] = R5900::jr(R5900::R_RA);
+    regWordCode[regWordWords++] = R5900::nop();
+    cache.commitWords(regWordWords);
+    cache.syncExecutable(regWordCode, regWordCode + regWordWords);
+    {
+        ArmAluState regWordState = {};
+        regWordState.r[0] = regWordBase;
+        regWordState.r[1] = 0x89ABCDEFu;
+        regWordState.r[2] = 1u;
+        regWordState.memory = memory;
+        regWordState.writeCacheTag = (regWordTarget >> 12) + 1u;
+        regWordState.writeCachePage = regWordPage;
+        ArmMemoryWriteGuard regWordWrites(&regWordState);
+        typedef void (*ArmRegWordStoreFunction)(ArmAluState *);
+        ArmRegWordStoreFunction regWordFunction =
+            reinterpret_cast<ArmRegWordStoreFunction>(regWordCode);
+        regWordFunction(&regWordState);
+        uint32_t stored =
+            static_cast<uint32_t>(regWordPage[regWordOffset]) |
+            (static_cast<uint32_t>(regWordPage[regWordOffset + 1]) << 8) |
+            (static_cast<uint32_t>(regWordPage[regWordOffset + 2]) << 16) |
+            (static_cast<uint32_t>(regWordPage[regWordOffset + 3]) << 24);
+        if (regWordState.memoryFault || regWordState.writeCount != 1 ||
+            regWordState.cycles != 1u || stored != 0x89ABCDEFu)
+            return false;
+    }
+    uint32_t regWordRestored =
+        static_cast<uint32_t>(regWordPage[regWordOffset]) |
+        (static_cast<uint32_t>(regWordPage[regWordOffset + 1]) << 8) |
+        (static_cast<uint32_t>(regWordPage[regWordOffset + 2]) << 16) |
+        (static_cast<uint32_t>(regWordPage[regWordOffset + 3]) << 24);
+    if (regWordRestored != regWordBefore)
+        return false;
+
     // Gate LDR literal with an explicit guest PC+8 base.
     const uint32_t literalPc = 0x02000000u;
     uint8_t *literalPage = memory->getDirectReadPage(0, literalPc + 8u);
