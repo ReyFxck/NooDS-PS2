@@ -2084,7 +2084,7 @@ int main(int argc, char **argv)
                         ? static_cast<double>(arm7JitGuest) /
                             static_cast<double>(arm7Jit.activeExecutions)
                         : 0.0;
-                    PS2_LOG("[PS2][ARM7JIT] active attempts=%llu exec=%llu guest=%llu cycles=%llu chain=%llu storeChain=%llu codeInv=%llu compileMiss=%llu budgetFallback=%llu verifyFallback=%llu stateFallback=%llu\n",
+                    PS2_LOG("[PS2][ARM7JIT] active attempts=%llu exec=%llu guest=%llu cycles=%llu chain=%llu storeChain=%llu pipeReuse=%llu codeInv=%llu compileMiss=%llu budgetFallback=%llu verifyFallback=%llu stateFallback=%llu\n",
                         static_cast<unsigned long long>(arm7Jit.activeAttempts),
                         static_cast<unsigned long long>(arm7Jit.activeExecutions),
                         static_cast<unsigned long long>(
@@ -2094,6 +2094,8 @@ int main(int argc, char **argv)
                             arm7Jit.activeInternalChainBlocks),
                         static_cast<unsigned long long>(
                             arm7Jit.activeStoreChainBlocks),
+                        static_cast<unsigned long long>(
+                            arm7Jit.activePipelineReuses),
                         static_cast<unsigned long long>(
                             arm7Jit.activeCodeWriteInvalidations),
                         static_cast<unsigned long long>(arm7Jit.activeCompileMisses),
