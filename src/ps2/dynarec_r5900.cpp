@@ -3545,7 +3545,10 @@ bool DynarecR5900::runArmAluSelfTest()
         { 0xE1300001u, 0x30000013u, 0, 0x01020304u }, // TEQ preserves registers
         { 0xE15C0002u, 0xF0000013u, 12, 0x00000010u }, // hot CMP r12,r2
         { 0xE2121102u, 0x30000013u, 2, 0x80000000u }, // hot ANDS rotated immediate
+        { 0xE1B01081u, 0x10000013u, 1, 0x80000001u }, // MOVS r1,r1,LSL #1 carry
         { 0xE1B01821u, 0x30000013u, 1, 0x00018000u }, // hot MOVS LSR #16
+        { 0xE1B01041u, 0x10000013u, 1, 0x80000001u }, // MOVS r1,r1,ASR #32
+        { 0xE1B01461u, 0x10000013u, 1, 0x80000001u }, // MOVS r1,r1,ROR #8
         { 0xE1700001u, 0xF0000013u, 0, 0xFEFDFCFCu }  // CMN preserves registers
     };
 
