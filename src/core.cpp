@@ -330,6 +330,8 @@ void Core::runNdsFrame()
                 }
                 else
                 {
+                    sampleArm9HotPc(
+                        CpuBackendAccess::nextInstructionAddress(interpreter[0]));
 #ifdef NOODS_PROFILE
                     if (profileEnabled)
                         runProfile.arm9Opcodes++;
@@ -415,6 +417,50 @@ void Core::runNdsFrame()
         fpsCount = 0;
         lastFpsTime = std::chrono::steady_clock::now();
     }
+}
+
+void Core::sampleArm9HotPc(uint32_t pc)
+{
+    if (!pc || ++arm9HotSampleDivider != 64)
+        return;
+    arm9HotSampleDivider = 0;
+
+    size_t sampleSlot = arm9HotSampleSlot(pc);
+    uint32_t &samplePc = arm9HotSamplePc[sampleSlot];
+    uint8_t &score = arm9HotSampleScore[sampleSlot];
+
+    if (samplePc == pc)
+    {
+        if (score < 0xFFu)
+            score++;
+    }
+    else if (score)
+    {
+        score--;
+        return;
+    }
+    else
+    {
+        samplePc = pc;
+        score = 1;
+    }
+
+    // Eight matching 1/64 samples means roughly 512 observed interpreter
+    // opportunities at this entry. Promote it, then reset the score so a
+    // backend-rejected PC must prove hot again before another attempt.
+    if (score < 8)
+        return;
+
+    size_t hotSlot = arm9BlockFilterSlot(pc);
+    if (arm9BlockHotPc[hotSlot] != pc)
+    {
+        addArm9BlockHotPcs(&pc, 1);
+#ifdef NOODS_PROFILE
+        if (profileEnabled)
+            runProfile.arm9AutoHotPromotions++;
+#endif
+    }
+    score = 0;
 }
 
 void Core::addArm9BlockHotPcs(const uint32_t *pcs, size_t count)

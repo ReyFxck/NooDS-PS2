@@ -1143,7 +1143,7 @@ int main(int argc, char **argv)
     PS2_LOG(" Instrumentation: disabled\n");
 #endif
 #if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
-    PS2_LOG(" Dynarec: ARM-ALU-v28 direct-bx-hotpath (profile L2)\n");
+    PS2_LOG(" Dynarec: ARM-ALU-v29 runtime-hot-release-active (profile L2)\n");
 #else
     PS2_LOG(" Dynarec: ARM-ALU-v10 shadow-gated\n");
 #endif
@@ -1371,7 +1371,6 @@ int main(int argc, char **argv)
         else
             PS2_LOG("[PS2][WARN] R5900 dynarec infrastructure unavailable; interpreter remains active.\n");
 
-#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
         bool arm9ActiveExecutorEnabled = false;
         auto enableArm9ActiveExecutor = [&]()
         {
@@ -1388,21 +1387,8 @@ int main(int argc, char **argv)
                         guestInstructions);
                 });
             arm9ActiveExecutorEnabled = true;
-            PS2_LOG("[PS2][OK] ARM9 selective active dynarec armed: only sampled hot entry PCs can call the backend.\n");
+            PS2_LOG("[PS2][OK] ARM9 selective active dynarec armed: runtime hot-PC sampler + guarded backend enabled.\n");
         };
-#else
-        bool arm9ActiveHoldLogged = false;
-        auto enableArm9ActiveExecutor = [&]()
-        {
-            if (arm9ActiveHoldLogged || !arm9DeferredGateEligible ||
-                !arm9RealBlockGatePassed || !arm9DifferentialGatePassed ||
-                arm9GateHardFailure)
-                return;
-
-            arm9ActiveHoldLogged = true;
-            PS2_LOG("[PS2][OK] ARM9 active dynarec gates passed; non-L2 builds remain shadow-only.\n");
-        };
-#endif
 
         // If boot happened to land on a fully differential-safe block, the
         // initial gates may already be sufficient to enable live execution.

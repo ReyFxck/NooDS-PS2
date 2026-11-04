@@ -83,6 +83,7 @@ struct CoreRunProfile
     uint64_t arm9BlockExecutions = 0;
     uint64_t arm9BlockFilterDrops = 0;
     uint64_t arm9BlockBudgetSkips = 0;
+    uint64_t arm9AutoHotPromotions = 0;
     uint64_t taskExecutions = 0;
     uint64_t scheduleCalls = 0;
     uint64_t estimatedLegacyFrontMoves = 0;
@@ -203,16 +204,32 @@ class Core
         CoreRunProfile runProfile;
         Arm9BlockRunner arm9BlockRunner;
 
-        static constexpr size_t ARM9_BLOCK_FILTER_SLOTS = 32;
+        static constexpr size_t ARM9_BLOCK_FILTER_SLOTS = 64;
         uint32_t arm9BlockHotPc[ARM9_BLOCK_FILTER_SLOTS] = {};
         uint8_t arm9BlockHotFailures[ARM9_BLOCK_FILTER_SLOTS] = {};
         uint8_t arm9BlockMinCycles[ARM9_BLOCK_FILTER_SLOTS] = {};
         uint8_t arm9BlockHotCount = 0;
 
+        // Always-on, bounded hot-PC discovery for PS2 dynarec backends. One
+        // sample per 64 interpreted ARM9 opcodes is cheap enough for RELEASE
+        // and removes the old dependency on 60-frame PROFILE windows.
+        static constexpr size_t ARM9_HOT_SAMPLE_SLOTS = 64;
+        uint32_t arm9HotSamplePc[ARM9_HOT_SAMPLE_SLOTS] = {};
+        uint8_t arm9HotSampleScore[ARM9_HOT_SAMPLE_SLOTS] = {};
+        uint8_t arm9HotSampleDivider = 0;
+
         size_t arm9BlockFilterSlot(uint32_t pc) const
         {
             return ((pc >> 2) ^ (pc >> 11)) & (ARM9_BLOCK_FILTER_SLOTS - 1);
         }
+
+        size_t arm9HotSampleSlot(uint32_t pc) const
+        {
+            return ((pc >> 2) ^ (pc >> 10) ^ (pc >> 18)) &
+                (ARM9_HOT_SAMPLE_SLOTS - 1);
+        }
+
+        void sampleArm9HotPc(uint32_t pc);
 
         uint32_t frameCycles = 0, globalCycles = 0;
         uint32_t arm9Cycles = 0, arm7Cycles = 0;
