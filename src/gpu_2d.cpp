@@ -548,7 +548,6 @@ void Gpu2D::drawScanline(int line)
                 output[i] = pixel;
             }
         }
-        }
     }
 
     {
