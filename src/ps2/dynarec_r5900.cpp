@@ -5539,7 +5539,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         }
     }
 
-    if (!activeBlockUseful(block)
+    if (!activeBlockUseful(block))
     {
         // Keep enough room for realistic game code while still placing a hard
         // ceiling on metadata growth. The 2 MiB code cache remains the actual
