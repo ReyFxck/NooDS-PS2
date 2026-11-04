@@ -6361,6 +6361,120 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
+    // Gate the real hot prologue observed in PROFILE:
+    // STMDB sp!,{r4-r10,lr} (E92D47F0). This proves the widened 2-14 register
+    // subset, journal capacity, DB ordering and native ARM9/ARM7 timing.
+    const uint32_t largeStoreBase = 0x02000100u;
+    const uint32_t largeStoreStart = largeStoreBase - 32u;
+    uint8_t *largeStorePage =
+        memory->getDirectWritePage(0, largeStoreStart);
+    uint8_t *arm7LargeStorePage =
+        memory->getDirectWritePage(1, largeStoreStart);
+    if (!largeStorePage || !arm7LargeStorePage)
+        return false;
+
+    uint32_t largeBefore[8] = {};
+    uint32_t arm7LargeBefore[8] = {};
+    for (uint32_t i = 0; i < 8; i++)
+    {
+        largeBefore[i] =
+            readWordAt(largeStorePage, largeStoreStart + i * 4u);
+        arm7LargeBefore[i] =
+            readWordAt(arm7LargeStorePage, largeStoreStart + i * 4u);
+    }
+
+    auto seedLargeStoreState = [&](ArmAluState &state, bool arm7)
+    {
+        state.r[13] = largeStoreBase;
+        for (uint32_t reg = 4; reg <= 10; reg++)
+            state.r[reg] = 0xA0000000u | reg;
+        state.r[14] = 0xEEEEEEEEu;
+        state.memory = memory;
+        state.cpuId = arm7 ? 1u : 0u;
+        state.writeCacheTag = (largeStoreStart >> 12) + 1u;
+        state.writeCachePage = arm7 ? arm7LargeStorePage : largeStorePage;
+    };
+
+    uint32_t *largeStoreCode = cache.reserveWords(512);
+    if (!largeStoreCode)
+        return false;
+    size_t largeStoreWords = emitArmMultiBlockTransferInstruction(
+        0xE92D47F0u, largeStoreCode, false, false, 0);
+    if (!largeStoreWords)
+        return false;
+    largeStoreCode[largeStoreWords++] = R5900::jr(R5900::R_RA);
+    largeStoreCode[largeStoreWords++] = R5900::nop();
+    cache.commitWords(largeStoreWords);
+    cache.syncExecutable(largeStoreCode,
+        largeStoreCode + largeStoreWords);
+    ArmBlockTransferFunction largeStoreFunction =
+        reinterpret_cast<ArmBlockTransferFunction>(largeStoreCode);
+
+    {
+        ArmAluState state = {};
+        seedLargeStoreState(state, false);
+        ArmMemoryWriteGuard writes(&state);
+        largeStoreFunction(&state);
+        if (state.memoryFault || state.writeCount != 8 ||
+            state.cycles != 8u || state.r[13] != largeStoreStart)
+            return false;
+        for (uint32_t i = 0; i < 7; i++)
+        {
+            if (readWordAt(largeStorePage,
+                largeStoreStart + i * 4u) != (0xA0000000u | (i + 4u)))
+                return false;
+        }
+        if (readWordAt(largeStorePage, largeStoreStart + 28u) !=
+            0xEEEEEEEEu)
+            return false;
+    }
+    for (uint32_t i = 0; i < 8; i++)
+    {
+        if (readWordAt(largeStorePage, largeStoreStart + i * 4u) !=
+            largeBefore[i])
+            return false;
+    }
+
+    uint32_t *arm7LargeStoreCode = cache.reserveWords(512);
+    if (!arm7LargeStoreCode)
+        return false;
+    size_t arm7LargeStoreWords = emitArmMultiBlockTransferInstruction(
+        0xE92D47F0u, arm7LargeStoreCode, false, false, 1);
+    if (!arm7LargeStoreWords)
+        return false;
+    arm7LargeStoreCode[arm7LargeStoreWords++] = R5900::jr(R5900::R_RA);
+    arm7LargeStoreCode[arm7LargeStoreWords++] = R5900::nop();
+    cache.commitWords(arm7LargeStoreWords);
+    cache.syncExecutable(arm7LargeStoreCode,
+        arm7LargeStoreCode + arm7LargeStoreWords);
+    ArmBlockTransferFunction arm7LargeStoreFunction =
+        reinterpret_cast<ArmBlockTransferFunction>(arm7LargeStoreCode);
+
+    {
+        ArmAluState state = {};
+        seedLargeStoreState(state, true);
+        ArmMemoryWriteGuard writes(&state);
+        arm7LargeStoreFunction(&state);
+        if (state.memoryFault || state.writeCount != 8 ||
+            state.cycles != 9u || state.r[13] != largeStoreStart)
+            return false;
+        for (uint32_t i = 0; i < 7; i++)
+        {
+            if (readWordAt(arm7LargeStorePage,
+                largeStoreStart + i * 4u) != (0xA0000000u | (i + 4u)))
+                return false;
+        }
+        if (readWordAt(arm7LargeStorePage, largeStoreStart + 28u) !=
+            0xEEEEEEEEu)
+            return false;
+    }
+    for (uint32_t i = 0; i < 8; i++)
+    {
+        if (readWordAt(arm7LargeStorePage, largeStoreStart + i * 4u) !=
+            arm7LargeBefore[i])
+            return false;
+    }
+
     // Gate the real hot copy-loop pair seen in PROFILE logs:
     //   LDMIA.LT r0!,{r2}
     //   STMIA.LT r1!,{r2}
