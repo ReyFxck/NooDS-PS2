@@ -3491,6 +3491,16 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         }
         else
         {
+            Ps2ArmAlu::DecodedMultiply multiply;
+            if (Ps2ArmAlu::decodeMultiply(opcodes[i], &multiply) &&
+                multiply.condition == 0xEu)
+            {
+                // The direct R5900 multiply emitter leaves its low-32 result
+                // in t2, matching the existing ALU/load forwarding ABI.
+                producedGuestReg = multiply.rd;
+            }
+            else
+            {
             Ps2ArmAlu::DecodedHalfwordTransfer half;
             Ps2ArmAlu::DecodedByteTransfer byte;
             Ps2ArmAlu::DecodedSingleTransfer word;
@@ -3530,6 +3540,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
                         producedGuestReg = literal.rd;
                     }
                 }
+            }
             }
         }
 
@@ -4099,6 +4110,52 @@ bool DynarecR5900::runArmAluSelfTest()
             if (std::memcmp(&actual, &expected, sizeof(actual)) != 0)
                 return false;
         }
+    }
+
+    // Gate MUL -> ALU host-register forwarding and dead intermediate store
+    // elimination. ADD consumes the multiply result directly from t2.
+    {
+        const uint32_t forwardPc = 0x02002000u;
+        const uint32_t forwardOpcodes[] =
+        {
+            0xE0040291u, // MUL r4,r1,r2
+            0xE2844001u  // ADD r4,r4,#1
+        };
+        ArmAluState expected = {};
+        expected.r[1] = 2u;
+        expected.r[2] = 3u;
+        expected.nextPc = forwardPc + 8u;
+        if (!applyArmMultiply(forwardOpcodes[0], &expected) ||
+            !applyArmAlu(forwardOpcodes[1], &expected))
+            return false;
+
+        size_t blockCountBefore = blocks.size();
+        uint32_t *forwardEntry = nullptr;
+        uint32_t forwardHostWords = 0;
+        if (!emitArmAluSequence(forwardOpcodes, 2, forwardPc,
+            &forwardEntry, &forwardHostWords) ||
+            !forwardEntry || !forwardHostWords)
+            return false;
+
+        ArmAluState actual = {};
+        actual.r[1] = 2u;
+        actual.r[2] = 3u;
+        actual.nextPc = forwardPc + 8u;
+        typedef void (*ArmMultiplyForwardFunction)(ArmAluState *);
+        ArmMultiplyForwardFunction forwardFunction =
+            reinterpret_cast<ArmMultiplyForwardFunction>(forwardEntry);
+        forwardFunction(&actual);
+
+        bool forwardOk = actual.r[4] == expected.r[4] &&
+            actual.cycles == expected.cycles &&
+            actual.cpsr == expected.cpsr;
+
+        if (blocks.size() > blockCountBefore)
+            blocks.resize(blockCountBefore);
+        clearActiveLookups();
+
+        if (!forwardOk)
+            return false;
     }
 
     // Gate the resident self-loop guest counter and scheduler budget.
