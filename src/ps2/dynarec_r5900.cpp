@@ -3965,12 +3965,29 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     }
 
     bool committed = false;
-    if (block->guestInstructions >= 2 && state.nextPc == block->guestPc &&
-        !(state.cpsr & BIT(5)))
+    R5900CompiledBlock *pipelineBlock = nullptr;
+    if (!(state.cpsr & BIT(5)))
+    {
+        if (block->guestInstructions >= 2 && state.nextPc == block->guestPc)
+        {
+            pipelineBlock = block;
+        }
+        else
+        {
+            R5900CompiledBlock *next = findMutableBlock(state.nextPc, false);
+            if (next && next->guestInstructions >= 2)
+                pipelineBlock = next;
+        }
+    }
+
+    if (pipelineBlock)
     {
         committed = CpuBackendAccess::commitBlockStateSparseKnownArmPipeline(
             cpu, state.r, block->writeRegs, block->writeRegCount, state.cpsr,
-            state.nextPc, block->entryOpcode0, block->entryOpcode1);
+            state.nextPc, pipelineBlock->entryOpcode0,
+            pipelineBlock->entryOpcode1);
+        if (committed)
+            profile.activePipelineReuses++;
     }
     else
     {
