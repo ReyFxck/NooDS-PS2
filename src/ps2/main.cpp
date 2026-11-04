@@ -720,7 +720,6 @@ size_t logDynarecHotBlocks(DynarecR5900 &dynarec,
             analysis.instructionCount >= 3 &&
             analysis.instructionCount <= 16 &&
             analysis.supportedInstructions == analysis.instructionCount &&
-            !analysis.writesMemory &&
             analysis.instructions[analysis.instructionCount - 1]
                 .info.terminatesBlock)
         {
@@ -1143,7 +1142,7 @@ int main(int argc, char **argv)
     PS2_LOG(" Instrumentation: disabled\n");
 #endif
 #if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
-    PS2_LOG(" Dynarec: ARM-ALU-v31 inline-cached-byte-load (profile L2)\n");
+    PS2_LOG(" Dynarec: ARM-ALU-v32 transactional-live-stores (profile L2)\n");
 #else
     PS2_LOG(" Dynarec: ARM-ALU-v10 shadow-gated\n");
 #endif

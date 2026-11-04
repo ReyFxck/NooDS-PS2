@@ -26,6 +26,44 @@
 #include "ps2/ps2_file.h"
 #endif
 
+#ifdef NOODS_PS2
+void Memory::beginWriteJournal(MemoryWriteJournal *journal, bool cpu)
+{
+    if (!journal)
+        return;
+    journal->count = 0;
+    journal->overflow = false;
+    journal->cpu = cpu;
+    activeWriteJournal = journal;
+}
+
+void Memory::endWriteJournal(MemoryWriteJournal *journal)
+{
+    if (activeWriteJournal == journal)
+        activeWriteJournal = nullptr;
+}
+
+void Memory::rollbackWriteJournal(MemoryWriteJournal &journal)
+{
+    if (activeWriteJournal == &journal)
+        activeWriteJournal = nullptr;
+
+    SparsePageTable &writeMap = journal.cpu ? writeMap7 : writeMap9;
+    for (size_t i = journal.count; i > 0; i--)
+    {
+        const MemoryWriteJournalEntry &entry = journal.entries[i - 1];
+        uint8_t *page = writeMap.get(entry.address);
+        if (!page || !entry.size ||
+            (entry.address & 0xFFFu) + entry.size > 0x1000u)
+            continue;
+
+        uint8_t *data = page + (entry.address & 0xFFFu);
+        for (uint8_t byte = 0; byte < entry.size; byte++)
+            data[byte] = static_cast<uint8_t>(entry.before >> (byte * 8));
+    }
+}
+#endif
+
 void VramMapping::add(uint8_t *mapping)
 {
     // Add a VRAM mapping

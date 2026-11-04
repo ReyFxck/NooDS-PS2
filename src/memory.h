@@ -163,6 +163,23 @@ class MemoryPageCache
         };
         Entry entries[4];
 };
+
+struct MemoryWriteJournalEntry
+{
+    uint32_t address = 0;
+    uint32_t before = 0;
+    uint32_t after = 0;
+    uint8_t size = 0;
+};
+
+struct MemoryWriteJournal
+{
+    static constexpr size_t CAPACITY = 32;
+    MemoryWriteJournalEntry entries[CAPACITY] = {};
+    size_t count = 0;
+    bool overflow = false;
+    bool cpu = false;
+};
 #endif
 
 class VramMapping
@@ -252,6 +269,12 @@ class Memory
 
         uint32_t getMapGeneration() const { return mapGeneration; }
 
+#ifdef NOODS_PS2
+        void beginWriteJournal(MemoryWriteJournal *journal, bool cpu);
+        void endWriteJournal(MemoryWriteJournal *journal);
+        void rollbackWriteJournal(MemoryWriteJournal &journal);
+#endif
+
 #ifdef NOODS_PROFILE
         class ProfileCpuScope
         {
@@ -300,6 +323,7 @@ class Memory
 #ifdef NOODS_PS2
         MemoryPageCache readPageCache[2];
         MemoryPageCache writePageCache[2];
+        MemoryWriteJournal *activeWriteJournal = nullptr;
 
         void invalidatePageCaches()
         {
@@ -614,6 +638,26 @@ template <typename T> FORCE_INLINE void Memory::write(bool cpu, uint32_t address
     {
         // Get a pointer to writable memory mapped to the given address
         uint8_t *data = &page[address & 0xFFF];
+
+#ifdef NOODS_PS2
+        if (activeWriteJournal && activeWriteJournal->cpu == cpu)
+        {
+            if (activeWriteJournal->count >= MemoryWriteJournal::CAPACITY)
+            {
+                activeWriteJournal->overflow = true;
+                return;
+            }
+
+            MemoryWriteJournalEntry &entry =
+                activeWriteJournal->entries[activeWriteJournal->count++];
+            entry.address = address;
+            entry.before = 0;
+            for (size_t i = 0; i < sizeof(T); i++)
+                entry.before |= static_cast<uint32_t>(data[i]) << (i * 8);
+            entry.after = static_cast<uint32_t>(value);
+            entry.size = static_cast<uint8_t>(sizeof(T));
+        }
+#endif
 
         // Same fast path as reads: little-endian hosts can store the aligned
         // value directly while big-endian hosts keep the explicit LSB order.

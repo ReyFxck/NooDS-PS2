@@ -141,10 +141,9 @@ class DynarecR5900
             uint32_t *guestPc = nullptr, uint32_t *instructionCount = nullptr,
             uint32_t *stateHash = nullptr, size_t maxInstructions = 16);
 
-        // Differential gate against NooDS' own interpreter. ALU/read-only
-        // blocks with an optional terminating B are eligible; store blocks are
-        // kept in the transactional shadow gate until interpreter writes can
-        // also be journaled and restored exactly.
+        // Differential gate against NooDS' own interpreter. Direct-memory
+        // store blocks are transactionally journaled on both paths, compared,
+        // and rolled back before the live CPU resumes.
         int runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
             uint32_t *guestPc = nullptr, uint32_t *instructionCount = nullptr,
             uint32_t *stateHash = nullptr);

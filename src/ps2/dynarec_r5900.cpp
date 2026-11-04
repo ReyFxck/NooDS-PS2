@@ -531,6 +531,8 @@ class ArmMemoryWriteGuard
             active = false;
         }
 
+        void dismiss() { active = false; }
+
     private:
         ArmAluState *state;
         bool active = true;
@@ -3095,8 +3097,6 @@ int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
     R5900CompiledBlock *block = findMutableBlock(guestPc, false);
     if (!block || !block->hostCode || block->guestInstructions == 0)
         return 0;
-    if (block->writesMemory)
-        return 0;
 
     uint32_t savedRegs[16] = {};
     for (int i = 0; i < 16; i++)
@@ -3116,9 +3116,25 @@ int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
     typedef void (*ArmAluBlockFunction)(ArmAluState *);
     ArmAluBlockFunction function =
         reinterpret_cast<ArmAluBlockFunction>(block->hostCode);
-    function(&dynarecState);
-    if (dynarecState.memoryFault)
-        return 0;
+
+    ArmMemoryWrite dynWrites[16] = {};
+    uint32_t dynWriteCount = 0;
+    {
+        ArmMemoryWriteGuard dynarecWrites(&dynarecState);
+        function(&dynarecState);
+        if (dynarecState.memoryFault)
+            return 0;
+
+        dynWriteCount = dynarecState.writeCount;
+        if (dynWriteCount > 16)
+            return 0;
+        for (uint32_t i = 0; i < dynWriteCount; i++)
+            dynWrites[i] = dynarecState.writes[i];
+        dynarecWrites.restoreNow();
+    }
+
+    MemoryWriteJournal interpreterWrites;
+    memory->beginWriteJournal(&interpreterWrites, false);
 
     bool interpreterOk = true;
     uint32_t interpreterCycles = 0;
@@ -3132,9 +3148,29 @@ int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
         }
         interpreterCycles += static_cast<uint32_t>(cycles);
     }
+    memory->endWriteJournal(&interpreterWrites);
+
+    bool writesMatch = !interpreterWrites.overflow &&
+        interpreterWrites.count == dynWriteCount;
+    if (writesMatch)
+    {
+        for (uint32_t i = 0; i < dynWriteCount; i++)
+        {
+            const MemoryWriteJournalEntry &actual = interpreterWrites.entries[i];
+            const ArmMemoryWrite &expected = dynWrites[i];
+            if (actual.address != expected.address ||
+                actual.before != expected.before ||
+                actual.after != expected.after ||
+                actual.size != expected.size)
+            {
+                writesMatch = false;
+                break;
+            }
+        }
+    }
 
     uint32_t hash = 2166136261u;
-    bool match = interpreterOk &&
+    bool match = interpreterOk && writesMatch &&
         CpuBackendAccess::readCpsr(cpu) == dynarecState.cpsr &&
         CpuBackendAccess::nextInstructionAddress(cpu) == dynarecState.nextPc &&
         interpreterCycles == dynarecState.cycles;
@@ -3159,9 +3195,17 @@ int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
     hash *= 16777619u;
     hash ^= interpreterCycles;
     hash *= 16777619u;
+    for (uint32_t i = 0; i < dynWriteCount; i++)
+    {
+        hash ^= dynWrites[i].address;
+        hash *= 16777619u;
+        hash ^= dynWrites[i].after;
+        hash *= 16777619u;
+    }
 
-    // Restore before returning on every path. The tested subset cannot change
-    // bank/mode/memory, so this is exact and guest-invisible.
+    // Restore both temporary memory writes and the architectural CPU snapshot
+    // before returning on every differential path.
+    memory->rollbackWriteJournal(interpreterWrites);
     CpuBackendAccess::restoreStraightLineState(cpu, savedRegs, savedCpsr,
         savedPipeline0, savedPipeline1);
 
@@ -3271,13 +3315,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
 
     if (!block->activeReady)
     {
-        // The first active milestone is intentionally transactional/read-only.
-        if (block->writesMemory)
-        {
-            cacheActiveReject(guestPc, ACTIVE_REJECT_WRITE);
-            profile.activeWriteFallbacks++;
-            return 0;
-        }
+        // Direct-memory stores are admitted only after the transactional
+        // interpreter differential below has validated their exact journal.
 
         // Generated blocks that explicitly read/write architectural R15 are
         // kept out of live execution. Literal LDR has its own PC+8 helper.
@@ -3334,6 +3373,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     typedef void (*ArmAluBlockFunction)(ArmAluState *);
     ArmAluBlockFunction function =
         reinterpret_cast<ArmAluBlockFunction>(block->hostCode);
+    ArmMemoryWriteGuard liveWrites(&state);
     function(&state);
 
     uint32_t executedGuestInstructions = state.guestExecuted
@@ -3342,7 +3382,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
 
     // No guest state has been committed yet, so every failure below is a
     // lossless interpreter fallback.
-    if (state.memoryFault || state.writeCount ||
+    if (state.memoryFault ||
         ((state.cpsr ^ liveCpsr) & 0x1Fu))
     {
         profile.activeStateFallbacks++;
@@ -3379,6 +3419,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         profile.activeStateFallbacks++;
         return 0;
     }
+
+    liveWrites.dismiss();
 
     profile.activeExecutions++;
     profile.activeGuestInstructions += executedGuestInstructions;
