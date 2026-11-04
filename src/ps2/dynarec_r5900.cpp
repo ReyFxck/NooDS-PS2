@@ -1322,9 +1322,8 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
     size_t conditionBranch = static_cast<size_t>(-1);
     if (decoded.condition != 0xEu)
     {
-        if (!reuseCondition)
-            words += emitArmCondition(decoded.condition, code + words,
-                registerCpsr);
+        words += emitArmCondition(decoded.condition, code + words,
+            registerCpsr);
         conditionBranch = words;
         code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
         code[words++] = R5900::nop();
@@ -2828,8 +2827,9 @@ size_t emitArmSingleBlockTransferFastInstruction(uint32_t opcode,
     size_t conditionBranch = static_cast<size_t>(-1);
     if (decoded.condition != 0xEu)
     {
-        words += emitArmCondition(decoded.condition, code + words,
-            registerCpsr);
+        if (!reuseCondition)
+            words += emitArmCondition(decoded.condition, code + words,
+                registerCpsr);
         conditionBranch = words;
         code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
         code[words++] = R5900::nop();
