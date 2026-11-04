@@ -5,6 +5,11 @@
 
 #include "interpreter.h"
 
+// Block backends use this sentinel when a hot PC has failed a permanent
+// compile/state/differential gate. It is deliberately far outside any valid
+// cycle requirement so Core can evict the filter entry immediately.
+constexpr int ARM9_BLOCK_RUNNER_PERMANENT_REJECT = -0x40000000;
+
 // Architecture-neutral access layer for alternative CPU execution engines.
 // It intentionally exposes only the active ARM register bank and calls back
 // into Interpreter for CPSR/pipeline transitions, so backends do not duplicate

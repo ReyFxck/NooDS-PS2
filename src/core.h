@@ -121,9 +121,11 @@ class Core
         uint32_t getGlobalCycles() { return globalCycles; }
 
         // Optional architecture-neutral ARM9 block runner. Positive values are
-        // exact committed cycles. Zero is a non-budget fallback. A negative
-        // value means the block is valid but needs at least abs(value) cycles
-        // before the backend should be called again.
+        // exact committed cycles. Zero is a transient non-budget fallback.
+        // Normal negative values mean the block is valid but needs at least
+        // abs(value) cycles before the backend should be called again. A
+        // backend may return ARM9_BLOCK_RUNNER_PERMANENT_REJECT (declared in
+        // cpu_backend.h) so the scheduler drops that hot PC immediately.
         using Arm9BlockRunner =
             int (*)(void*, Interpreter&, uint32_t, uint32_t*);
         void setArm9BlockRunner(void *context, Arm9BlockRunner runner)

@@ -335,7 +335,20 @@ void Core::runNdsFrame()
                                         continue;
                                     }
 
-                                    if (nextCycles < 0)
+                                    if (nextCycles ==
+                                        ARM9_BLOCK_RUNNER_PERMANENT_REJECT)
+                                    {
+                                        arm9BlockHotPc[nextSlot] = 0;
+                                        arm9BlockMinCycles[nextSlot] = 0;
+                                        arm9BlockHotFailures[nextSlot] = 0;
+                                        if (arm9BlockHotCount)
+                                            arm9BlockHotCount--;
+#ifdef NOODS_PROFILE
+                                        if (profileEnabled)
+                                            runProfile.arm9BlockFilterDrops++;
+#endif
+                                    }
+                                    else if (nextCycles < 0)
                                     {
                                         uint32_t required =
                                             static_cast<uint32_t>(-nextCycles);
@@ -376,6 +389,20 @@ void Core::runNdsFrame()
 
                                 arm9StepCycles =
                                     static_cast<int>(usedCycles);
+                            }
+                            else if (arm9StepCycles ==
+                                ARM9_BLOCK_RUNNER_PERMANENT_REJECT)
+                            {
+                                arm9BlockHotPc[hotSlot] = 0;
+                                arm9BlockMinCycles[hotSlot] = 0;
+                                arm9BlockHotFailures[hotSlot] = 0;
+                                if (arm9BlockHotCount)
+                                    arm9BlockHotCount--;
+                                arm9StepCycles = 0;
+#ifdef NOODS_PROFILE
+                                if (profileEnabled)
+                                    runProfile.arm9BlockFilterDrops++;
+#endif
                             }
                             else if (arm9StepCycles < 0)
                             {
