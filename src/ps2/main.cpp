@@ -2037,6 +2037,14 @@ int main(int argc, char **argv)
             uint64_t gpu2dACalls = 0;
             uint64_t gpu2dBCalls = 0;
             uint64_t gpu3dCalls = 0;
+            uint32_t arm9Pc = 0;
+            uint32_t arm7Pc = 0;
+            uint32_t dispCntA = 0;
+            uint32_t dispCntB = 0;
+            uint16_t bldCntA = 0;
+            uint16_t bldCntB = 0;
+            uint16_t disp3dCnt = 0;
+            uint16_t polygonCount = 0;
         };
         SlowFrameSample profSlowFrames[3] = {};
         uint64_t profPrevArm9Instr = 0;
@@ -2108,6 +2116,21 @@ int main(int argc, char **argv)
                 sample.gpu3dCalls =
                     frameGpuProfile.phaseCount[GPU_PROFILE_3D_RENDER] -
                     profPrevGpu3dCalls;
+                sample.arm9Pc =
+                    CpuBackendAccess::nextInstructionAddress(
+                        core->interpreter[0]);
+                sample.arm7Pc =
+                    CpuBackendAccess::nextInstructionAddress(
+                        core->interpreter[1]);
+                sample.dispCntA = core->gpu2D[0].readDispCnt();
+                sample.dispCntB = core->gpu2D[1].readDispCnt();
+                sample.bldCntA = core->gpu2D[0].readBldCnt();
+                sample.bldCntB = core->gpu2D[1].readBldCnt();
+                sample.disp3dCnt =
+                    core->gpu3DRenderer.readDisp3DCnt();
+                sample.polygonCount =
+                    static_cast<uint16_t>(
+                        core->gpu3D.getPolygonCount());
                 recordSlowFrame(sample);
 
                 profPrevArm9Instr = frameRunProfile.arm9Opcodes;
@@ -2436,7 +2459,7 @@ int main(int argc, char **argv)
                     const SlowFrameSample &slow = profSlowFrames[slowRank];
                     if (!slow.coreTicks)
                         continue;
-                    PS2_LOG("[PS2][SLOW] rank=%d frame=%d coreMs=%.2f arm9Instr=%llu arm7Instr=%llu arm9JitGuest=%llu arm7JitGuest=%llu tasks=%llu gpu2dA=%llu gpu2dB=%llu render3d=%llu\n",
+                    PS2_LOG("[PS2][SLOW] rank=%d frame=%d coreMs=%.2f arm9Instr=%llu arm7Instr=%llu arm9JitGuest=%llu arm7JitGuest=%llu tasks=%llu gpu2dA=%llu gpu2dB=%llu render3d=%llu arm9Pc=%08lX arm7Pc=%08lX dispA=%08lX dispB=%08lX bldA=%04X bldB=%04X disp3d=%04X polygons=%u\n",
                         slowRank + 1,
                         slow.frame,
                         static_cast<double>(slow.coreTicks) * 1000.0 /
@@ -2448,7 +2471,15 @@ int main(int argc, char **argv)
                         static_cast<unsigned long long>(slow.taskCount),
                         static_cast<unsigned long long>(slow.gpu2dACalls),
                         static_cast<unsigned long long>(slow.gpu2dBCalls),
-                        static_cast<unsigned long long>(slow.gpu3dCalls));
+                        static_cast<unsigned long long>(slow.gpu3dCalls),
+                        static_cast<unsigned long>(slow.arm9Pc),
+                        static_cast<unsigned long>(slow.arm7Pc),
+                        static_cast<unsigned long>(slow.dispCntA),
+                        static_cast<unsigned long>(slow.dispCntB),
+                        static_cast<unsigned>(slow.bldCntA),
+                        static_cast<unsigned>(slow.bldCntB),
+                        static_cast<unsigned>(slow.disp3dCnt),
+                        static_cast<unsigned>(slow.polygonCount));
                 }
 #endif
 
