@@ -847,18 +847,20 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
             start = i;
     }
 
-    // Set the starting edges
-    int v[4] =
-    {
-        start, (start + 1)                 % polygon->size,
-        start, (start - 1 + polygon->size) % polygon->size
-    };
+    // Set the starting edges. Avoid variable modulo in this per-polygon,
+    // per-scanline walk; polygon size is tiny and explicit wrap is exact.
+    int nextVertex = start + 1;
+    if (nextVertex >= polygon->size) nextVertex = 0;
+    int prevVertex = start - 1;
+    if (prevVertex < 0) prevVertex = polygon->size - 1;
+    int v[4] = { start, nextVertex, start, prevVertex };
 
     // Follow the vertices forwards to the first intersecting edge
     while (vertices[v[1]]->y <= line)
     {
         v[0] = v[1];
-        v[1] = (v[1] + 1) % polygon->size;
+        v[1]++;
+        if (v[1] >= polygon->size) v[1] = 0;
         if (v[0] == start) break; // Full loop, no intersection
     }
 
@@ -866,7 +868,8 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
     while (vertices[v[3]]->y <= line)
     {
         v[2] = v[3];
-        v[3] = (v[3] - 1 + polygon->size) % polygon->size;
+        v[3]--;
+        if (v[3] < 0) v[3] = polygon->size - 1;
         if (v[2] == start) break; // Full loop, no intersection
     }
 
