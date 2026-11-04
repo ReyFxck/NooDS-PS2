@@ -4045,137 +4045,82 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
         return emitArmMultiBlockTransferInstruction(opcode, code,
             registerCycles, registerCpsr, targetCpuId);
 
-    size_t words = 0;
-    size_t emitted = 0;
-    bool helperNeedsCpsr = false;
-
-    Ps2ArmAlu::DecodedHalfwordTransfer transfer;
-    if (Ps2ArmAlu::decodeHalfwordTransfer(opcode, &transfer))
+    Ps2ArmAlu::DecodedHalfwordTransfer halfwordTransfer;
+    if (Ps2ArmAlu::decodeHalfwordTransfer(opcode, &halfwordTransfer))
     {
-        if (transfer.load)
+        if (halfwordTransfer.load)
             return emitArmHalfwordLoadCachedInstruction(opcode, code,
                 registerCycles, registerCpsr, suppressResultStore,
                 targetCpuId);
-        if (!transfer.load && transfer.immediate)
-            return emitArmImmediateStoreFastInstruction(opcode, code,
+        return halfwordTransfer.immediate
+            ? emitArmImmediateStoreFastInstruction(opcode, code,
+                registerCycles, registerCpsr, targetCpuId)
+            : emitArmHalfwordRegisterStoreFastInstruction(opcode, code,
                 registerCycles, registerCpsr, targetCpuId);
-        if (!transfer.load && !transfer.immediate)
-            return emitArmHalfwordRegisterStoreFastInstruction(opcode, code,
-                registerCycles, registerCpsr, targetCpuId);
-
-        helperNeedsCpsr = transfer.condition != 0xEu;
-        if (registerCpsr && helperNeedsCpsr)
-            code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
-        if (registerCycles)
-            code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
-        emitted = emitArmHalfwordTransferInstruction(opcode, code + words);
     }
-    else
+
+    Ps2ArmAlu::DecodedByteTransfer byteTransfer;
+    if (Ps2ArmAlu::decodeByteTransfer(opcode, &byteTransfer))
     {
-        Ps2ArmAlu::DecodedByteTransfer byteTransfer;
-        if (Ps2ArmAlu::decodeByteTransfer(opcode, &byteTransfer))
-        {
-            if (byteTransfer.load)
-                return emitArmByteLoadCachedInstruction(opcode, code,
-                    registerCycles, registerCpsr, suppressResultStore,
-                    targetCpuId);
-            if (!byteTransfer.load && !byteTransfer.registerOffset)
-                return emitArmImmediateStoreFastInstruction(opcode, code,
-                    registerCycles, registerCpsr, targetCpuId);
-            if (!byteTransfer.load && byteTransfer.registerOffset)
-                return emitArmRegisterStoreFastInstruction(opcode, code,
-                    registerCycles, registerCpsr, targetCpuId);
-
-            helperNeedsCpsr = byteTransfer.condition != 0xEu;
-            if (registerCpsr && helperNeedsCpsr)
-                code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
-            if (registerCycles)
-                code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
-            emitted = emitArmByteTransferInstruction(opcode, code + words);
-        }
-        else
-        {
-            Ps2ArmAlu::DecodedLiteralLoad literalLoad;
-            if (Ps2ArmAlu::decodeLiteralLoad(opcode, &literalLoad))
-            {
-                if (directMemory)
-                {
-                    size_t direct = emitArmLiteralLoadDirectInstruction(opcode,
-                        pc, code, directMemory, registerCycles, registerCpsr,
-                        suppressResultStore, targetCpuId);
-                    if (direct)
-                        return direct;
-                }
-
-                helperNeedsCpsr = literalLoad.condition != 0xEu;
-                if (registerCpsr && helperNeedsCpsr)
-                    code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
-                if (registerCycles)
-                    code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
-                emitted = emitArmLiteralLoadInstruction(opcode, pc, code + words);
-            }
-            else
-            {
-                Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
-                if (Ps2ArmAlu::decodeSingleTransfer(opcode, &singleTransfer))
-                {
-                    if (singleTransfer.load)
-                        return emitArmWordLoadCachedInstruction(opcode, code,
-                            registerCycles, registerCpsr, suppressResultStore,
-                            targetCpuId);
-                    if (!singleTransfer.load && !singleTransfer.registerOffset)
-                        return emitArmImmediateStoreFastInstruction(opcode, code,
-                            registerCycles, registerCpsr, targetCpuId);
-                    if (!singleTransfer.load && singleTransfer.registerOffset)
-                        return emitArmRegisterStoreFastInstruction(opcode, code,
-                            registerCycles, registerCpsr);
-
-                    helperNeedsCpsr = singleTransfer.condition != 0xEu;
-                    if (registerCpsr && helperNeedsCpsr)
-                        code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
-                    if (registerCycles)
-                        code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
-                    emitted = emitArmSingleTransferInstruction(opcode, code + words);
-                }
-                else
-                {
-                    Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
-                    if (Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &blockTransfer))
-                    {
-                        return emitArmSingleBlockTransferFastInstruction(opcode,
-                            code, registerCycles, registerCpsr,
-                            forwardedGuestReg, forwardedCondition,
-                            reuseCondition, targetCpuId);
-                    }
-                    else
-                    {
-                        Ps2ArmAlu::DecodedBranchExchange branchExchange;
-                        if (Ps2ArmAlu::decodeBranchExchange(opcode,
-                            &branchExchange))
-                        {
-                            return emitArmBranchExchangeDirectInstruction(opcode,
-                                code, registerCycles, registerCpsr);
-                        }
-                        else
-                        {
-                            return emitArmBranchInstruction(opcode, pc, code,
-                                registerCycles, registerCpsr, reuseCondition);
-                        }
-                    }
-                }
-            }
-        }
+        if (byteTransfer.load)
+            return emitArmByteLoadCachedInstruction(opcode, code,
+                registerCycles, registerCpsr, suppressResultStore,
+                targetCpuId);
+        return byteTransfer.registerOffset
+            ? emitArmRegisterStoreFastInstruction(opcode, code,
+                registerCycles, registerCpsr, targetCpuId)
+            : emitArmImmediateStoreFastInstruction(opcode, code,
+                registerCycles, registerCpsr, targetCpuId);
     }
 
-    if (!emitted)
+    Ps2ArmAlu::DecodedLiteralLoad literalLoad;
+    if (Ps2ArmAlu::decodeLiteralLoad(opcode, &literalLoad))
+    {
+        if (directMemory)
+        {
+            size_t direct = emitArmLiteralLoadDirectInstruction(opcode,
+                pc, code, directMemory, registerCycles, registerCpsr,
+                suppressResultStore, targetCpuId);
+            if (direct)
+                return direct;
+        }
+
+        // A literal that does not resolve to a direct page is deliberately
+        // left to the interpreter instead of embedding a C++ helper in a hot
+        // compiled block. Normal ROM/RAM literals take the direct path above.
         return 0;
-    words += emitted;
-    if (registerCycles)
-        code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
-    if (registerCpsr && helperNeedsCpsr)
-        code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
-    return words;
-}
+    }
+
+    Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
+    if (Ps2ArmAlu::decodeSingleTransfer(opcode, &singleTransfer))
+    {
+        if (singleTransfer.load)
+            return emitArmWordLoadCachedInstruction(opcode, code,
+                registerCycles, registerCpsr, suppressResultStore,
+                targetCpuId);
+        return singleTransfer.registerOffset
+            ? emitArmRegisterStoreFastInstruction(opcode, code,
+                registerCycles, registerCpsr, targetCpuId)
+            : emitArmImmediateStoreFastInstruction(opcode, code,
+                registerCycles, registerCpsr, targetCpuId);
+    }
+
+    Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
+    if (Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &blockTransfer))
+    {
+        return emitArmSingleBlockTransferFastInstruction(opcode,
+            code, registerCycles, registerCpsr,
+            forwardedGuestReg, forwardedCondition,
+            reuseCondition, targetCpuId);
+    }
+
+    Ps2ArmAlu::DecodedBranchExchange branchExchange;
+    if (Ps2ArmAlu::decodeBranchExchange(opcode, &branchExchange))
+        return emitArmBranchExchangeDirectInstruction(opcode,
+            code, registerCycles, registerCpsr);
+
+    return emitArmBranchInstruction(opcode, pc, code,
+        registerCycles, registerCpsr, reuseCondition);
 }
 
 bool DynarecR5900::emitArmAluBlock(uint32_t opcode, uint32_t **entry, uint8_t *rdOut)
