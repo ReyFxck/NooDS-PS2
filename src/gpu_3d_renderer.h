@@ -28,6 +28,33 @@ class Core;
 struct Vertex;
 struct _Polygon;
 
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+struct Gpu3DDetailProfile
+{
+    uint64_t frames = 0;
+    uint64_t scanlines = 0;
+    uint64_t threadedFrames = 0;
+    uint64_t polygonCalls = 0;
+    uint64_t solidCalls = 0;
+    uint64_t translucentCalls = 0;
+    uint64_t polygonSamples = 0;
+    uint64_t sampledPixels = 0;
+    uint64_t linearPixels = 0;
+    uint64_t perspectivePixels = 0;
+    uint64_t depthTests = 0;
+    uint64_t depthFailBoth = 0;
+    uint64_t shadowPixels = 0;
+    uint64_t textureSamples = 0;
+    uint64_t textureFormat[8] = {};
+    uint64_t alphaRejects = 0;
+    uint64_t opaqueWrites = 0;
+    uint64_t transparentWrites = 0;
+    uint64_t blendOps = 0;
+    uint64_t fogPixels = 0;
+    uint64_t edgePixels = 0;
+};
+#endif
+
 class Gpu3DRenderer
 {
     public:
@@ -37,6 +64,23 @@ class Gpu3DRenderer
         void drawScanline(int line);
 
         uint32_t *getLine(int line);
+
+#ifdef NOODS_PROFILE
+        void setProfileEnabled(bool enabled) { profileEnabled = enabled; }
+        void resetProfile()
+        {
+#if NOODS_PROFILE_LEVEL >= 2
+            detailProfile = Gpu3DDetailProfile();
+            detailSampleState = 0;
+#endif
+        }
+#if NOODS_PROFILE_LEVEL >= 2
+        const Gpu3DDetailProfile &getDetailProfile() const
+        {
+            return detailProfile;
+        }
+#endif
+#endif
 
         uint16_t readDisp3DCnt() { return disp3DCnt; }
 
@@ -51,6 +95,14 @@ class Gpu3DRenderer
 
     private:
         Core *core;
+
+#ifdef NOODS_PROFILE
+        bool profileEnabled = false;
+#if NOODS_PROFILE_LEVEL >= 2
+        Gpu3DDetailProfile detailProfile;
+        uint32_t detailSampleState = 0;
+#endif
+#endif
 
         uint32_t framebuffer[2][256 * 192] = {};
         int32_t depthBuffer[2][256 * 192] = {};
@@ -93,7 +145,7 @@ class Gpu3DRenderer
         static uint32_t interpolateColor(uint32_t c1, uint32_t c2, uint32_t x1, uint32_t x, uint32_t x2);
 
         uint32_t readTexture(_Polygon *polygon, int s, int t,
-            uint8_t *basePalette);
+            uint8_t *basePalette, bool profileSampled = false);
         void drawPolygon(int line, int polygonIndex);
 };
 
