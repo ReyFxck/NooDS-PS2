@@ -4970,6 +4970,56 @@ bool DynarecR5900::runArmAluSelfTest()
     if (literalState.memoryFault || literalState.r[1] != literalExpected)
         return false;
 
+    // Gate the direct ARM7 literal path with native load timing.
+    uint8_t *arm7LiteralPage =
+        memory->getDirectReadPage(1, literalPc + 8u);
+    if (!arm7LiteralPage)
+        return false;
+    uint32_t arm7LiteralExpected =
+        static_cast<uint32_t>(arm7LiteralPage[literalOffset]) |
+        (static_cast<uint32_t>(arm7LiteralPage[literalOffset + 1]) << 8) |
+        (static_cast<uint32_t>(arm7LiteralPage[literalOffset + 2]) << 16) |
+        (static_cast<uint32_t>(arm7LiteralPage[literalOffset + 3]) << 24);
+    uint32_t *arm7LiteralCode = cache.reserveWords(64);
+    if (!arm7LiteralCode)
+        return false;
+    size_t arm7LiteralWords = emitArmLiteralLoadDirectInstruction(
+        0x059F1000u, literalPc, arm7LiteralCode, memory,
+        false, false, false, 1); // LDR.EQ r1,[pc]
+    if (!arm7LiteralWords)
+        return false;
+    arm7LiteralCode[arm7LiteralWords++] = R5900::jr(R5900::R_RA);
+    arm7LiteralCode[arm7LiteralWords++] = R5900::nop();
+    cache.commitWords(arm7LiteralWords);
+    cache.syncExecutable(arm7LiteralCode,
+        arm7LiteralCode + arm7LiteralWords);
+    ArmLiteralFunction arm7LiteralFunction =
+        reinterpret_cast<ArmLiteralFunction>(arm7LiteralCode);
+    {
+        ArmAluState notTaken = {};
+        notTaken.r[1] = 0xCAFEBABEu;
+        notTaken.cpsr = 0x00000013u;
+        notTaken.memory = memory;
+        notTaken.cpuId = 1;
+        arm7LiteralFunction(&notTaken);
+        if (notTaken.memoryFault ||
+            notTaken.r[1] != 0xCAFEBABEu ||
+            notTaken.cycles != 1u)
+            return false;
+    }
+    {
+        ArmAluState taken = {};
+        taken.r[1] = 0xCAFEBABEu;
+        taken.cpsr = 0x40000013u;
+        taken.memory = memory;
+        taken.cpuId = 1;
+        arm7LiteralFunction(&taken);
+        if (taken.memoryFault ||
+            taken.r[1] != arm7LiteralExpected ||
+            taken.cycles != 3u)
+            return false;
+    }
+
     // Gate the hot single-register LDMIA/STMIA form on a direct ARM9 page.
     uint32_t *blockLoadCode = cache.reserveWords(32);
     if (!blockLoadCode)
