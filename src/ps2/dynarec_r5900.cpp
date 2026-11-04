@@ -7415,7 +7415,13 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
         block->activeReady = true;
     }
 
+    // Keep guest state resident across a short chain of already-verified
+    // ARM7 blocks. Unlike the ARM9 chain, this first ARM7 version stops after
+    // the first actual memory write, so no later compiled code can observe or
+    // be invalidated by a store before the final architectural commit.
     ArmAluState state;
+    uint16_t initializedMask = block->inputMask;
+    uint16_t unionWriteMask = static_cast<uint16_t>(block->writeMask & 0x7FFFu);
     for (uint8_t i = 0; i < block->inputRegCount; i++)
     {
         uint8_t reg = block->inputRegs[i];
@@ -7424,7 +7430,6 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
 
     uint32_t liveCpsr = CpuBackendAccess::readCpsr(cpu);
     state.cpsr = liveCpsr;
-    state.nextPc = block->guestEndPc;
     state.memory = memory;
     state.memoryFault = 0;
     state.writeCount = 0;
@@ -7438,32 +7443,133 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
     state.cpuId = 1;
 
     ArmMemoryWriteGuard liveWrites(&state);
-    typedef void (*Arm7ActiveFunction)(ArmAluState *);
-    Arm7ActiveFunction function =
-        reinterpret_cast<Arm7ActiveFunction>(block->hostCode);
-    function(&state);
+    constexpr uint32_t WRITE_JOURNAL_CAPACITY =
+        sizeof(state.writes) / sizeof(state.writes[0]);
+    constexpr uint32_t MAX_ARM7_RESIDENT_BLOCKS = 8;
 
-    if (state.readCacheTag && state.readCachePage)
-    {
-        block->cachedReadTag = state.readCacheTag;
-        block->cachedReadPage = state.readCachePage;
-    }
-    if (state.writeCacheTag && state.writeCachePage)
-    {
-        block->cachedWriteTag = state.writeCacheTag;
-        block->cachedWritePage = state.writeCachePage;
-    }
+    uint32_t totalCycles = 0;
+    uint32_t executedGuest = 0;
+    uint32_t executedBlocks = 0;
+    R5900CompiledBlock *current = block;
+    uint8_t unionCommitRegs[15] = {};
+    uint8_t unionCommitRegCount = 0;
+    bool buildingUnionCommit = false;
 
-    if (state.memoryFault || state.writeCount > 16 ||
-        ((state.cpsr ^ liveCpsr) & 0x1Fu) ||
-        !state.cycles || state.cycles > cycleBudget)
+    while (current && executedBlocks < MAX_ARM7_RESIDENT_BLOCKS)
     {
-        if (state.cycles > cycleBudget)
+        uint32_t remainingBudget = cycleBudget - totalCycles;
+        uint32_t writesBefore = state.writeCount;
+        state.nextPc = current->guestEndPc;
+        state.guestExecuted = 0;
+        state.cycles = 0;
+        state.cycleLimit = remainingBudget;
+
+        typedef void (*Arm7ActiveFunction)(ArmAluState *);
+        Arm7ActiveFunction function =
+            reinterpret_cast<Arm7ActiveFunction>(current->hostCode);
+        function(&state);
+        uint32_t blockCycles = state.cycles;
+
+        if (state.readCacheTag && state.readCachePage)
         {
-            DYNAREC_PROFILE(profile.activeBudgetFallbacks++);
-            return -static_cast<int>(minimumCycles);
+            current->cachedReadTag = state.readCacheTag;
+            current->cachedReadPage = state.readCachePage;
+        }
+        if (state.writeCacheTag && state.writeCachePage)
+        {
+            current->cachedWriteTag = state.writeCacheTag;
+            current->cachedWritePage = state.writeCachePage;
         }
 
+        uint32_t blockGuest = state.guestExecuted
+            ? state.guestExecuted
+            : current->guestInstructions;
+        executedGuest += blockGuest;
+        executedBlocks++;
+
+        if (state.memoryFault || state.writeCount < writesBefore ||
+            state.writeCount > WRITE_JOURNAL_CAPACITY ||
+            ((state.cpsr ^ liveCpsr) & 0x1Fu) ||
+            !blockCycles || blockCycles > remainingBudget)
+        {
+            if (blockCycles > remainingBudget)
+            {
+                DYNAREC_PROFILE(profile.activeBudgetFallbacks++);
+                return -static_cast<int>(minimumCycles);
+            }
+
+            DYNAREC_PROFILE(profile.activeStateFallbacks++);
+            return 0;
+        }
+
+        totalCycles += blockCycles;
+
+        uint16_t currentWriteMask = static_cast<uint16_t>(
+            current->writeMask & 0x7FFFu);
+        if (buildingUnionCommit)
+        {
+            uint16_t newWrites = static_cast<uint16_t>(
+                currentWriteMask & ~unionWriteMask);
+            for (uint8_t i = 0; i < current->writeRegCount; i++)
+            {
+                uint8_t reg = current->writeRegs[i];
+                if (newWrites & static_cast<uint16_t>(1u << reg))
+                    unionCommitRegs[unionCommitRegCount++] = reg;
+            }
+        }
+        initializedMask |= currentWriteMask;
+        unionWriteMask |= currentWriteMask;
+
+        bool wroteThisBlock = state.writeCount > writesBefore;
+        if (wroteThisBlock)
+        {
+            if (executedBlocks > 1)
+                DYNAREC_PROFILE(profile.activeStoreChainBlocks++);
+            break;
+        }
+
+        if ((state.cpsr & BIT(5)) ||
+            executedBlocks >= MAX_ARM7_RESIDENT_BLOCKS ||
+            totalCycles >= cycleBudget)
+            break;
+
+        uint32_t remaining = cycleBudget - totalCycles;
+        R5900CompiledBlock *next = findMutableBlock(state.nextPc, false);
+        if (!next || !next->activeReady || !next->arm7TimingSafe ||
+            next->guestInstructions < MIN_ARM7_ACTIVE_INSTRUCTIONS ||
+            !next->cycles || next->cycles > remaining)
+            break;
+
+        if (next->writesMemory &&
+            (!next->maxMemoryWrites ||
+             state.writeCount + next->maxMemoryWrites >
+                WRITE_JOURNAL_CAPACITY))
+            break;
+
+        uint16_t nextInputMask = next->inputMask;
+        for (uint8_t i = 0; i < next->inputRegCount; i++)
+        {
+            uint8_t reg = next->inputRegs[i];
+            uint16_t bit = static_cast<uint16_t>(1u << reg);
+            if (!(initializedMask & bit))
+                state.r[reg] = CpuBackendAccess::readReg(cpu, reg);
+        }
+        initializedMask |= nextInputMask;
+
+        if (!buildingUnionCommit)
+        {
+            for (uint8_t i = 0; i < block->writeRegCount; i++)
+                unionCommitRegs[i] = block->writeRegs[i];
+            unionCommitRegCount = block->writeRegCount;
+            buildingUnionCommit = true;
+        }
+
+        current = next;
+        DYNAREC_PROFILE(profile.activeInternalChainBlocks++);
+    }
+
+    if (!totalCycles)
+    {
         DYNAREC_PROFILE(profile.activeStateFallbacks++);
         return 0;
     }
@@ -7479,8 +7585,16 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
         }
     }
 
+    const uint8_t *commitRegs = block->writeRegs;
+    uint8_t commitRegCount = block->writeRegCount;
+    if (executedBlocks > 1)
+    {
+        commitRegs = unionCommitRegs;
+        commitRegCount = unionCommitRegCount;
+    }
+
     if (!CpuBackendAccess::commitBlockStateSparse(cpu, state.r,
-        block->writeRegs, block->writeRegCount, state.cpsr, state.nextPc))
+        commitRegs, commitRegCount, state.cpsr, state.nextPc))
     {
         DYNAREC_PROFILE(profile.activeStateFallbacks++);
         return 0;
@@ -7488,16 +7602,13 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
 
     liveWrites.dismiss();
 
-    uint32_t executedGuest = state.guestExecuted
-        ? state.guestExecuted
-        : block->guestInstructions;
-    DYNAREC_PROFILE(profile.activeExecutions++);
+    DYNAREC_PROFILE(profile.activeExecutions += executedBlocks);
     DYNAREC_PROFILE(profile.activeGuestInstructions += executedGuest);
-    DYNAREC_PROFILE(profile.activeCycles += state.cycles);
+    DYNAREC_PROFILE(profile.activeCycles += totalCycles);
     if (guestInstructions)
         *guestInstructions = executedGuest;
 
-    int committedCycles = static_cast<int>(state.cycles);
+    int committedCycles = static_cast<int>(totalCycles);
     if (invalidatesCompiledCode)
     {
         DYNAREC_PROFILE(profile.activeCodeWriteInvalidations++);
@@ -7505,7 +7616,6 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
     }
     return committedCycles;
 }
-
 
 int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
     uint32_t *guestPcOut, uint32_t *instructionCount, uint32_t *stateHash)
