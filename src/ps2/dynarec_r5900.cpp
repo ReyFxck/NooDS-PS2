@@ -2981,7 +2981,12 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     size_t words = 0;
     if (registerCpsr)
         code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
-    code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
+
+    // Every generated block reports a cycle delta, not a chain-global total.
+    // The active executor supplies the remaining budget through cycleLimit and
+    // accumulates deltas between blocks. Starting t8 at zero avoids reloading
+    // state.cycles on every internal-chain entry.
+    code[words++] = R5900::or_(R5900::R_T8, R5900::R_ZERO, R5900::R_ZERO);
 
     size_t bodyStart = words;
     int forwardedGuestReg = -1;
@@ -4445,6 +4450,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     ArmMemoryWriteGuard liveWrites(&state);
     uint32_t executedGuestInstructions = 0;
     uint32_t executedBlocks = 0;
+    uint32_t totalCycles = 0;
     uint8_t unionCommitRegs[15] = {};
     uint8_t unionCommitRegCount = 0;
     bool buildingUnionCommit = false;
@@ -4453,14 +4459,17 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
 
     while (current && executedBlocks < MAX_INTERNAL_CHAIN_BLOCKS)
     {
+        uint32_t remainingBudget = cycleBudget - totalCycles;
         state.nextPc = current->guestEndPc;
         state.guestExecuted = 0;
+        state.cycles = 0;
+        state.cycleLimit = remainingBudget;
 
         typedef void (*ArmAluBlockFunction)(ArmAluState *);
         ArmAluBlockFunction function =
             reinterpret_cast<ArmAluBlockFunction>(current->hostCode);
-        uint32_t cyclesBefore = state.cycles;
         function(&state);
+        uint32_t blockCycles = state.cycles;
 
         if (state.readCacheTag && state.readCachePage)
         {
@@ -4481,18 +4490,21 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
 
         // No architectural CPU state has been committed yet. Any generated
         // failure discards the whole internal chain and the write guard rolls
-        // memory back to the exact entry state.
+        // memory back to the exact entry state. blockCycles is local to this
+        // generated block; totalCycles tracks the complete internal chain.
         if (state.memoryFault || ((state.cpsr ^ liveCpsr) & 0x1Fu) ||
-            state.cycles <= cyclesBefore || state.cycles > cycleBudget)
+            !blockCycles || blockCycles > remainingBudget)
         {
-            if (state.cycles > cycleBudget)
+            if (blockCycles > remainingBudget)
                 profile.activeBudgetFallbacks++;
             else
                 profile.activeStateFallbacks++;
-            return state.cycles > cycleBudget
-                ? -static_cast<int>(state.cycles)
+            return blockCycles > remainingBudget
+                ? -static_cast<int>(totalCycles + blockCycles)
                 : 0;
         }
+
+        totalCycles += blockCycles;
 
         uint16_t currentWriteMask = static_cast<uint16_t>(
             current->writeMask & 0x7FFFu);
@@ -4523,7 +4535,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         if (executedBlocks >= MAX_INTERNAL_CHAIN_BLOCKS)
             break;
 
-        uint32_t remaining = cycleBudget - state.cycles;
+        uint32_t remaining = cycleBudget - totalCycles;
         R5900CompiledBlock *next = findMutableBlock(state.nextPc, false);
         if (!next || !next->activeReady || next->writesMemory ||
             next->guestInstructions < MIN_ACTIVE_GUEST_INSTRUCTIONS ||
@@ -4550,7 +4562,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         profile.activeInternalChainBlocks++;
     }
 
-    if (!state.cycles)
+    if (!totalCycles)
     {
         profile.activeStateFallbacks++;
         return 0;
@@ -4601,9 +4613,9 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
 
     profile.activeExecutions += executedBlocks;
     profile.activeGuestInstructions += executedGuestInstructions;
-    profile.activeCycles += state.cycles;
+    profile.activeCycles += totalCycles;
     if (guestInstructions)
         *guestInstructions = executedGuestInstructions;
 
-    return static_cast<int>(state.cycles);
+    return static_cast<int>(totalCycles);
 }
