@@ -47,6 +47,7 @@ namespace R5900
     constexpr uint32_t srlv(int rd,int rt,int rs)    { return rType(rs, rt, rd, 0, 0x06); }
     constexpr uint32_t srav(int rd,int rt,int rs)    { return rType(rs, rt, rd, 0, 0x07); }
     constexpr uint32_t movz(int rd,int rs,int rt)    { return rType(rs, rt, rd, 0, 0x0A); }
+    constexpr uint32_t movn(int rd,int rs,int rt)    { return rType(rs, rt, rd, 0, 0x0B); }
     constexpr uint32_t sltu(int rd,int rs,int rt)     { return rType(rs, rt, rd, 0, 0x2B); }
 
     constexpr uint32_t addiu(int rt,int rs,int16_t i){ return iType(0x09, rs, rt, uint16_t(i)); }
@@ -78,6 +79,7 @@ namespace R5900
     static_assert(sra(R_T2, R_T1, 4) == 0x00095103u, "R5900 SRA encoding");
     static_assert(sllv(R_T2, R_T1, R_T3) == 0x01695004u, "R5900 SLLV encoding");
     static_assert(movz(R_T1, R_ZERO, R_T4) == 0x000C480Au, "R5900 MOVZ encoding");
+    static_assert(movn(R_T7, R_T6, R_T5) == 0x01CD780Bu, "R5900 MOVN encoding");
     static_assert(sltu(R_T2, R_T0, R_T1) == 0x0109502Bu, "R5900 SLTU encoding");
 }
 

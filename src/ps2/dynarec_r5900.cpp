@@ -1142,8 +1142,8 @@ size_t emitArmFlags(const Ps2ArmAlu::Decoded &decoded, uint32_t *code,
 
     if (!arithmetic && logicalCarryValid)
     {
-        code[words++] = R5900::sll(R5900::R_T4, R5900::R_T4, 29);
-        code[words++] = R5900::or_(cpsrReg, cpsrReg, R5900::R_T4);
+        code[words++] = R5900::sll(R5900::R_T7, R5900::R_T7, 29);
+        code[words++] = R5900::or_(cpsrReg, cpsrReg, R5900::R_T7);
     }
 
     if (arithmetic)
@@ -1208,10 +1208,9 @@ bool logicalShiftNeedsHelper(const Ps2ArmAlu::Decoded &decoded)
         decoded.operation == 14 || decoded.operation == 15;
     if (!logical)
         return false;
-    // Immediate operands and immediate shifts have a compile-time carry
-    // position and are emitted directly. Register shifts keep the helper until
-    // the amount==0/32/>32 carry rules are gated separately.
-    return !decoded.immediate && decoded.registerShift;
+    // All admitted logical shifter forms, including register shifts, have
+    // explicit carry handling in the R5900 emitter. RRX is rejected by decode().
+    return false;
 }
 
 size_t emitArmAluHelperInstruction(uint32_t opcode, uint32_t *code)
@@ -1304,7 +1303,7 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
     {
         if (logicalSetFlags && decoded.immediateRotate)
         {
-            code[words++] = R5900::addiu(R5900::R_T4, R5900::R_ZERO,
+            code[words++] = R5900::addiu(R5900::R_T7, R5900::R_ZERO,
                 static_cast<int16_t>((decoded.immediateValue >> 31) & 1u));
             logicalCarryValid = true;
         }
@@ -1359,10 +1358,10 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
 
             if (hasCarry)
             {
-                code[words++] = R5900::srl(R5900::R_T4, R5900::R_T1,
+                code[words++] = R5900::srl(R5900::R_T7, R5900::R_T1,
                     carryShift);
-                code[words++] = R5900::andi(R5900::R_T4,
-                    R5900::R_T4, 1u);
+                code[words++] = R5900::andi(R5900::R_T7,
+                    R5900::R_T7, 1u);
                 logicalCarryValid = true;
             }
         }
@@ -1381,6 +1380,79 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
                     static_cast<int16_t>(decoded.rs * 4), R5900::R_A0);
             }
             code[words++] = R5900::andi(R5900::R_T3, R5900::R_T3, 0xFFu);
+
+            if (logicalSetFlags)
+            {
+                // T6 holds the old ARM carry so amount==0 can preserve it.
+                if (registerCpsr)
+                    code[words++] = R5900::srl(R5900::R_T6, R5900::R_V1, 29);
+                else
+                {
+                    code[words++] = R5900::lw(R5900::R_T6, 64, R5900::R_A0);
+                    code[words++] = R5900::srl(R5900::R_T6, R5900::R_T6, 29);
+                }
+                code[words++] = R5900::andi(R5900::R_T6, R5900::R_T6, 1u);
+
+                switch (decoded.shiftType)
+                {
+                    case 0: // LSL Rs
+                        code[words++] = R5900::subu(R5900::R_T4,
+                            R5900::R_ZERO, R5900::R_T3);
+                        code[words++] = R5900::srlv(R5900::R_T7,
+                            R5900::R_T1, R5900::R_T4);
+                        code[words++] = R5900::andi(R5900::R_T7,
+                            R5900::R_T7, 1u);
+                        code[words++] = R5900::sltiu(R5900::R_T5,
+                            R5900::R_T3, 33u);
+                        code[words++] = R5900::movz(R5900::R_T7,
+                            R5900::R_ZERO, R5900::R_T5);
+                        break;
+                    case 1: // LSR Rs
+                        code[words++] = R5900::addiu(R5900::R_T4,
+                            R5900::R_T3, -1);
+                        code[words++] = R5900::srlv(R5900::R_T7,
+                            R5900::R_T1, R5900::R_T4);
+                        code[words++] = R5900::andi(R5900::R_T7,
+                            R5900::R_T7, 1u);
+                        code[words++] = R5900::sltiu(R5900::R_T5,
+                            R5900::R_T3, 33u);
+                        code[words++] = R5900::movz(R5900::R_T7,
+                            R5900::R_ZERO, R5900::R_T5);
+                        break;
+                    case 2: // ASR Rs
+                        code[words++] = R5900::addiu(R5900::R_T4,
+                            R5900::R_T3, -1);
+                        code[words++] = R5900::srlv(R5900::R_T7,
+                            R5900::R_T1, R5900::R_T4);
+                        code[words++] = R5900::andi(R5900::R_T7,
+                            R5900::R_T7, 1u);
+                        code[words++] = R5900::srl(R5900::R_T5,
+                            R5900::R_T1, 31);
+                        code[words++] = R5900::sltiu(R5900::R_T4,
+                            R5900::R_T3, 32u);
+                        code[words++] = R5900::movz(R5900::R_T7,
+                            R5900::R_T5, R5900::R_T4);
+                        break;
+                    case 3: // ROR Rs
+                        code[words++] = R5900::addiu(R5900::R_T4,
+                            R5900::R_T3, -1);
+                        code[words++] = R5900::srlv(R5900::R_T7,
+                            R5900::R_T1, R5900::R_T4);
+                        code[words++] = R5900::andi(R5900::R_T7,
+                            R5900::R_T7, 1u);
+                        break;
+                    default:
+                        return 0;
+                }
+
+                // Every register-shift form preserves the old C when Rs[7:0]
+                // is zero. MOVN applies the saved carry only for that case.
+                code[words++] = R5900::sltiu(R5900::R_T5,
+                    R5900::R_T3, 1u);
+                code[words++] = R5900::movn(R5900::R_T7,
+                    R5900::R_T6, R5900::R_T5);
+                logicalCarryValid = true;
+            }
 
             switch (decoded.shiftType)
             {
@@ -3570,6 +3642,51 @@ bool DynarecR5900::runArmAluSelfTest()
         ArmAluState actual = source;
         typedef void (*ArmAluFunction)(ArmAluState *);
         ArmAluFunction function = reinterpret_cast<ArmAluFunction>(entry);
+        function(&actual);
+        if (std::memcmp(&actual, &expected, sizeof(actual)) != 0)
+            return false;
+    }
+
+    // Gate register-shift carry boundaries directly in generated R5900 code.
+    struct RegShiftFlagTest
+    {
+        uint32_t opcode;
+        uint32_t amount;
+        uint32_t value;
+        uint32_t cpsr;
+    };
+    const RegShiftFlagTest regShiftFlagTests[] =
+    {
+        { 0xE1B02013u,  0u, 0x80000001u, 0x20000013u }, // LSL Rs: preserve C
+        { 0xE1B02013u, 32u, 0x80000001u, 0x00000013u }, // LSL #32: C=bit0
+        { 0xE1B02013u, 33u, 0x80000001u, 0x20000013u }, // LSL >32: C=0
+        { 0xE1B02033u, 32u, 0x80000001u, 0x00000013u }, // LSR #32: C=bit31
+        { 0xE1B02033u, 33u, 0x80000001u, 0x20000013u }, // LSR >32: C=0
+        { 0xE1B02053u, 33u, 0x80000001u, 0x00000013u }, // ASR >=32: C=sign
+        { 0xE1B02073u, 32u, 0x80000001u, 0x00000013u }, // ROR #32: C=bit31
+        { 0xE1B02073u, 33u, 0x80000001u, 0x00000013u }  // ROR #33: C=bit0
+    };
+    for (size_t i = 0;
+        i < sizeof(regShiftFlagTests) / sizeof(regShiftFlagTests[0]); i++)
+    {
+        ArmAluState source = {};
+        source.r[0] = regShiftFlagTests[i].amount;
+        source.r[3] = regShiftFlagTests[i].value;
+        source.cpsr = regShiftFlagTests[i].cpsr;
+        ArmAluState expected = source;
+        if (!applyArmAlu(regShiftFlagTests[i].opcode, &expected))
+            return false;
+
+        uint32_t *entry = nullptr;
+        uint8_t rd = 0;
+        if (!emitArmAluBlock(regShiftFlagTests[i].opcode, &entry, &rd) ||
+            rd != 2)
+            return false;
+
+        ArmAluState actual = source;
+        typedef void (*ArmRegShiftFlagFunction)(ArmAluState *);
+        ArmRegShiftFlagFunction function =
+            reinterpret_cast<ArmRegShiftFlagFunction>(entry);
         function(&actual);
         if (std::memcmp(&actual, &expected, sizeof(actual)) != 0)
             return false;
