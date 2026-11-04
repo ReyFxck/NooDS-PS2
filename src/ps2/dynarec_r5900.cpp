@@ -5692,18 +5692,55 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
 
     auto writesOverlapBlockCode = [&](const R5900CompiledBlock *candidate)
     {
-        if (!candidate || !state.writeCount)
+        if (!candidate || !state.writeCount || !memory)
             return false;
 
         uint64_t codeStart = candidate->guestPc;
         uint64_t codeEnd = candidate->guestEndPc;
+        bool cpuId = state.cpuId != 0;
+
         for (uint32_t i = 0; i < state.writeCount; i++)
         {
             const ArmMemoryWrite &write = state.writes[i];
             uint64_t writeStart = write.address;
             uint64_t writeEnd = writeStart + write.size;
+
+            // Fast guest-address overlap catches the normal non-aliased case.
             if (writeStart < codeEnd && writeEnd > codeStart)
                 return true;
+
+            // DS RAM regions can be mirrored. Compare the actual direct-page
+            // bases and offsets too so a write through an alias cannot modify
+            // the bytes of a compiled successor behind our back.
+            uint8_t *writePage =
+                memory->getDirectWritePage(cpuId, write.address);
+            if (!writePage)
+                continue;
+
+            uint32_t codeAddress = candidate->guestPc;
+            while (codeAddress < candidate->guestEndPc)
+            {
+                uint8_t *codePage =
+                    memory->getDirectReadPage(cpuId, codeAddress);
+                uint32_t pageBase = codeAddress & ~0xFFFu;
+                uint32_t pageEnd = std::min<uint32_t>(
+                    candidate->guestEndPc, pageBase + 0x1000u);
+
+                if (codePage && codePage == writePage)
+                {
+                    uint32_t writeOffset = write.address & 0xFFFu;
+                    uint32_t writeOffsetEnd = writeOffset + write.size;
+                    uint32_t codeOffset = codeAddress & 0xFFFu;
+                    uint32_t codeOffsetEnd = pageEnd - pageBase;
+                    if (writeOffset < codeOffsetEnd &&
+                        writeOffsetEnd > codeOffset)
+                        return true;
+                }
+
+                if (pageEnd <= codeAddress)
+                    break;
+                codeAddress = pageEnd;
+            }
         }
         return false;
     };
@@ -5826,6 +5863,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
             unionCommitRegCount = block->writeRegCount;
             buildingUnionCommit = true;
         }
+        if (state.writeCount > writesBefore)
+            DYNAREC_PROFILE(profile.activeStoreChainBlocks++);
         current = next;
         DYNAREC_PROFILE(profile.activeInternalChainBlocks++);
     }

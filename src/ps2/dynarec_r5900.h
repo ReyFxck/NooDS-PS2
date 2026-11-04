@@ -61,6 +61,7 @@ struct R5900DynarecProfile
     uint64_t activeCycles = 0;
     uint64_t activePipelineReuses = 0;
     uint64_t activeInternalChainBlocks = 0;
+    uint64_t activeStoreChainBlocks = 0;
     uint64_t activeCompileMisses = 0;
     uint64_t activeBudgetFallbacks = 0;
     uint64_t activeWriteFallbacks = 0;
