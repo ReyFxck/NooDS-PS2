@@ -1597,6 +1597,62 @@ size_t emitArmSingleBlockTransferInstruction(uint32_t opcode,
     return words;
 }
 
+size_t emitArmBranchExchangeDirectInstruction(uint32_t opcode,
+    uint32_t *code, bool registerCycles, bool registerCpsr)
+{
+    Ps2ArmAlu::DecodedBranchExchange decoded;
+    if (!code || !Ps2ArmAlu::decodeBranchExchange(opcode, &decoded))
+        return 0;
+
+    size_t words = 0;
+    words += emitArmCycleAdd(1, code + words, registerCycles);
+
+    int cpsrReg = registerCpsr ? R5900::R_V1 : R5900::R_T5;
+    if (!registerCpsr)
+        code[words++] = R5900::lw(cpsrReg, 64, R5900::R_A0);
+
+    size_t conditionBranch = static_cast<size_t>(-1);
+    if (decoded.condition != 0xEu)
+    {
+        words += emitArmCondition(decoded.condition, code + words,
+            registerCpsr);
+        conditionBranch = words;
+        code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+    }
+
+    // Taken BX costs three cycles total.
+    words += emitArmCycleAdd(2, code + words, registerCycles);
+
+    code[words++] = R5900::lw(R5900::R_T0,
+        static_cast<int16_t>(decoded.rm * 4), R5900::R_A0);
+    code[words++] = R5900::andi(R5900::R_T1, R5900::R_T0, 1);
+    code[words++] = R5900::srl(R5900::R_T2, R5900::R_T0, 1);
+    code[words++] = R5900::sll(R5900::R_T2, R5900::R_T2, 1);
+    code[words++] = R5900::sw(R5900::R_T2, 68, R5900::R_A0);
+
+    // CPSR.T follows target bit 0; privileged mode and NZCV are untouched.
+    code[words++] = R5900::lui(R5900::R_T3, 0xFFFFu);
+    code[words++] = R5900::ori(R5900::R_T3, R5900::R_T3, 0xFFDFu);
+    code[words++] = R5900::and_(cpsrReg, cpsrReg, R5900::R_T3);
+    code[words++] = R5900::sll(R5900::R_T1, R5900::R_T1, 5);
+    code[words++] = R5900::or_(cpsrReg, cpsrReg, R5900::R_T1);
+
+    if (!registerCpsr)
+        code[words++] = R5900::sw(cpsrReg, 64, R5900::R_A0);
+
+    if (conditionBranch != static_cast<size_t>(-1))
+    {
+        size_t distance = words - (conditionBranch + 1);
+        if (distance > 0x7FFFu)
+            return 0;
+        code[conditionBranch] = R5900::beq(R5900::R_T7,
+            R5900::R_ZERO, static_cast<int16_t>(distance));
+    }
+
+    return words;
+}
+
 size_t emitArmBranchExchangeInstruction(uint32_t opcode, uint32_t *code)
 {
     Ps2ArmAlu::DecodedBranchExchange decoded;
@@ -1635,7 +1691,6 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
     size_t words = 0;
     size_t emitted = 0;
     bool helperNeedsCpsr = false;
-    bool helperWritesCpsr = false;
 
     Ps2ArmAlu::DecodedHalfwordTransfer transfer;
     if (Ps2ArmAlu::decodeHalfwordTransfer(opcode, &transfer))
@@ -1719,16 +1774,8 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
                         if (Ps2ArmAlu::decodeBranchExchange(opcode,
                             &branchExchange))
                         {
-                            helperNeedsCpsr = true;
-                            helperWritesCpsr = true;
-                            if (registerCpsr)
-                                code[words++] = R5900::sw(R5900::R_V1, 64,
-                                    R5900::R_A0);
-                            if (registerCycles)
-                                code[words++] = R5900::sw(R5900::R_T8, 84,
-                                    R5900::R_A0);
-                            emitted = emitArmBranchExchangeInstruction(opcode,
-                                code + words);
+                            return emitArmBranchExchangeDirectInstruction(opcode,
+                                code, registerCycles, registerCpsr);
                         }
                         else
                         {
@@ -1746,8 +1793,6 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
     words += emitted;
     if (registerCycles)
         code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
-    if (registerCpsr && helperWritesCpsr)
-        code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
     return words;
 }
 }
@@ -1856,6 +1901,13 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         Ps2ArmAlu::DecodedBranch branch;
         if (Ps2ArmAlu::decodeBranch(opcodes[i], &branch) &&
             branch.condition != 0xEu)
+        {
+            registerCpsr = true;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedBranchExchange branchExchange;
+        if (Ps2ArmAlu::decodeBranchExchange(opcodes[i], &branchExchange))
             registerCpsr = true;
     }
 
