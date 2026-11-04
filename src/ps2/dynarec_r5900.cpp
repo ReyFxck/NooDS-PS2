@@ -48,10 +48,34 @@ bool DynarecR5900::init(size_t cacheBytes)
     return emitProbe();
 }
 
+void DynarecR5900::clearActiveLookups()
+{
+    std::memset(activeBlockPc, 0, sizeof(activeBlockPc));
+    std::memset(activeBlockIndex, 0, sizeof(activeBlockIndex));
+    std::memset(activeRejectedPc, 0, sizeof(activeRejectedPc));
+    std::memset(activeRejectedKind, 0, sizeof(activeRejectedKind));
+}
+
+void DynarecR5900::cacheActiveReject(uint32_t pc, ActiveRejectKind kind)
+{
+    size_t slot = activeLookupSlot(pc);
+    activeRejectedPc[slot] = pc;
+    activeRejectedKind[slot] = static_cast<uint8_t>(kind);
+}
+
+DynarecR5900::ActiveRejectKind DynarecR5900::findActiveReject(
+    uint32_t pc) const
+{
+    size_t slot = activeLookupSlot(pc);
+    if (activeRejectedKind[slot] && activeRejectedPc[slot] == pc)
+        return static_cast<ActiveRejectKind>(activeRejectedKind[slot]);
+    return ACTIVE_REJECT_NONE;
+}
+
 void DynarecR5900::shutdown()
 {
     blocks.clear();
-    activeRejectedPcs.clear();
+    clearActiveLookups();
     cache.shutdown();
     mappedGeneration = 0;
     probeCode = nullptr;
@@ -60,7 +84,7 @@ void DynarecR5900::shutdown()
 void DynarecR5900::reset()
 {
     blocks.clear();
-    activeRejectedPcs.clear();
+    clearActiveLookups();
     cache.reset();
     mappedGeneration = memory ? memory->getMapGeneration() : 0;
     probeCode = nullptr;
@@ -95,11 +119,40 @@ const R5900CompiledBlock *DynarecR5900::findBlock(uint32_t pc, bool thumb) const
 
 R5900CompiledBlock *DynarecR5900::findMutableBlock(uint32_t pc, bool thumb)
 {
+    // The active executor currently handles ARM only. Keep the generic linear
+    // path for THUMB/future callers, while ARM gets a direct-mapped fast path.
+    if (!thumb)
+    {
+        size_t slot = activeLookupSlot(pc);
+        uint16_t indexPlusOne = activeBlockIndex[slot];
+        if (indexPlusOne && activeBlockPc[slot] == pc)
+        {
+            size_t index = static_cast<size_t>(indexPlusOne - 1);
+            if (index < blocks.size())
+            {
+                R5900CompiledBlock &block = blocks[index];
+                if (block.guestPc == pc && !block.thumb &&
+                    block.mapGeneration == mappedGeneration)
+                    return &block;
+            }
+
+            activeBlockIndex[slot] = 0;
+        }
+    }
+
     for (size_t i = 0; i < blocks.size(); i++)
     {
         if (blocks[i].guestPc == pc && blocks[i].thumb == thumb &&
             blocks[i].mapGeneration == mappedGeneration)
+        {
+            if (!thumb && i < 0xFFFFu)
+            {
+                size_t slot = activeLookupSlot(pc);
+                activeBlockPc[slot] = pc;
+                activeBlockIndex[slot] = static_cast<uint16_t>(i + 1);
+            }
             return &blocks[i];
+        }
     }
 
     return nullptr;
@@ -2208,22 +2261,28 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     synchronizeMemoryMap();
 
     uint32_t guestPc = CpuBackendAccess::nextInstructionAddress(cpu);
+    ActiveRejectKind rejected = findActiveReject(guestPc);
+    if (rejected != ACTIVE_REJECT_NONE)
+    {
+        if (rejected == ACTIVE_REJECT_WRITE)
+            profile.activeWriteFallbacks++;
+        else if (rejected == ACTIVE_REJECT_STATE)
+            profile.activeStateFallbacks++;
+        else
+            profile.activeVerifyFallbacks++;
+        return 0;
+    }
+
     R5900CompiledBlock *block = findMutableBlock(guestPc, false);
 
     if (!block)
     {
-        if (std::find(activeRejectedPcs.begin(), activeRejectedPcs.end(),
-            guestPc) != activeRejectedPcs.end())
+        // Keep enough room for realistic game code while still placing a hard
+        // ceiling on metadata growth. The 2 MiB code cache remains the actual
+        // generated-code capacity guard.
+        if (blocks.size() >= 2048)
         {
-            profile.activeVerifyFallbacks++;
-            return 0;
-        }
-
-        // Bound first-use validation work and generated-code memory. One
-        // instruction costs at least one ARM9 cycle, so a block longer than
-        // cycleBudget could never commit in this scheduler slot.
-        if (blocks.size() >= 256)
-        {
+            cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
             profile.activeVerifyFallbacks++;
             return 0;
         }
@@ -2235,7 +2294,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
             maxInstructions);
         if (shadow <= 0)
         {
-            activeRejectedPcs.push_back(guestPc);
+            cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
             profile.activeVerifyFallbacks++;
             return 0;
         }
@@ -2243,26 +2302,33 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         block = findMutableBlock(guestPc, false);
         if (!block)
         {
-            activeRejectedPcs.push_back(guestPc);
+            cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
             profile.activeVerifyFallbacks++;
             return 0;
         }
     }
 
+    // Every guest instruction costs at least one ARM cycle. Avoid executing
+    // generated code when the cached block cannot possibly fit this slot.
+    if (block->guestInstructions > cycleBudget)
+    {
+        profile.activeBudgetFallbacks++;
+        return 0;
+    }
+
     // The first active milestone is intentionally transactional/read-only.
-    // Direct stores already pass the shadow gate, but stay on the interpreter
-    // until live write journaling and rollback are proven in scheduler use.
     if (block->writesMemory)
     {
+        cacheActiveReject(guestPc, ACTIVE_REJECT_WRITE);
         profile.activeWriteFallbacks++;
         return 0;
     }
 
     // Generated blocks that explicitly read/write architectural R15 are kept
-    // out of live execution. Literal LDR has its own PC+8 helper and therefore
-    // does not set this mask bit.
+    // out of live execution. Literal LDR has its own PC+8 helper.
     if ((block->readMask | block->writeMask) & 0x8000u)
     {
+        cacheActiveReject(guestPc, ACTIVE_REJECT_STATE);
         profile.activeStateFallbacks++;
         return 0;
     }
@@ -2272,6 +2338,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         int differential = runArm9InterpreterDifferentialSelfTest(cpu);
         if (differential <= 0)
         {
+            cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
             profile.activeVerifyFallbacks++;
             return 0;
         }
@@ -2279,6 +2346,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         block = findMutableBlock(guestPc, false);
         if (!block || !block->differentialVerified)
         {
+            cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
             profile.activeVerifyFallbacks++;
             return 0;
         }

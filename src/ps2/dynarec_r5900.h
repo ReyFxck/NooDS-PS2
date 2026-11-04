@@ -162,14 +162,38 @@ class DynarecR5900
         size_t blockCount() const { return blocks.size(); }
 
     private:
+        static constexpr size_t ACTIVE_CACHE_SLOTS = 2048;
+        enum ActiveRejectKind : uint8_t
+        {
+            ACTIVE_REJECT_NONE = 0,
+            ACTIVE_REJECT_VERIFY,
+            ACTIVE_REJECT_WRITE,
+            ACTIVE_REJECT_STATE
+        };
+
         Memory *memory;
         R5900CodeCache cache;
         std::vector<R5900CompiledBlock> blocks;
-        std::vector<uint32_t> activeRejectedPcs;
+
+        // Direct-mapped live lookup caches. Collisions are harmless: at worst
+        // a PC is revalidated once. This avoids linear scans on every ARM9
+        // scheduler step after the active cache starts filling.
+        uint32_t activeBlockPc[ACTIVE_CACHE_SLOTS] = {};
+        uint16_t activeBlockIndex[ACTIVE_CACHE_SLOTS] = {};
+        uint32_t activeRejectedPc[ACTIVE_CACHE_SLOTS] = {};
+        uint8_t activeRejectedKind[ACTIVE_CACHE_SLOTS] = {};
+
         uint32_t mappedGeneration = 0;
         uint32_t *probeCode = nullptr;
         R5900DynarecProfile profile;
 
+        size_t activeLookupSlot(uint32_t pc) const
+        {
+            return ((pc >> 2) ^ (pc >> 13)) & (ACTIVE_CACHE_SLOTS - 1);
+        }
+        void clearActiveLookups();
+        void cacheActiveReject(uint32_t pc, ActiveRejectKind kind);
+        ActiveRejectKind findActiveReject(uint32_t pc) const;
         R5900CompiledBlock *findMutableBlock(uint32_t pc, bool thumb);
         bool emitArmAluBlock(uint32_t opcode, uint32_t **entry, uint8_t *rd);
         bool emitArmAluSequence(const uint32_t *opcodes, size_t count,

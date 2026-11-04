@@ -1126,7 +1126,7 @@ int main(int argc, char **argv)
 #else
     PS2_LOG(" Instrumentation: disabled\n");
 #endif
-    PS2_LOG(" Dynarec: ARM-ALU-v8 guarded-active\n");
+    PS2_LOG(" Dynarec: ARM-ALU-v9 guarded-active-fastcache\n");
     PS2_LOG("============================================================\n");
 
     if (argc > 0 && argv[0] && argv[0][0])
