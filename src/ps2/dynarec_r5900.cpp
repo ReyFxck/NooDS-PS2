@@ -4866,10 +4866,13 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         profile.activeCompileMisses++;
 
         // Compilation length is intentionally independent from cycleBudget.
-        // Active hot blocks may extend to 24 instructions; every candidate is
-        // still shadow-checked and differentially gated before live commit.
+        // Active hot blocks may extend to 24 instructions while the code cache
+        // has room; after 75% occupancy, fall back to the original 16-op size
+        // so late hot-PC discovery cannot consume the remaining cache too fast.
+        size_t activeCompileLimit =
+            (cache.usedBytes() * 4u < cache.capacity() * 3u) ? 24u : 16u;
         int shadow = runArm9BlockShadowSelfTest(cpu, nullptr, nullptr, nullptr,
-            24);
+            activeCompileLimit);
         if (shadow <= 0)
         {
             cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
