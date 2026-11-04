@@ -1168,9 +1168,27 @@ bool applyArmMultiBlockTransfer(ArmAluState *state, uint32_t opcode)
     if (Ps2ArmAlu::executeMultiBlockTransfer(opcode, state->r, &state->cpsr,
         state, readDirectArm9Word, writeDirectArm9Word))
     {
-        state->cycles += taken ? decoded.count : 1u;
+        if (!taken)
+            state->cycles += 1u;
+        else if (state->cpuId)
+            state->cycles += decoded.count + (decoded.load ? 2u : 1u);
+        else
+            state->cycles += decoded.count;
         return true;
     }
+
+    state->memoryFault = 1;
+    return false;
+}
+
+bool applyArmMultiBlockTransferFast(ArmAluState *state, uint32_t opcode)
+{
+    if (!state || !state->memory)
+        return false;
+
+    if (Ps2ArmAlu::executeMultiBlockTransfer(opcode, state->r, &state->cpsr,
+        state, readDirectArm9Word, writeDirectArm9Word))
+        return true;
 
     state->memoryFault = 1;
     return false;
@@ -3352,15 +3370,175 @@ size_t emitArmBranchExchangeInstruction(uint32_t opcode, uint32_t *code)
 }
 
 size_t emitArmMultiBlockTransferInstruction(uint32_t opcode,
-    uint32_t *code, bool registerCycles, bool registerCpsr)
+    uint32_t *code, bool registerCycles, bool registerCpsr,
+    uint8_t targetCpuId = 0)
 {
     Ps2ArmAlu::DecodedMultiBlockTransfer decoded;
     if (!code || !Ps2ArmAlu::decodeMultiBlockTransfer(opcode, &decoded))
         return 0;
 
     size_t words = 0;
-    bool needsCpsr = decoded.condition != 0xEu;
-    if (registerCpsr && needsCpsr)
+
+    // Every ARM instruction costs one cycle even when its condition fails.
+    words += emitArmCycleAdd(1u, code + words, registerCycles);
+    size_t conditionBranch = static_cast<size_t>(-1);
+    if (decoded.condition != 0xEu)
+    {
+        words += emitArmCondition(decoded.condition, code + words,
+            registerCpsr);
+        conditionBranch = words;
+        code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+    }
+
+    uint32_t takenCycles = targetCpuId
+        ? decoded.count + (decoded.load ? 2u : 1u)
+        : decoded.count;
+    words += emitArmCycleAdd(takenCycles - 1u,
+        code + words, registerCycles);
+
+    // t0 = first transfer address. IA starts at Rn; DB starts at
+    // Rn-count*4. The decoder excludes Rn from Rlist, so writeback is simple.
+    code[words++] = R5900::lw(R5900::R_T0,
+        static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+    if (decoded.decrementBefore)
+        code[words++] = R5900::addiu(R5900::R_T0, R5900::R_T0,
+            static_cast<int16_t>(-static_cast<int>(decoded.count * 4u)));
+
+    // The inline path requires aligned contiguous words wholly inside one
+    // direct page. Everything else falls through the portable direct helper.
+    code[words++] = R5900::andi(R5900::R_T4, R5900::R_T0, 3u);
+    size_t unalignedBranch = words;
+    code[words++] = R5900::bne(R5900::R_T4, R5900::R_ZERO, 0);
+    code[words++] = R5900::nop();
+
+    code[words++] = R5900::andi(R5900::R_T4, R5900::R_T0, 0x0FFFu);
+    uint16_t endLimit = static_cast<uint16_t>(
+        0x1000u - static_cast<uint32_t>(decoded.count) * 4u + 1u);
+    code[words++] = R5900::sltiu(R5900::R_T6, R5900::R_T4, endLimit);
+    size_t crossPageBranch = words;
+    code[words++] = R5900::beq(R5900::R_T6, R5900::R_ZERO, 0);
+    code[words++] = R5900::nop();
+
+    code[words++] = R5900::srl(R5900::R_T1, R5900::R_T0, 12);
+    code[words++] = R5900::addiu(R5900::R_T1, R5900::R_T1, 1);
+
+    size_t cacheMissBranch = words;
+    size_t nullPageBranch = static_cast<size_t>(-1);
+    size_t journalFullBranch = static_cast<size_t>(-1);
+
+    if (decoded.load)
+    {
+        code[words++] = R5900::lw(R5900::R_T2, 88, R5900::R_A0);
+        cacheMissBranch = words;
+        code[words++] = R5900::bne(R5900::R_T1, R5900::R_T2, 0);
+        code[words++] = R5900::nop();
+        code[words++] = R5900::lw(R5900::R_T3, 92, R5900::R_A0);
+        nullPageBranch = words;
+        code[words++] = R5900::beq(R5900::R_T3, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+        code[words++] = R5900::addu(R5900::R_T3,
+            R5900::R_T3, R5900::R_T4);
+
+        uint16_t mask = decoded.registerMask;
+        uint32_t slot = 0;
+        while (mask)
+        {
+            uint8_t reg = static_cast<uint8_t>(__builtin_ctz(mask));
+            code[words++] = R5900::lw(R5900::R_T2,
+                static_cast<int16_t>(slot * 4u), R5900::R_T3);
+            code[words++] = R5900::sw(R5900::R_T2,
+                static_cast<int16_t>(reg * 4u), R5900::R_A0);
+            slot++;
+            mask = static_cast<uint16_t>(mask & (mask - 1u));
+        }
+    }
+    else
+    {
+        code[words++] = R5900::lw(R5900::R_T2, 104, R5900::R_A0);
+        cacheMissBranch = words;
+        code[words++] = R5900::bne(R5900::R_T1, R5900::R_T2, 0);
+        code[words++] = R5900::nop();
+        code[words++] = R5900::lw(R5900::R_T3, 108, R5900::R_A0);
+        nullPageBranch = words;
+        code[words++] = R5900::beq(R5900::R_T3, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+
+        code[words++] = R5900::lw(R5900::R_T5, 80, R5900::R_A0);
+        code[words++] = R5900::sltiu(R5900::R_T6, R5900::R_T5,
+            static_cast<uint16_t>(17u - decoded.count));
+        journalFullBranch = words;
+        code[words++] = R5900::beq(R5900::R_T6, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+
+        code[words++] = R5900::addu(R5900::R_T3,
+            R5900::R_T3, R5900::R_T4);
+
+        uint16_t mask = decoded.registerMask;
+        uint32_t slot = 0;
+        while (mask)
+        {
+            uint8_t reg = static_cast<uint8_t>(__builtin_ctz(mask));
+            code[words++] = R5900::lw(R5900::R_T1,
+                static_cast<int16_t>(reg * 4u), R5900::R_A0);
+            code[words++] = R5900::sll(R5900::R_T6, R5900::R_T5, 4);
+            code[words++] = R5900::addiu(R5900::R_V0,
+                R5900::R_A0, 112);
+            code[words++] = R5900::addu(R5900::R_V0,
+                R5900::R_V0, R5900::R_T6);
+            code[words++] = R5900::lw(R5900::R_T2,
+                static_cast<int16_t>(slot * 4u), R5900::R_T3);
+
+            if (slot)
+            {
+                code[words++] = R5900::addiu(R5900::R_T6,
+                    R5900::R_T0, static_cast<int16_t>(slot * 4u));
+                code[words++] = R5900::sw(R5900::R_T6, 0, R5900::R_V0);
+            }
+            else
+            {
+                code[words++] = R5900::sw(R5900::R_T0, 0, R5900::R_V0);
+            }
+
+            code[words++] = R5900::sw(R5900::R_T2, 4, R5900::R_V0);
+            code[words++] = R5900::sw(R5900::R_T1, 8, R5900::R_V0);
+            code[words++] = R5900::addiu(R5900::R_T6,
+                R5900::R_ZERO, 4);
+            code[words++] = R5900::sw(R5900::R_T6, 12, R5900::R_V0);
+            code[words++] = R5900::sw(R5900::R_T1,
+                static_cast<int16_t>(slot * 4u), R5900::R_T3);
+            code[words++] = R5900::addiu(R5900::R_T5, R5900::R_T5, 1);
+
+            slot++;
+            mask = static_cast<uint16_t>(mask & (mask - 1u));
+        }
+
+        code[words++] = R5900::sw(R5900::R_T5, 80, R5900::R_A0);
+    }
+
+    if (decoded.writeBack)
+    {
+        if (decoded.decrementBefore)
+        {
+            code[words++] = R5900::sw(R5900::R_T0,
+                static_cast<int16_t>(decoded.rn * 4u), R5900::R_A0);
+        }
+        else
+        {
+            code[words++] = R5900::addiu(R5900::R_T2,
+                R5900::R_T0,
+                static_cast<int16_t>(decoded.count * 4u));
+            code[words++] = R5900::sw(R5900::R_T2,
+                static_cast<int16_t>(decoded.rn * 4u), R5900::R_A0);
+        }
+    }
+
+    size_t fastDoneBranch = words;
+    code[words++] = R5900::beq(R5900::R_ZERO, R5900::R_ZERO, 0);
+    code[words++] = R5900::nop();
+
+    size_t slowPath = words;
+    if (registerCpsr)
         code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
     if (registerCycles)
         code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
@@ -3372,7 +3550,8 @@ size_t emitArmMultiBlockTransferInstruction(uint32_t opcode,
         static_cast<uint16_t>(opcode >> 16));
     code[words++] = R5900::ori(R5900::R_A1, R5900::R_A1,
         static_cast<uint16_t>(opcode));
-    uintptr_t helper = reinterpret_cast<uintptr_t>(&applyArmMultiBlockTransfer);
+    uintptr_t helper =
+        reinterpret_cast<uintptr_t>(&applyArmMultiBlockTransferFast);
     code[words++] = R5900::lui(R5900::R_T9,
         static_cast<uint16_t>(helper >> 16));
     code[words++] = R5900::ori(R5900::R_T9, R5900::R_T9,
@@ -3385,8 +3564,39 @@ size_t emitArmMultiBlockTransferInstruction(uint32_t opcode,
 
     if (registerCycles)
         code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
-    if (registerCpsr && needsCpsr)
+    if (registerCpsr)
         code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
+
+    size_t done = words;
+
+    auto patchBeq = [&](size_t branch, int rs, int rt, size_t target)
+    {
+        if (branch == static_cast<size_t>(-1))
+            return true;
+        size_t distance = target - (branch + 1);
+        if (distance > 0x7FFFu)
+            return false;
+        code[branch] = R5900::beq(rs, rt, static_cast<int16_t>(distance));
+        return true;
+    };
+    auto patchBne = [&](size_t branch, int rs, int rt, size_t target)
+    {
+        size_t distance = target - (branch + 1);
+        if (distance > 0x7FFFu)
+            return false;
+        code[branch] = R5900::bne(rs, rt, static_cast<int16_t>(distance));
+        return true;
+    };
+
+    if (!patchBne(unalignedBranch, R5900::R_T4, R5900::R_ZERO, slowPath) ||
+        !patchBeq(crossPageBranch, R5900::R_T6, R5900::R_ZERO, slowPath) ||
+        !patchBne(cacheMissBranch, R5900::R_T1, R5900::R_T2, slowPath) ||
+        !patchBeq(nullPageBranch, R5900::R_T3, R5900::R_ZERO, slowPath) ||
+        !patchBeq(journalFullBranch, R5900::R_T6, R5900::R_ZERO, slowPath) ||
+        !patchBeq(fastDoneBranch, R5900::R_ZERO, R5900::R_ZERO, done) ||
+        !patchBeq(conditionBranch, R5900::R_T7, R5900::R_ZERO, done))
+        return 0;
+
     return words;
 }
 
@@ -3564,7 +3774,7 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
     Ps2ArmAlu::DecodedMultiBlockTransfer multiBlockTransfer;
     if (Ps2ArmAlu::decodeMultiBlockTransfer(opcode, &multiBlockTransfer))
         return emitArmMultiBlockTransferInstruction(opcode, code,
-            registerCycles, registerCpsr);
+            registerCycles, registerCpsr, targetCpuId);
 
     size_t words = 0;
     size_t emitted = 0;
@@ -3765,7 +3975,12 @@ uint32_t maxArmInstructionCycles(uint32_t opcode, uint8_t targetCpuId = 0)
 
     Ps2ArmAlu::DecodedMultiBlockTransfer multiBlockTransfer;
     if (Ps2ArmAlu::decodeMultiBlockTransfer(opcode, &multiBlockTransfer))
+    {
+        if (targetCpuId)
+            return multiBlockTransfer.count +
+                (multiBlockTransfer.load ? 2u : 1u);
         return multiBlockTransfer.count;
+    }
 
     Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
     if (Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &blockTransfer))
@@ -3829,8 +4044,14 @@ uint32_t minArmInstructionCycles(uint32_t opcode, uint8_t targetCpuId = 0)
 
     Ps2ArmAlu::DecodedMultiBlockTransfer multiBlockTransfer;
     if (Ps2ArmAlu::decodeMultiBlockTransfer(opcode, &multiBlockTransfer))
-        return multiBlockTransfer.condition == 0xEu
-            ? multiBlockTransfer.count : 1u;
+    {
+        if (multiBlockTransfer.condition != 0xEu)
+            return 1u;
+        if (targetCpuId)
+            return multiBlockTransfer.count +
+                (multiBlockTransfer.load ? 2u : 1u);
+        return multiBlockTransfer.count;
+    }
 
     Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
     if (Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &blockTransfer))
@@ -6451,6 +6672,13 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
             continue;
         }
 
+        Ps2ArmAlu::DecodedMultiBlockTransfer multiBlockTransfer;
+        if (Ps2ArmAlu::decodeMultiBlockTransfer(opcode, &multiBlockTransfer))
+        {
+            opcodes[count++] = opcode;
+            continue;
+        }
+
         Ps2ArmAlu::DecodedBranchExchange branchExchange;
         if (Ps2ArmAlu::decodeBranchExchange(opcode, &branchExchange))
         {
@@ -6550,6 +6778,14 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
         if (Ps2ArmAlu::decodeSingleBlockTransfer(opcodes[i], &blockTransfer))
         {
             if (!applyArmSingleBlockTransfer(&expected, opcodes[i]))
+                return 0;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedMultiBlockTransfer multiBlockTransfer;
+        if (Ps2ArmAlu::decodeMultiBlockTransfer(opcodes[i], &multiBlockTransfer))
+        {
+            if (!applyArmMultiBlockTransfer(&expected, opcodes[i]))
                 return 0;
             continue;
         }
