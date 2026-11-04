@@ -1389,7 +1389,7 @@ int main(int argc, char **argv)
             arm7ShadowReady = arm7ShadowDynarec->runProbe(&arm7Probe);
             if (arm7ShadowReady)
             {
-                PS2_LOG("[PS2][OK] ARM7 R5900 backend ready: probe=%08lX cache=%u bytes (ALU/branch only).\n",
+                PS2_LOG("[PS2][OK] ARM7 R5900 guarded backend ready: probe=%08lX cache=%u bytes (direct-memory + multiply + block-transfer subset).\n",
                     static_cast<unsigned long>(arm7Probe),
                     static_cast<unsigned int>(
                         arm7ShadowDynarec->codeCacheCapacity()));
@@ -1418,7 +1418,7 @@ int main(int argc, char **argv)
                             guestInstructions);
                 });
             arm7ActiveExecutorEnabled = true;
-            PS2_LOG("[PS2][OK] ARM7 guarded ALU/branch dynarec armed: every hot block must pass shadow+differential before live commit.\n");
+            PS2_LOG("[PS2][OK] ARM7 guarded dynarec armed: every hot block must pass shadow+differential before live commit.\n");
         }
 
         bool arm9ActiveExecutorEnabled = false;
@@ -1543,7 +1543,7 @@ int main(int argc, char **argv)
                 if (arm7ShadowAttempts == 1 || arm7ShadowAttempts == 4 ||
                     arm7ShadowAttempts == 8 || arm7ShadowAttempts == 16)
                 {
-                    PS2_LOG("[PS2] ARM7 shadow gate sample %lu/16: no ALU/branch-only ARM block at the current frame boundary.\n",
+                    PS2_LOG("[PS2] ARM7 shadow gate sample %lu/16: no supported ARM block at the current frame boundary.\n",
                         static_cast<unsigned long>(arm7ShadowAttempts));
                 }
                 return;
@@ -1551,7 +1551,7 @@ int main(int argc, char **argv)
             if (shadow < 0)
             {
                 arm7ShadowHardFailure = true;
-                PS2_LOG("[PS2][WARN] ARM7 ALU/branch R5900 shadow mismatch at sample %lu; ARM7 stays interpreter-only.\n",
+                PS2_LOG("[PS2][WARN] ARM7 R5900 shadow mismatch at sample %lu; ARM7 stays interpreter-only.\n",
                     static_cast<unsigned long>(arm7ShadowAttempts));
                 return;
             }

@@ -154,10 +154,11 @@ class DynarecR5900
             uint32_t *guestPc = nullptr, uint32_t *instructionCount = nullptr,
             uint32_t *stateHash = nullptr, size_t maxInstructions = 16);
 
-        // ARM7 bring-up gate. This deliberately accepts only ARM
-        // data-processing plus terminal B/BL/BX instructions: ARM7 memory and
-        // multiply timings differ from ARM9 and stay interpreter-only until
-        // separately modelled and gated.
+        // ARM7 guarded backend. Every candidate block is shadowed and then
+        // differentially checked against the Interpreter before live commit.
+        // Supported timing-gated subset includes data-processing, B/BL/BX,
+        // direct word/byte/aligned-halfword/literal memory, MUL/MLA and the
+        // restricted one/multi-register block-transfer forms.
         int runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
             uint32_t *guestPc = nullptr, uint32_t *instructionCount = nullptr,
             uint32_t *stateHash = nullptr, size_t maxInstructions = 16);
