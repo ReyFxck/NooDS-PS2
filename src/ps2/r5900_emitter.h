@@ -50,6 +50,11 @@ namespace R5900
     constexpr uint32_t movn(int rd,int rs,int rt)    { return rType(rs, rt, rd, 0, 0x0B); }
     // R5900-specific 3-operand MULTU writes the low 32-bit product to rd.
     constexpr uint32_t multu(int rd,int rs,int rt)   { return rType(rs, rt, rd, 0, 0x19); }
+    // Standard HI/LO multiply forms used for ARM long multiplies.
+    constexpr uint32_t multHiLo(int rs,int rt)       { return rType(rs, rt, 0, 0, 0x18); }
+    constexpr uint32_t multuHiLo(int rs,int rt)      { return rType(rs, rt, 0, 0, 0x19); }
+    constexpr uint32_t mfhi(int rd)                  { return rType(0, 0, rd, 0, 0x10); }
+    constexpr uint32_t mflo(int rd)                  { return rType(0, 0, rd, 0, 0x12); }
     constexpr uint32_t sltu(int rd,int rs,int rt)     { return rType(rs, rt, rd, 0, 0x2B); }
 
     constexpr uint32_t addiu(int rt,int rs,int16_t i){ return iType(0x09, rs, rt, uint16_t(i)); }
@@ -87,6 +92,10 @@ namespace R5900
     static_assert(movz(R_T1, R_ZERO, R_T4) == 0x000C480Au, "R5900 MOVZ encoding");
     static_assert(movn(R_T7, R_T6, R_T5) == 0x01CD780Bu, "R5900 MOVN encoding");
     static_assert(multu(R_T2, R_T0, R_T1) == 0x01095019u, "R5900 MULTU rd encoding");
+    static_assert(multHiLo(R_T0, R_T1) == 0x01090018u, "R5900 MULT encoding");
+    static_assert(multuHiLo(R_T0, R_T1) == 0x01090019u, "R5900 MULTU HI/LO encoding");
+    static_assert(mfhi(R_T3) == 0x00005810u, "R5900 MFHI encoding");
+    static_assert(mflo(R_T2) == 0x00005012u, "R5900 MFLO encoding");
     static_assert(sltu(R_T2, R_T0, R_T1) == 0x0109502Bu, "R5900 SLTU encoding");
 }
 
