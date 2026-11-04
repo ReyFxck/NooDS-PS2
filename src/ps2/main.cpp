@@ -669,6 +669,54 @@ void logInterpreterProfile(const char *label, const InterpreterProfile &profile)
     }
 }
 
+const char *activeFallbackReasonName(uint8_t reason)
+{
+    switch (static_cast<R5900ActiveFallbackReason>(reason))
+    {
+        case R5900_ACTIVE_FALLBACK_COMPILE: return "compile";
+        case R5900_ACTIVE_FALLBACK_BUDGET:  return "budget";
+        case R5900_ACTIVE_FALLBACK_WRITE:   return "write";
+        case R5900_ACTIVE_FALLBACK_VERIFY:  return "verify";
+        case R5900_ACTIVE_FALLBACK_STATE:   return "state";
+        default:                            return "unknown";
+    }
+}
+
+void logActiveFallbackPcs(const char *label,
+    const R5900DynarecProfile &profile)
+{
+    uint8_t order[16] = {};
+    for (uint8_t i = 0; i < 16; i++)
+        order[i] = i;
+    for (uint8_t i = 0; i < 16; i++)
+    {
+        for (uint8_t j = i + 1; j < 16; j++)
+        {
+            if (profile.topActiveFallback[order[j]].count >
+                profile.topActiveFallback[order[i]].count)
+            {
+                uint8_t swap = order[i];
+                order[i] = order[j];
+                order[j] = swap;
+            }
+        }
+    }
+
+    for (uint8_t rank = 0; rank < 8; rank++)
+    {
+        const R5900ActiveFallbackProfile &entry =
+            profile.topActiveFallback[order[rank]];
+        if (!entry.count)
+            break;
+        PS2_LOG("[PS2][JIT-FALLBACK] cpu=%s rank=%u pc=%08lX reason=%s count=%lu\n",
+            label,
+            rank,
+            static_cast<unsigned long>(entry.pc),
+            activeFallbackReasonName(entry.reason),
+            static_cast<unsigned long>(entry.count));
+    }
+}
+
 #if NOODS_PROFILE_LEVEL >= 2
 size_t logDynarecHotBlocks(DynarecR5900 &dynarec,
     const InterpreterProfile &interpreterProfile,
@@ -929,6 +977,7 @@ size_t logDynarecHotBlocks(DynarecR5900 &dynarec,
         static_cast<unsigned long long>(profile.activeWriteFallbacks),
         static_cast<unsigned long long>(profile.activeVerifyFallbacks),
         static_cast<unsigned long long>(profile.activeStateFallbacks));
+    logActiveFallbackPcs("ARM9", profile);
 
     uint8_t fallbackOrder[16] = {};
     for (uint8_t i = 0; i < 16; i++)
@@ -2315,6 +2364,7 @@ int main(int argc, char **argv)
                         static_cast<unsigned long long>(arm7Jit.activeBudgetFallbacks),
                         static_cast<unsigned long long>(arm7Jit.activeVerifyFallbacks),
                         static_cast<unsigned long long>(arm7Jit.activeStateFallbacks));
+                    logActiveFallbackPcs("ARM7", arm7Jit);
                 }
                 double jitCoverage = jitProfile.guestInstructions
                     ? 100.0 * static_cast<double>(jitProfile.supportedInstructions) /
