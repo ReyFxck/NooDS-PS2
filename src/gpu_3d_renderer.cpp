@@ -210,25 +210,32 @@ void Gpu3DRenderer::drawScanline1(int line)
 
     stencilClear[line] = false;
 
-    std::vector<int> translucent;
+    // The hardware polygon RAM is bounded to 2048 entries, matching the
+    // renderer's polygonTop/polygonBot arrays. Avoid a heap allocation for
+    // every scanline by keeping the translucent ordering in a fixed buffer.
+    int translucent[2048];
+    int translucentCount = 0;
 
     // Draw the polygons
-    for (int i = 0; i < core->gpu3D.getPolygonCount(); i++)
+    const int polygonCount = core->gpu3D.getPolygonCount();
+    _Polygon *polygons = core->gpu3D.getPolygons();
+    for (int i = 0; i < polygonCount; i++)
     {
         // Skip polygons that aren't on the current scanline
         if (line < polygonTop[i] || line >= polygonBot[i])
             continue;
 
         // Draw solid polygons and save the translucent ones for later
-        _Polygon *polygon = &core->gpu3D.getPolygons()[i];
-        if (polygon->alpha < 0x3F || polygon->textureFmt == 1 || polygon->textureFmt == 6)
-            translucent.push_back(i);
+        _Polygon *polygon = &polygons[i];
+        if (polygon->alpha < 0x3F || polygon->textureFmt == 1 ||
+            polygon->textureFmt == 6)
+            translucent[translucentCount++] = i;
         else
             drawPolygon(line, i);
     }
 
-    // Draw the translucent polygons
-    for (unsigned int i = 0; i < translucent.size(); i++)
+    // Draw the translucent polygons in the same submission order.
+    for (int i = 0; i < translucentCount; i++)
         drawPolygon(line, translucent[i]);
 }
 
@@ -990,9 +997,38 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
     // Instead, simply consider the entire span across the top and bottom of a polygon to be an edge
     bool horizontal = (line == polygonTop[polygonIndex] || line == polygonBot[polygonIndex] - 1);
 
+    // interpolateFill() uses the same perspective factor for every
+    // attribute at a given X. Compute that expensive division once per pixel
+    // and reuse it for W/color/texture coordinates. Preserve the old linear
+    // path verbatim because its per-channel integer rounding is observable.
+    const bool linearFill = (w1 == w2 && !(w1 & 0x007F));
+
     // Draw a line segment
     for (uint32_t x = x1; x < x4; x++)
     {
+        uint32_t fillFactor = 0;
+        bool fillFactorReady = false;
+
+        auto fillValue = [&](uint32_t v1, uint32_t v2) -> uint32_t
+        {
+            if (x <= x1) return v1;
+            if (x >= x4) return v2;
+
+            if (linearFill)
+                return interpolateLinear(v1, v2, x1, x, x4);
+
+            if (!fillFactorReady)
+            {
+                const uint32_t left = w1 * (x - x1);
+                const uint32_t right = w2 * (x4 - x);
+                fillFactor = (left << 8) / (right + left);
+                fillFactorReady = true;
+            }
+
+            if (v1 <= v2)
+                return v1 + (((v2 - v1) * fillFactor) >> 8);
+            return v2 + (((v1 - v2) * (0x100u - fillFactor)) >> 8);
+        };
         // Skip the polygon interior for wireframe polygons
         if (!horizontal && polygon->alpha == 0 && x == x2 + 1 && x3 > x2)
             x = x3;
@@ -1007,7 +1043,7 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
         int32_t depth;
         if (polygon->wBuffer)
         {
-            depth = interpolateFill(w1, w2, x1, x, x4, w1, w2);
+            depth = fillValue(w1, w2);
             if (polygon->wShift > 0)
                 depth <<= polygon->wShift;
             else if (polygon->wShift < 0)
@@ -1064,17 +1100,21 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
         }
 
         // Interpolate the vertex color at the current pixel
-        uint32_t r = interpolateFill(r1, r2, x1, x, x4, w1, w2) >> 3;
-        uint32_t g = interpolateFill(g1, g2, x1, x, x4, w1, w2) >> 3;
-        uint32_t b = interpolateFill(b1, b2, x1, x, x4, w1, w2) >> 3;
+        uint32_t r = fillValue(r1, r2) >> 3;
+        uint32_t g = fillValue(g1, g2) >> 3;
+        uint32_t b = fillValue(b1, b2) >> 3;
         uint32_t color = ((polygon->alpha ? polygon->alpha : 0x3F) << 18) | (b << 12) | (g << 6) | r;
 
         // Blend the texture with the vertex color
         if (polygon->textureFmt != 0)
         {
             // Interpolate the texture coordinates at the current pixel
-            int s = interpolateFill(s1 + 0xFFFF, s2 + 0xFFFF, x1, x, x4, w1, w2) - 0xFFFF;
-            int t = interpolateFill(t1 + 0xFFFF, t2 + 0xFFFF, x1, x, x4, w1, w2) - 0xFFFF;
+            int s = static_cast<int>(fillValue(
+                static_cast<uint32_t>(s1 + 0xFFFF),
+                static_cast<uint32_t>(s2 + 0xFFFF))) - 0xFFFF;
+            int t = static_cast<int>(fillValue(
+                static_cast<uint32_t>(t1 + 0xFFFF),
+                static_cast<uint32_t>(t2 + 0xFFFF))) - 0xFFFF;
 
             // Read a texel from the texture
             uint32_t texel = readTexture(polygon, s >> 4, t >> 4);
