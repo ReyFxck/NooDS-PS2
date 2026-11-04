@@ -3908,6 +3908,38 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
+    // Gate the resident self-loop guest counter and scheduler budget.
+    // MOV + B back to the block start costs 4 cycles per iteration, so a
+    // 12-cycle budget must execute exactly three iterations (6 guest ops).
+    {
+        const uint32_t loopPc = 0x02001000u;
+        const uint32_t loopOpcodes[] =
+        {
+            0xE1A00000u, // MOV r0,r0
+            0xEAFFFFFDu  // B loopPc
+        };
+        uint32_t *loopEntry = nullptr;
+        uint32_t loopHostWords = 0;
+        if (!emitArmAluSequence(loopOpcodes, 2, loopPc,
+            &loopEntry, &loopHostWords) || !loopEntry || !loopHostWords)
+            return false;
+
+        ArmAluState loopState = {};
+        loopState.r[0] = 0x12345678u;
+        loopState.nextPc = loopPc + 8u;
+        loopState.memory = memory;
+        loopState.cycleLimit = 12u;
+        typedef void (*ArmSelfLoopFunction)(ArmAluState *);
+        ArmSelfLoopFunction loopFunction =
+            reinterpret_cast<ArmSelfLoopFunction>(loopEntry);
+        loopFunction(&loopState);
+        if (loopState.r[0] != 0x12345678u ||
+            loopState.nextPc != loopPc ||
+            loopState.cycles != 12u ||
+            loopState.guestExecuted != 6u)
+            return false;
+    }
+
     struct BranchTest
     {
         uint32_t opcode;
