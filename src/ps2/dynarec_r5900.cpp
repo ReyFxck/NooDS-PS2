@@ -1297,16 +1297,6 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
 
     for (size_t i = 0; i < count; i++)
     {
-        // Preserve control-flow shape in compiled metadata. Backedges are
-        // deliberately kept out of live execution for now: replacing an
-        // ARM9 polling loop atomically can change when ARM7/shared-memory
-        // updates become observable even when one isolated iteration matches
-        // the interpreter perfectly.
-        Ps2ArmAlu::InstructionInfo compiledInfo;
-        Ps2ArmAlu::inspect(opcodes[i],
-            guestPc + static_cast<uint32_t>(i * 4), &compiledInfo);
-        block.backEdge |= compiledInfo.backEdge;
-
         Ps2ArmAlu::Decoded decoded;
         if (Ps2ArmAlu::decode(opcodes[i], &decoded))
         {
@@ -2308,8 +2298,6 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     {
         if (rejected == ACTIVE_REJECT_WRITE)
             profile.activeWriteFallbacks++;
-        else if (rejected == ACTIVE_REJECT_BACKEDGE)
-            profile.activeBackedgeFallbacks++;
         else if (rejected == ACTIVE_REJECT_STATE)
             profile.activeStateFallbacks++;
         else
@@ -2382,17 +2370,6 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         return 0;
     }
 
-    // A one-shot differential test proves instruction semantics, but it does
-    // not prove cross-CPU visibility across a repeated polling/copy loop.
-    // Preserve opcode-level ARM9/ARM7 interleaving for every backward branch
-    // until loop scheduling has an explicit synchronization model.
-    if (block->backEdge)
-    {
-        cacheActiveReject(guestPc, ACTIVE_REJECT_BACKEDGE);
-        profile.activeBackedgeFallbacks++;
-        return 0;
-    }
-
     // Generated blocks that explicitly read/write architectural R15 are kept
     // out of live execution. Literal LDR has its own PC+8 helper.
     if ((block->readMask | block->writeMask) & 0x8000u)
@@ -2421,14 +2398,14 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         }
     }
 
-    // Keep the live-state handoff deliberately conservative while the
-    // persistent hot-block scheduler is being validated. Run187 proved that
-    // blocks can now execute tens of thousands of times per profile window;
-    // copying the complete bank removes read-mask inference from the
-    // correctness experiment without changing scheduler timing.
     ArmAluState state = {};
-    for (int i = 0; i < 16; i++)
-        state.r[i] = CpuBackendAccess::readReg(cpu, i);
+    uint16_t liveMask = static_cast<uint16_t>(
+        (block->readMask | block->writeMask) & 0x7FFFu);
+    for (int i = 0; i < 15; i++)
+    {
+        if (liveMask & static_cast<uint16_t>(1u << i))
+            state.r[i] = CpuBackendAccess::readReg(cpu, i);
+    }
     state.cpsr = CpuBackendAccess::readCpsr(cpu);
     state.nextPc = block->guestEndPc;
     state.memory = memory;
@@ -2458,8 +2435,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         return -static_cast<int>(state.cycles);
     }
 
-    if (!CpuBackendAccess::commitBlockState(cpu, state.r, state.cpsr,
-        state.nextPc))
+    if (!CpuBackendAccess::commitBlockState(cpu, state.r, block->writeMask,
+        state.cpsr, state.nextPc))
     {
         profile.activeStateFallbacks++;
         return 0;

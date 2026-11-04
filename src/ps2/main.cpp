@@ -912,7 +912,7 @@ size_t logDynarecHotBlocks(DynarecR5900 &dynarec,
         static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_PC]),
         static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_SYSTEM]),
         static_cast<unsigned long long>(profile.rejectReason[Ps2ArmAlu::REJECT_OTHER]));
-    PS2_LOG("[PS2][JIT] active attempts=%llu exec=%llu guest=%llu cycles=%llu compileMiss=%llu budgetFallback=%llu writeFallback=%llu backedgeFallback=%llu verifyFallback=%llu stateFallback=%llu\n",
+    PS2_LOG("[PS2][JIT] active attempts=%llu exec=%llu guest=%llu cycles=%llu compileMiss=%llu budgetFallback=%llu writeFallback=%llu verifyFallback=%llu stateFallback=%llu\n",
         static_cast<unsigned long long>(profile.activeAttempts),
         static_cast<unsigned long long>(profile.activeExecutions),
         static_cast<unsigned long long>(profile.activeGuestInstructions),
@@ -920,7 +920,6 @@ size_t logDynarecHotBlocks(DynarecR5900 &dynarec,
         static_cast<unsigned long long>(profile.activeCompileMisses),
         static_cast<unsigned long long>(profile.activeBudgetFallbacks),
         static_cast<unsigned long long>(profile.activeWriteFallbacks),
-        static_cast<unsigned long long>(profile.activeBackedgeFallbacks),
         static_cast<unsigned long long>(profile.activeVerifyFallbacks),
         static_cast<unsigned long long>(profile.activeStateFallbacks));
 
@@ -1144,7 +1143,7 @@ int main(int argc, char **argv)
     PS2_LOG(" Instrumentation: disabled\n");
 #endif
 #if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
-    PS2_LOG(" Dynarec: ARM-ALU-v14 shadow-control (profile L2)\n");
+    PS2_LOG(" Dynarec: ARM-ALU-v11 selective-hot-masked (profile L2)\n");
 #else
     PS2_LOG(" Dynarec: ARM-ALU-v10 shadow-gated\n");
 #endif
@@ -1373,21 +1372,23 @@ int main(int argc, char **argv)
             PS2_LOG("[PS2][WARN] R5900 dynarec infrastructure unavailable; interpreter remains active.\n");
 
 #if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
-        // Run190 control build: keep all shadow/differential analysis enabled,
-        // but do not wire the live block runner into Core. This isolates
-        // scheduler/guest-state correctness from JIT execution while preserving
-        // the exact profiling and hot-block discovery path.
         bool arm9ActiveExecutorEnabled = false;
-        bool arm9ActiveHoldLogged = false;
         auto enableArm9ActiveExecutor = [&]()
         {
-            if (arm9ActiveHoldLogged || !arm9DeferredGateEligible ||
+            if (arm9ActiveExecutorEnabled || !arm9DeferredGateEligible ||
                 !arm9RealBlockGatePassed || !arm9DifferentialGatePassed ||
                 arm9GateHardFailure)
                 return;
 
-            arm9ActiveHoldLogged = true;
-            PS2_LOG("[PS2][OK] ARM9 active dynarec gates passed; Run190 L2 control remains shadow-only.\n");
+            core->setArm9BlockRunner(
+                [&dynarec](Interpreter &cpu, uint32_t cycleBudget,
+                    uint32_t *guestInstructions) -> int
+                {
+                    return dynarec.runArm9ActiveBlock(cpu, cycleBudget,
+                        guestInstructions);
+                });
+            arm9ActiveExecutorEnabled = true;
+            PS2_LOG("[PS2][OK] ARM9 selective active dynarec armed: only sampled hot entry PCs can call the backend.\n");
         };
 #else
         bool arm9ActiveHoldLogged = false;
