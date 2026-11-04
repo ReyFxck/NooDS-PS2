@@ -1830,7 +1830,7 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
 {
     Ps2ArmAlu::DecodedHalfwordTransfer decoded;
     if (!code || !Ps2ArmAlu::decodeHalfwordTransfer(opcode, &decoded) ||
-        !decoded.load || (!decoded.preIndex && !decoded.immediate))
+        !decoded.load)
         return 0;
 
     size_t words = 0;
@@ -1863,11 +1863,21 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
     }
     else
     {
+        if (!decoded.preIndex)
+            code[words++] = R5900::or_(R5900::R_T6,
+                R5900::R_T0, R5900::R_ZERO);
         code[words++] = R5900::lw(R5900::R_T1,
             static_cast<int16_t>(decoded.rm * 4), R5900::R_A0);
         code[words++] = decoded.addOffset
             ? R5900::addu(R5900::R_T0, R5900::R_T0, R5900::R_T1)
             : R5900::subu(R5900::R_T0, R5900::R_T0, R5900::R_T1);
+        if (!decoded.preIndex)
+        {
+            code[words++] = R5900::or_(R5900::R_T9,
+                R5900::R_T0, R5900::R_ZERO);
+            code[words++] = R5900::or_(R5900::R_T0,
+                R5900::R_T6, R5900::R_ZERO);
+        }
     }
 
     // Odd/cross-page halfwords stay on the helper path so generated LHU can
@@ -1907,17 +1917,25 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
         }
         else
         {
-            int32_t delta = decoded.addOffset
-                ? static_cast<int32_t>(decoded.immediateOffset)
-                : -static_cast<int32_t>(decoded.immediateOffset);
-            if (delta)
-                code[words++] = R5900::addiu(R5900::R_T6,
-                    R5900::R_T0, static_cast<int16_t>(delta));
+            if (decoded.registerOffset)
+            {
+                code[words++] = R5900::sw(R5900::R_T9,
+                    static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+            }
             else
-                code[words++] = R5900::or_(R5900::R_T6,
-                    R5900::R_T0, R5900::R_ZERO);
-            code[words++] = R5900::sw(R5900::R_T6,
-                static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+            {
+                int32_t delta = decoded.addOffset
+                    ? static_cast<int32_t>(decoded.immediateOffset)
+                    : -static_cast<int32_t>(decoded.immediateOffset);
+                if (delta)
+                    code[words++] = R5900::addiu(R5900::R_T6,
+                        R5900::R_T0, static_cast<int16_t>(delta));
+                else
+                    code[words++] = R5900::or_(R5900::R_T6,
+                        R5900::R_T0, R5900::R_ZERO);
+                code[words++] = R5900::sw(R5900::R_T6,
+                    static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+            }
         }
     }
     size_t hitDoneBranch = words;
@@ -1937,7 +1955,11 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
     code[words++] = R5900::sw(R5900::R_RA, 28, R5900::R_SP);
     code[words++] = R5900::sw(R5900::R_A0, 24, R5900::R_SP);
     if (decoded.writeBack)
+    {
         code[words++] = R5900::sw(R5900::R_T0, 20, R5900::R_SP);
+        if (!decoded.preIndex && decoded.registerOffset)
+            code[words++] = R5900::sw(R5900::R_T9, 16, R5900::R_SP);
+    }
     code[words++] = R5900::or_(R5900::R_A1, R5900::R_T0, R5900::R_ZERO);
     uintptr_t helper =
         reinterpret_cast<uintptr_t>(&refillArm9HalfwordReadCache);
@@ -1949,7 +1971,11 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
     code[words++] = R5900::nop();
     code[words++] = R5900::lw(R5900::R_A0, 24, R5900::R_SP);
     if (decoded.writeBack)
+    {
         code[words++] = R5900::lw(R5900::R_T0, 20, R5900::R_SP);
+        if (!decoded.preIndex && decoded.registerOffset)
+            code[words++] = R5900::lw(R5900::R_T9, 16, R5900::R_SP);
+    }
     code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
     code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
     if (!suppressResultStore)
@@ -1966,17 +1992,25 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
         }
         else
         {
-            int32_t delta = decoded.addOffset
-                ? static_cast<int32_t>(decoded.immediateOffset)
-                : -static_cast<int32_t>(decoded.immediateOffset);
-            if (delta)
-                code[words++] = R5900::addiu(R5900::R_T6,
-                    R5900::R_T0, static_cast<int16_t>(delta));
+            if (decoded.registerOffset)
+            {
+                code[words++] = R5900::sw(R5900::R_T9,
+                    static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+            }
             else
-                code[words++] = R5900::or_(R5900::R_T6,
-                    R5900::R_T0, R5900::R_ZERO);
-            code[words++] = R5900::sw(R5900::R_T6,
-                static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+            {
+                int32_t delta = decoded.addOffset
+                    ? static_cast<int32_t>(decoded.immediateOffset)
+                    : -static_cast<int32_t>(decoded.immediateOffset);
+                if (delta)
+                    code[words++] = R5900::addiu(R5900::R_T6,
+                        R5900::R_T0, static_cast<int16_t>(delta));
+                else
+                    code[words++] = R5900::or_(R5900::R_T6,
+                        R5900::R_T0, R5900::R_ZERO);
+                code[words++] = R5900::sw(R5900::R_T6,
+                    static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+            }
         }
     }
     if (registerCycles)
@@ -2728,8 +2762,7 @@ size_t emitArmByteLoadCachedInstruction(uint32_t opcode,
 {
     Ps2ArmAlu::DecodedByteTransfer decoded;
     if (!code || !Ps2ArmAlu::decodeByteTransfer(opcode, &decoded) ||
-        !decoded.load ||
-        (!decoded.preIndex && decoded.registerOffset))
+        !decoded.load)
         return 0;
 
     size_t words = 0;
@@ -2750,12 +2783,22 @@ size_t emitArmByteLoadCachedInstruction(uint32_t opcode,
 
     if (decoded.registerOffset)
     {
+        if (!decoded.preIndex)
+            code[words++] = R5900::lw(R5900::R_T6,
+                static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
         size_t addressWords = emitArmRegisterOffsetAddress(decoded.rn,
             decoded.rm, decoded.shiftType, decoded.shiftAmount,
             decoded.addOffset, code + words);
         if (!addressWords)
             return 0;
         words += addressWords;
+        if (!decoded.preIndex)
+        {
+            code[words++] = R5900::or_(R5900::R_T9,
+                R5900::R_T0, R5900::R_ZERO);
+            code[words++] = R5900::or_(R5900::R_T0,
+                R5900::R_T6, R5900::R_ZERO);
+        }
     }
     else
     {
@@ -2792,17 +2835,25 @@ size_t emitArmByteLoadCachedInstruction(uint32_t opcode,
         }
         else
         {
-            int32_t delta = decoded.addOffset
-                ? static_cast<int32_t>(decoded.immediateOffset)
-                : -static_cast<int32_t>(decoded.immediateOffset);
-            if (delta)
-                code[words++] = R5900::addiu(R5900::R_T6,
-                    R5900::R_T0, static_cast<int16_t>(delta));
+            if (decoded.registerOffset)
+            {
+                code[words++] = R5900::sw(R5900::R_T9,
+                    static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+            }
             else
-                code[words++] = R5900::or_(R5900::R_T6,
-                    R5900::R_T0, R5900::R_ZERO);
-            code[words++] = R5900::sw(R5900::R_T6,
-                static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+            {
+                int32_t delta = decoded.addOffset
+                    ? static_cast<int32_t>(decoded.immediateOffset)
+                    : -static_cast<int32_t>(decoded.immediateOffset);
+                if (delta)
+                    code[words++] = R5900::addiu(R5900::R_T6,
+                        R5900::R_T0, static_cast<int16_t>(delta));
+                else
+                    code[words++] = R5900::or_(R5900::R_T6,
+                        R5900::R_T0, R5900::R_ZERO);
+                code[words++] = R5900::sw(R5900::R_T6,
+                    static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+            }
         }
     }
     size_t hitDoneBranch = words;
@@ -2819,7 +2870,11 @@ size_t emitArmByteLoadCachedInstruction(uint32_t opcode,
     code[words++] = R5900::sw(R5900::R_RA, 28, R5900::R_SP);
     code[words++] = R5900::sw(R5900::R_A0, 24, R5900::R_SP);
     if (decoded.writeBack)
+    {
         code[words++] = R5900::sw(R5900::R_T0, 20, R5900::R_SP);
+        if (!decoded.preIndex && decoded.registerOffset)
+            code[words++] = R5900::sw(R5900::R_T9, 16, R5900::R_SP);
+    }
     code[words++] = R5900::or_(R5900::R_A1, R5900::R_T0, R5900::R_ZERO);
     uintptr_t helper = reinterpret_cast<uintptr_t>(&refillArm9ByteReadCache);
     code[words++] = R5900::lui(R5900::R_T9,
@@ -2830,7 +2885,11 @@ size_t emitArmByteLoadCachedInstruction(uint32_t opcode,
     code[words++] = R5900::nop();
     code[words++] = R5900::lw(R5900::R_A0, 24, R5900::R_SP);
     if (decoded.writeBack)
+    {
         code[words++] = R5900::lw(R5900::R_T0, 20, R5900::R_SP);
+        if (!decoded.preIndex && decoded.registerOffset)
+            code[words++] = R5900::lw(R5900::R_T9, 16, R5900::R_SP);
+    }
     code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
     code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
     if (!suppressResultStore)
@@ -2847,17 +2906,25 @@ size_t emitArmByteLoadCachedInstruction(uint32_t opcode,
         }
         else
         {
-            int32_t delta = decoded.addOffset
-                ? static_cast<int32_t>(decoded.immediateOffset)
-                : -static_cast<int32_t>(decoded.immediateOffset);
-            if (delta)
-                code[words++] = R5900::addiu(R5900::R_T6,
-                    R5900::R_T0, static_cast<int16_t>(delta));
+            if (decoded.registerOffset)
+            {
+                code[words++] = R5900::sw(R5900::R_T9,
+                    static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+            }
             else
-                code[words++] = R5900::or_(R5900::R_T6,
-                    R5900::R_T0, R5900::R_ZERO);
-            code[words++] = R5900::sw(R5900::R_T6,
-                static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+            {
+                int32_t delta = decoded.addOffset
+                    ? static_cast<int32_t>(decoded.immediateOffset)
+                    : -static_cast<int32_t>(decoded.immediateOffset);
+                if (delta)
+                    code[words++] = R5900::addiu(R5900::R_T6,
+                        R5900::R_T0, static_cast<int16_t>(delta));
+                else
+                    code[words++] = R5900::or_(R5900::R_T6,
+                        R5900::R_T0, R5900::R_ZERO);
+                code[words++] = R5900::sw(R5900::R_T6,
+                    static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+            }
         }
     }
     if (registerCycles)
@@ -3005,8 +3072,7 @@ size_t emitArmWordLoadCachedInstruction(uint32_t opcode,
 {
     Ps2ArmAlu::DecodedSingleTransfer decoded;
     if (!code || !Ps2ArmAlu::decodeSingleTransfer(opcode, &decoded) ||
-        !decoded.load ||
-        (!decoded.preIndex && decoded.registerOffset))
+        !decoded.load)
         return 0;
 
     size_t words = 0;
@@ -3029,12 +3095,22 @@ size_t emitArmWordLoadCachedInstruction(uint32_t opcode,
 
     if (decoded.registerOffset)
     {
+        if (!decoded.preIndex)
+            code[words++] = R5900::lw(R5900::R_T6,
+                static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
         size_t addressWords = emitArmRegisterOffsetAddress(decoded.rn,
             decoded.rm, decoded.shiftType, decoded.shiftAmount,
             decoded.addOffset, code + words);
         if (!addressWords)
             return 0;
         words += addressWords;
+        if (!decoded.preIndex)
+        {
+            code[words++] = R5900::or_(R5900::R_T9,
+                R5900::R_T0, R5900::R_ZERO);
+            code[words++] = R5900::or_(R5900::R_T0,
+                R5900::R_T6, R5900::R_ZERO);
+        }
     }
     else
     {
@@ -3077,17 +3153,25 @@ size_t emitArmWordLoadCachedInstruction(uint32_t opcode,
         }
         else
         {
-            int32_t delta = decoded.addOffset
-                ? static_cast<int32_t>(decoded.immediateOffset)
-                : -static_cast<int32_t>(decoded.immediateOffset);
-            if (delta)
-                code[words++] = R5900::addiu(R5900::R_T6,
-                    R5900::R_T0, static_cast<int16_t>(delta));
+            if (decoded.registerOffset)
+            {
+                code[words++] = R5900::sw(R5900::R_T9,
+                    static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+            }
             else
-                code[words++] = R5900::or_(R5900::R_T6,
-                    R5900::R_T0, R5900::R_ZERO);
-            code[words++] = R5900::sw(R5900::R_T6,
-                static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+            {
+                int32_t delta = decoded.addOffset
+                    ? static_cast<int32_t>(decoded.immediateOffset)
+                    : -static_cast<int32_t>(decoded.immediateOffset);
+                if (delta)
+                    code[words++] = R5900::addiu(R5900::R_T6,
+                        R5900::R_T0, static_cast<int16_t>(delta));
+                else
+                    code[words++] = R5900::or_(R5900::R_T6,
+                        R5900::R_T0, R5900::R_ZERO);
+                code[words++] = R5900::sw(R5900::R_T6,
+                    static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+            }
         }
     }
     size_t hitDoneBranch = words;
@@ -3104,7 +3188,11 @@ size_t emitArmWordLoadCachedInstruction(uint32_t opcode,
     code[words++] = R5900::sw(R5900::R_RA, 28, R5900::R_SP);
     code[words++] = R5900::sw(R5900::R_A0, 24, R5900::R_SP);
     if (decoded.writeBack)
+    {
         code[words++] = R5900::sw(R5900::R_T0, 20, R5900::R_SP);
+        if (!decoded.preIndex && decoded.registerOffset)
+            code[words++] = R5900::sw(R5900::R_T9, 16, R5900::R_SP);
+    }
     code[words++] = R5900::or_(R5900::R_A1, R5900::R_T0, R5900::R_ZERO);
     uintptr_t helper = reinterpret_cast<uintptr_t>(&refillArm9WordReadCache);
     code[words++] = R5900::lui(R5900::R_T9,
@@ -3115,7 +3203,11 @@ size_t emitArmWordLoadCachedInstruction(uint32_t opcode,
     code[words++] = R5900::nop();
     code[words++] = R5900::lw(R5900::R_A0, 24, R5900::R_SP);
     if (decoded.writeBack)
+    {
         code[words++] = R5900::lw(R5900::R_T0, 20, R5900::R_SP);
+        if (!decoded.preIndex && decoded.registerOffset)
+            code[words++] = R5900::lw(R5900::R_T9, 16, R5900::R_SP);
+    }
     code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
     code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
     if (!suppressResultStore)
@@ -3132,17 +3224,25 @@ size_t emitArmWordLoadCachedInstruction(uint32_t opcode,
         }
         else
         {
-            int32_t delta = decoded.addOffset
-                ? static_cast<int32_t>(decoded.immediateOffset)
-                : -static_cast<int32_t>(decoded.immediateOffset);
-            if (delta)
-                code[words++] = R5900::addiu(R5900::R_T6,
-                    R5900::R_T0, static_cast<int16_t>(delta));
+            if (decoded.registerOffset)
+            {
+                code[words++] = R5900::sw(R5900::R_T9,
+                    static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+            }
             else
-                code[words++] = R5900::or_(R5900::R_T6,
-                    R5900::R_T0, R5900::R_ZERO);
-            code[words++] = R5900::sw(R5900::R_T6,
-                static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+            {
+                int32_t delta = decoded.addOffset
+                    ? static_cast<int32_t>(decoded.immediateOffset)
+                    : -static_cast<int32_t>(decoded.immediateOffset);
+                if (delta)
+                    code[words++] = R5900::addiu(R5900::R_T6,
+                        R5900::R_T0, static_cast<int16_t>(delta));
+                else
+                    code[words++] = R5900::or_(R5900::R_T6,
+                        R5900::R_T0, R5900::R_ZERO);
+                code[words++] = R5900::sw(R5900::R_T6,
+                    static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+            }
         }
     }
     if (registerCycles)
@@ -3937,8 +4037,7 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
     Ps2ArmAlu::DecodedHalfwordTransfer transfer;
     if (Ps2ArmAlu::decodeHalfwordTransfer(opcode, &transfer))
     {
-        if (transfer.load &&
-            (transfer.preIndex || transfer.immediate))
+        if (transfer.load)
             return emitArmHalfwordLoadCachedInstruction(opcode, code,
                 registerCycles, registerCpsr, suppressResultStore,
                 targetCpuId);
@@ -3961,8 +4060,7 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
         Ps2ArmAlu::DecodedByteTransfer byteTransfer;
         if (Ps2ArmAlu::decodeByteTransfer(opcode, &byteTransfer))
         {
-            if (byteTransfer.load &&
-                (byteTransfer.preIndex || !byteTransfer.registerOffset))
+            if (byteTransfer.load)
                 return emitArmByteLoadCachedInstruction(opcode, code,
                     registerCycles, registerCpsr, suppressResultStore,
                     targetCpuId);
@@ -4006,9 +4104,7 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
                 Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
                 if (Ps2ArmAlu::decodeSingleTransfer(opcode, &singleTransfer))
                 {
-                    if (singleTransfer.load &&
-                        (singleTransfer.preIndex ||
-                         !singleTransfer.registerOffset))
+                    if (singleTransfer.load)
                         return emitArmWordLoadCachedInstruction(opcode, code,
                             registerCycles, registerCpsr, suppressResultStore,
                             targetCpuId);
@@ -7680,8 +7776,7 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
 
         Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
         if (Ps2ArmAlu::decodeSingleTransfer(opcode, &singleTransfer) &&
-            (!singleTransfer.load || singleTransfer.preIndex ||
-             !singleTransfer.registerOffset))
+            true)
         {
             opcodes[count++] = opcode;
             continue;
@@ -7689,8 +7784,7 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
 
         Ps2ArmAlu::DecodedByteTransfer byteTransfer;
         if (Ps2ArmAlu::decodeByteTransfer(opcode, &byteTransfer) &&
-            (!byteTransfer.load || byteTransfer.preIndex ||
-             !byteTransfer.registerOffset))
+            true)
         {
             opcodes[count++] = opcode;
             continue;
@@ -7698,8 +7792,7 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
 
         Ps2ArmAlu::DecodedHalfwordTransfer halfwordTransfer;
         if (Ps2ArmAlu::decodeHalfwordTransfer(opcode, &halfwordTransfer) &&
-            (!halfwordTransfer.load || halfwordTransfer.preIndex ||
-             halfwordTransfer.immediate))
+            true)
         {
             opcodes[count++] = opcode;
             continue;
@@ -7784,9 +7877,7 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
         Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
         if (Ps2ArmAlu::decodeSingleTransfer(opcodes[i], &singleTransfer))
         {
-            if (singleTransfer.load && !singleTransfer.preIndex &&
-                singleTransfer.registerOffset)
-                return 0;
+
             if (!applyArmSingleTransfer(&expected, opcodes[i]))
                 return 0;
             continue;
@@ -7795,9 +7886,7 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
         Ps2ArmAlu::DecodedByteTransfer byteTransfer;
         if (Ps2ArmAlu::decodeByteTransfer(opcodes[i], &byteTransfer))
         {
-            if (byteTransfer.load && !byteTransfer.preIndex &&
-                byteTransfer.registerOffset)
-                return 0;
+
             if (!applyArmByteTransfer(&expected, opcodes[i]))
                 return 0;
             continue;
@@ -7806,9 +7895,7 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
         Ps2ArmAlu::DecodedHalfwordTransfer halfwordTransfer;
         if (Ps2ArmAlu::decodeHalfwordTransfer(opcodes[i], &halfwordTransfer))
         {
-            if (halfwordTransfer.load && !halfwordTransfer.preIndex &&
-                !halfwordTransfer.immediate)
-                return 0;
+
             if (!applyArmHalfwordTransfer(&expected, opcodes[i]))
                 return 0;
             continue;
