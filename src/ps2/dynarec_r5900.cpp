@@ -39,6 +39,31 @@ void recordFallback(R5900DynarecProfile &profile, uint32_t pc, uint32_t opcode)
     for (size_t i = 0; i < 16; i++)
         profile.topFallback[i].count--;
 }
+
+void recordActiveFallback(R5900DynarecProfile &profile, uint32_t pc,
+    R5900ActiveFallbackReason reason)
+{
+    for (size_t i = 0; i < 16; i++)
+    {
+        R5900ActiveFallbackProfile &entry = profile.topActiveFallback[i];
+        if (entry.count && entry.pc == pc && entry.reason == reason)
+        {
+            entry.count++;
+            return;
+        }
+        if (!entry.count)
+        {
+            entry.pc = pc;
+            entry.reason = static_cast<uint8_t>(reason);
+            entry.count = 1;
+            return;
+        }
+    }
+
+    // Bounded heavy-hitter reduction, matching topFallback[].
+    for (size_t i = 0; i < 16; i++)
+        profile.topActiveFallback[i].count--;
+}
 #endif
 }
 
@@ -8892,6 +8917,8 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
         if (rejected != ACTIVE_REJECT_NONE)
         {
             DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_VERIFY));
             return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
         }
 
@@ -8899,16 +8926,22 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
         {
             cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
             DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_VERIFY));
             return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
         }
 
         DYNAREC_PROFILE(profile.activeCompileMisses++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_COMPILE));
         int shadow = runArm7AluBranchShadowSelfTest(cpu, nullptr, nullptr,
             nullptr, 16);
         if (shadow <= 0)
         {
             cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
             DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_VERIFY));
             return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
         }
 
@@ -8917,6 +8950,8 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
         {
             cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
             DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_VERIFY));
             return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
         }
     }
@@ -8927,6 +8962,8 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
     if (minimumCycles > cycleBudget)
     {
         DYNAREC_PROFILE(profile.activeBudgetFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_BUDGET));
         return -static_cast<int>(minimumCycles);
     }
 
@@ -8938,6 +8975,8 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
         {
             cacheActiveReject(guestPc, ACTIVE_REJECT_STATE);
             DYNAREC_PROFILE(profile.activeStateFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_STATE));
             return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
         }
 
@@ -8949,6 +8988,8 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
             {
                 cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
                 DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_VERIFY));
                 return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
             }
 
@@ -8958,6 +8999,8 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
             {
                 cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
                 DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_VERIFY));
                 return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
             }
         }
@@ -9048,10 +9091,14 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
             if (blockCycles > remainingBudget)
             {
                 DYNAREC_PROFILE(profile.activeBudgetFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_BUDGET));
                 return -static_cast<int>(minimumCycles);
             }
 
             DYNAREC_PROFILE(profile.activeStateFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_STATE));
             return 0;
         }
 
@@ -9124,6 +9171,8 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
     if (!totalCycles)
     {
         DYNAREC_PROFILE(profile.activeStateFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_STATE));
         return 0;
     }
 
@@ -9155,6 +9204,8 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
     if (!committed)
     {
         DYNAREC_PROFILE(profile.activeStateFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_STATE));
         return 0;
     }
 
@@ -9357,6 +9408,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     if (cycleBudget < 2u)
     {
         DYNAREC_PROFILE(profile.activeBudgetFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_BUDGET));
         return -2;
     }
 
@@ -9373,10 +9426,16 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         {
             if (rejected == ACTIVE_REJECT_WRITE)
                 DYNAREC_PROFILE(profile.activeWriteFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_WRITE));
             else if (rejected == ACTIVE_REJECT_STATE)
                 DYNAREC_PROFILE(profile.activeStateFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_STATE));
             else
                 DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_VERIFY));
             return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
         }
     }
@@ -9390,10 +9449,14 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         {
             cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
             DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_VERIFY));
             return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
         }
 
         DYNAREC_PROFILE(profile.activeCompileMisses++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_COMPILE));
 
         // Compilation length is intentionally independent from cycleBudget.
         // Active hot blocks may extend to 24 instructions while the code cache
@@ -9407,6 +9470,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         {
             cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
             DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_VERIFY));
             return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
         }
 
@@ -9415,6 +9480,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         {
             cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
             DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_VERIFY));
             return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
         }
     }
@@ -9429,6 +9496,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     if (minimumCycles > cycleBudget)
     {
         DYNAREC_PROFILE(profile.activeBudgetFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_BUDGET));
         return -static_cast<int>(minimumCycles);
     }
 
@@ -9443,6 +9512,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         {
             cacheActiveReject(guestPc, ACTIVE_REJECT_STATE);
             DYNAREC_PROFILE(profile.activeStateFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_STATE));
             return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
         }
 
@@ -9453,6 +9524,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
             {
                 cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
                 DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_VERIFY));
                 return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
             }
 
@@ -9461,6 +9534,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
             {
                 cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
                 DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_VERIFY));
                 return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
             }
         }
@@ -9615,8 +9690,12 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         {
             if (blockCycles > remainingBudget)
                 DYNAREC_PROFILE(profile.activeBudgetFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_BUDGET));
             else
                 DYNAREC_PROFILE(profile.activeStateFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_STATE));
             // A conditional path can cost more than the block's static
             // minimum (for example a taken LDM/STM or branch). Do not teach
             // Core that this one observed path is the permanent minimum for
@@ -9699,6 +9778,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     if (!totalCycles)
     {
         DYNAREC_PROFILE(profile.activeStateFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_STATE));
         return 0;
     }
 
@@ -9767,6 +9848,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     if (!committed)
     {
         DYNAREC_PROFILE(profile.activeStateFallbacks++);
+        DYNAREC_PROFILE(recordActiveFallback(profile, guestPc,
+            R5900_ACTIVE_FALLBACK_STATE));
         return 0;
     }
 
