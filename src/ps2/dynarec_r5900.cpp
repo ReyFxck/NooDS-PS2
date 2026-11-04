@@ -372,7 +372,7 @@ bool readDirectArm9Halfword(void *context, uint32_t address, uint16_t *value)
     if (!memory || !value || offset == 0xFFFu)
         return false;
 
-    uint8_t *page = memory->getDirectReadPage(0, address);
+    uint8_t *page = memory->getDirectReadPageCached(0, address);
     if (!page)
         return false;
     *value = static_cast<uint16_t>(page[offset] |
@@ -388,7 +388,7 @@ bool writeDirectArm9Halfword(void *context, uint32_t address, uint16_t value)
     if (!memory || offset == 0xFFFu || state->writeCount >= 16)
         return false;
 
-    uint8_t *page = memory->getDirectWritePage(0, address);
+    uint8_t *page = memory->getDirectWritePageCached(0, address);
     if (!page)
         return false;
 
@@ -412,7 +412,7 @@ void restoreArmMemoryWrites(ArmAluState *state)
     {
         const ArmMemoryWrite &write = state->writes[i - 1];
         uint32_t offset = write.address & 0xFFFu;
-        uint8_t *page = state->memory->getDirectWritePage(0, write.address);
+        uint8_t *page = state->memory->getDirectWritePageCached(0, write.address);
         if (!page || !write.size || offset + write.size > 0x1000u)
             continue;
         page[offset] = static_cast<uint8_t>(write.before);
@@ -466,7 +466,7 @@ bool readDirectArm9Byte(void *context, uint32_t address, uint8_t *value)
     Memory *memory = state ? state->memory : nullptr;
     if (!memory || !value)
         return false;
-    uint8_t *page = memory->getDirectReadPage(0, address);
+    uint8_t *page = memory->getDirectReadPageCached(0, address);
     if (!page)
         return false;
     *value = page[address & 0xFFFu];
@@ -479,7 +479,7 @@ bool writeDirectArm9Byte(void *context, uint32_t address, uint8_t value)
     Memory *memory = state ? state->memory : nullptr;
     if (!memory || state->writeCount >= 16)
         return false;
-    uint8_t *page = memory->getDirectWritePage(0, address);
+    uint8_t *page = memory->getDirectWritePageCached(0, address);
     if (!page)
         return false;
 
@@ -501,7 +501,7 @@ bool readDirectArm9Word(void *context, uint32_t address, uint32_t *value)
     if (!memory || !value || (address & 3u) || offset > 0xFFCu)
         return false;
 
-    uint8_t *page = memory->getDirectReadPage(0, address);
+    uint8_t *page = memory->getDirectReadPageCached(0, address);
     if (!page)
         return false;
     *value = static_cast<uint32_t>(page[offset]) |
@@ -520,7 +520,7 @@ bool writeDirectArm9Word(void *context, uint32_t address, uint32_t value)
         state->writeCount >= 16)
         return false;
 
-    uint8_t *page = memory->getDirectWritePage(0, address);
+    uint8_t *page = memory->getDirectWritePageCached(0, address);
     if (!page)
         return false;
 

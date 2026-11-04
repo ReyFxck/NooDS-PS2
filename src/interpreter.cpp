@@ -2645,8 +2645,8 @@ bool Interpreter::refillPipelineDirect()
     {
         uint32_t pc = *registers[15] & ~1u;
         uint32_t next = pc + 2u;
-        uint8_t *page0 = core->memory.getDirectReadPage(cpu, pc);
-        uint8_t *page1 = core->memory.getDirectReadPage(cpu, next);
+        uint8_t *page0 = core->memory.getDirectReadPageCached(cpu, pc);
+        uint8_t *page1 = core->memory.getDirectReadPageCached(cpu, next);
         if (!page0 || !page1)
             return false;
 
@@ -2661,8 +2661,8 @@ bool Interpreter::refillPipelineDirect()
 
     uint32_t pc = *registers[15] & ~3u;
     uint32_t next = pc + 4u;
-    uint8_t *page0 = core->memory.getDirectReadPage(cpu, pc);
-    uint8_t *page1 = core->memory.getDirectReadPage(cpu, next);
+    uint8_t *page0 = core->memory.getDirectReadPageCached(cpu, pc);
+    uint8_t *page1 = core->memory.getDirectReadPageCached(cpu, next);
     if (!page0 || !page1)
         return false;
 

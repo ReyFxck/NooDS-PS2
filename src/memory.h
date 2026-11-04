@@ -214,6 +214,42 @@ class Memory
             return (cpu == 0 ? writeMap9 : writeMap7).get(address);
         }
 
+        // PS2 backend helpers hit the same RAM/TCM pages repeatedly. Reuse the
+        // tiny interpreter page cache instead of walking both sparse-table
+        // levels for every generated load/fetch. Mapping changes already
+        // invalidate these caches together with the normal read/write path.
+        FORCE_INLINE uint8_t *getDirectReadPageCached(bool cpu, uint32_t address)
+        {
+#ifdef NOODS_PS2
+            uint8_t *page = nullptr;
+            MemoryPageCache &cache = readPageCache[cpu ? 1 : 0];
+            if (!cache.lookup(address, page))
+            {
+                page = (cpu == 0 ? readMap9 : readMap7).get(address);
+                cache.store(address, page);
+            }
+            return page;
+#else
+            return getDirectReadPage(cpu, address);
+#endif
+        }
+
+        FORCE_INLINE uint8_t *getDirectWritePageCached(bool cpu, uint32_t address)
+        {
+#ifdef NOODS_PS2
+            uint8_t *page = nullptr;
+            MemoryPageCache &cache = writePageCache[cpu ? 1 : 0];
+            if (!cache.lookup(address, page))
+            {
+                page = (cpu == 0 ? writeMap9 : writeMap7).get(address);
+                cache.store(address, page);
+            }
+            return page;
+#else
+            return getDirectWritePage(cpu, address);
+#endif
+        }
+
         uint32_t getMapGeneration() const { return mapGeneration; }
 
 #ifdef NOODS_PROFILE
