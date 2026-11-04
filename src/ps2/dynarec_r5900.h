@@ -91,9 +91,12 @@ struct R5900CompiledBlock
     uint8_t *cachedWritePage = nullptr;
     uint16_t readMask = 0;
     uint16_t writeMask = 0;
+    uint16_t inputMask = 0;
     uint8_t liveRegCount = 0;
+    uint8_t inputRegCount = 0;
     uint8_t writeRegCount = 0;
     uint8_t liveRegs[15] = {};
+    uint8_t inputRegs[15] = {};
     uint8_t writeRegs[15] = {};
     bool readsFlags = false;
     bool writesFlags = false;

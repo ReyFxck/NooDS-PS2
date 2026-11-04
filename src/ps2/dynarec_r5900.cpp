@@ -3311,17 +3311,25 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         block.readsFlags |= branch.condition != 0xEu;
     }
 
-    // Precompute the tiny register lists used by the live executor. This turns
-    // every active dispatch from two r0-r14 mask scans into compact loops over
-    // only the registers this block can actually observe or modify.
+    // Precompute compact register lists for the live executor. Unconditional
+    // write-only destinations do not need their old Interpreter values at
+    // block entry. If the block reads flags, keep all write destinations as
+    // inputs too because a conditional instruction may preserve the old value.
     uint16_t liveMask = static_cast<uint16_t>(
         (block.readMask | block.writeMask) & 0x7FFFu);
     uint16_t writeMask = static_cast<uint16_t>(block.writeMask & 0x7FFFu);
+    uint16_t inputMask = static_cast<uint16_t>(block.readMask & 0x7FFFu);
+    if (block.readsFlags)
+        inputMask |= writeMask;
+    block.inputMask = inputMask;
+
     for (uint8_t reg = 0; reg < 15; reg++)
     {
         uint16_t bit = static_cast<uint16_t>(1u << reg);
         if (liveMask & bit)
             block.liveRegs[block.liveRegCount++] = reg;
+        if (inputMask & bit)
+            block.inputRegs[block.inputRegCount++] = reg;
         if (writeMask & bit)
             block.writeRegs[block.writeRegCount++] = reg;
     }
@@ -4398,12 +4406,11 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     // it needs from the still-unmodified Interpreter state. Registers written
     // by earlier blocks are already resident in state.r and never reloaded.
     ArmAluState state;
-    uint16_t initializedMask = static_cast<uint16_t>(
-        (block->readMask | block->writeMask) & 0x7FFFu);
+    uint16_t initializedMask = block->inputMask;
     uint16_t unionWriteMask = static_cast<uint16_t>(block->writeMask & 0x7FFFu);
-    for (uint8_t i = 0; i < block->liveRegCount; i++)
+    for (uint8_t i = 0; i < block->inputRegCount; i++)
     {
-        uint8_t reg = block->liveRegs[i];
+        uint8_t reg = block->inputRegs[i];
         state.r[reg] = CpuBackendAccess::readReg(cpu, reg);
     }
 
@@ -4469,6 +4476,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
                 : 0;
         }
 
+        initializedMask |= static_cast<uint16_t>(
+            current->writeMask & 0x7FFFu);
         unionWriteMask |= static_cast<uint16_t>(
             current->writeMask & 0x7FFFu);
 
@@ -4486,16 +4495,15 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
             !next->cycles || next->cycles > remaining)
             break;
 
-        uint16_t nextLiveMask = static_cast<uint16_t>(
-            (next->readMask | next->writeMask) & 0x7FFFu);
-        for (uint8_t i = 0; i < next->liveRegCount; i++)
+        uint16_t nextInputMask = next->inputMask;
+        for (uint8_t i = 0; i < next->inputRegCount; i++)
         {
-            uint8_t reg = next->liveRegs[i];
+            uint8_t reg = next->inputRegs[i];
             uint16_t bit = static_cast<uint16_t>(1u << reg);
             if (!(initializedMask & bit))
                 state.r[reg] = CpuBackendAccess::readReg(cpu, reg);
         }
-        initializedMask |= nextLiveMask;
+        initializedMask |= nextInputMask;
         current = next;
         profile.activeInternalChainBlocks++;
     }
