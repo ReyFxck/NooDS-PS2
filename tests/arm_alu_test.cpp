@@ -396,6 +396,11 @@ int main()
     assert(!multiBlock.load && multiBlock.writeBack &&
         multiBlock.decrementBefore && multiBlock.rn == 13 &&
         multiBlock.count == 3 && multiBlock.registerMask == 0x4030u);
+    assert(Ps2ArmAlu::decodeMultiBlockTransfer(
+        0xE92D47F0u, &multiBlock)); // STMDB sp!,{r4-r10,lr}
+    assert(!multiBlock.load && multiBlock.writeBack &&
+        multiBlock.decrementBefore && multiBlock.rn == 13 &&
+        multiBlock.count == 8 && multiBlock.registerMask == 0x47F0u);
     assert(!Ps2ArmAlu::decodeMultiBlockTransfer(
         0xE8BD8030u, &multiBlock)); // PC list excluded.
     assert(!Ps2ArmAlu::decodeMultiBlockTransfer(
@@ -431,6 +436,24 @@ int main()
         assert(readWord(&multiMemory, 0x34u, &value) && value == 0x44444444u);
         assert(readWord(&multiMemory, 0x38u, &value) && value == 0x55555555u);
         assert(readWord(&multiMemory, 0x3Cu, &value) && value == 0xEEEEEEEEu);
+
+        std::memset(&multiMemory, 0, sizeof(multiMemory));
+        std::memset(multiRegs, 0, sizeof(multiRegs));
+        multiRegs[13] = 0x100u;
+        for (uint32_t reg = 4; reg <= 10; reg++)
+            multiRegs[reg] = 0x10000000u | reg;
+        multiRegs[14] = 0xEEEEEEEEu;
+        assert(Ps2ArmAlu::executeMultiBlockTransfer(
+            0xE92D47F0u, multiRegs, &multiCpsr,
+            &multiMemory, readWord, writeWord));
+        assert(multiRegs[13] == 0xE0u);
+        for (uint32_t slot = 0; slot < 7; slot++)
+        {
+            assert(readWord(&multiMemory, 0xE0u + slot * 4u, &value) &&
+                value == (0x10000000u | (slot + 4u)));
+        }
+        assert(readWord(&multiMemory, 0xFCu, &value) &&
+            value == 0xEEEEEEEEu);
     }
 
     Ps2ArmAlu::DecodedBranch branch;

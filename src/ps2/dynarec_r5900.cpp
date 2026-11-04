@@ -4629,7 +4629,10 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     // cold helper fallback, so the old 70-word/instruction reservation is no
     // longer a safe upper bound. This is reservation headroom only; commitWords
     // still advances by the exact emitted size.
-    const size_t maxWords = count * 160 + (internalSelfLoop ? 48 : 8);
+    // A single 14-register STM expands into journal bookkeeping for every
+    // word. Keep enough headroom for that worst admitted instruction while
+    // commitWords still advances by the exact generated size.
+    const size_t maxWords = count * 256 + (internalSelfLoop ? 48 : 8);
     uint32_t *code = cache.reserveWords(maxWords);
     if (!code)
         return false;
