@@ -575,6 +575,29 @@ void logMemoryProfile(const char *label, const MemoryCpuProfile &profile)
         static_cast<unsigned long long>(profile.crossPageReads),
         static_cast<unsigned long long>(profile.crossPageWrites));
 
+#if NOODS_PROFILE_LEVEL >= 2
+    const double mmioReadAvgUs = profile.mmioReadTimingSamples
+        ? static_cast<double>(profile.mmioReadTicks) * 1000000.0 /
+            CLOCKS_PER_SEC /
+            static_cast<double>(profile.mmioReadTimingSamples)
+        : 0.0;
+    const double mmioWriteAvgUs = profile.mmioWriteTimingSamples
+        ? static_cast<double>(profile.mmioWriteTicks) * 1000000.0 /
+            CLOCKS_PER_SEC /
+            static_cast<double>(profile.mmioWriteTimingSamples)
+        : 0.0;
+    PS2_LOG("[PS2][PROF] memory %s MMIO timing/64: readSamples=%llu avgUs=%.2f totalSampleMs=%.2f writeSamples=%llu avgUs=%.2f totalSampleMs=%.2f\n",
+        label,
+        static_cast<unsigned long long>(profile.mmioReadTimingSamples),
+        mmioReadAvgUs,
+        static_cast<double>(profile.mmioReadTicks) * 1000.0 /
+            CLOCKS_PER_SEC,
+        static_cast<unsigned long long>(profile.mmioWriteTimingSamples),
+        mmioWriteAvgUs,
+        static_cast<double>(profile.mmioWriteTicks) * 1000.0 /
+            CLOCKS_PER_SEC);
+#endif
+
     uint8_t mmioOrder[8] = {};
     for (uint8_t i = 0; i < 8; i++)
         mmioOrder[i] = i;
