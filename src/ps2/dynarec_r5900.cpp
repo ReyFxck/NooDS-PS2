@@ -366,6 +366,10 @@ struct ArmAluState
     uint32_t writeCacheTag;
     uint8_t *writeCachePage;
     ArmMemoryWrite writes[16];
+
+    // Kept after the generated-code ABI payload so every existing R5900
+    // offset remains unchanged. 0 = ARM9, 1 = ARM7.
+    uint32_t cpuId;
 };
 static_assert(offsetof(ArmAluState, cpsr) == 64,
     "R5900 ARM-state CPSR ABI offset");
@@ -387,6 +391,8 @@ static_assert(offsetof(ArmAluState, writeCachePage) == 108,
     "R5900 ARM-state write-cache page ABI offset");
 static_assert(offsetof(ArmAluState, writes) == 112,
     "R5900 ARM-state write-journal ABI offset");
+static_assert(offsetof(ArmAluState, cpuId) == 368,
+    "R5900 ARM-state CPU-ID ABI offset");
 static_assert(sizeof(ArmMemoryWrite) == 16,
     "R5900 ARM write-journal entry ABI size");
 
@@ -427,7 +433,7 @@ uint8_t *getArm9CachedReadPage(ArmAluState *state, uint32_t address)
     if (state->readCacheTag == tag && state->readCachePage)
         return state->readCachePage;
 
-    uint8_t *page = state->memory->getDirectReadPageCached(0, address);
+    uint8_t *page = state->memory->getDirectReadPageCached(state->cpuId != 0, address);
     if (!page)
         return nullptr;
 
@@ -462,7 +468,7 @@ uint32_t refillArm9ByteReadCache(ArmAluState *state,
         return 0;
     }
 
-    uint8_t *page = state->memory->getDirectReadPageCached(0, address);
+    uint8_t *page = state->memory->getDirectReadPageCached(state->cpuId != 0, address);
     if (!page)
     {
         state->memoryFault = 1;
@@ -485,7 +491,7 @@ uint32_t refillArm9WordReadCache(ArmAluState *state,
         return 0;
     }
 
-    uint8_t *page = state->memory->getDirectReadPageCached(0, address);
+    uint8_t *page = state->memory->getDirectReadPageCached(state->cpuId != 0, address);
     if (!page)
     {
         state->memoryFault = 1;
@@ -512,7 +518,7 @@ uint32_t refillArm9HalfwordReadCache(ArmAluState *state,
         return 0;
     }
 
-    uint8_t *page = state->memory->getDirectReadPageCached(0, address);
+    uint8_t *page = state->memory->getDirectReadPageCached(state->cpuId != 0, address);
     if (!page)
     {
         state->memoryFault = 1;
@@ -535,7 +541,7 @@ uint8_t *getArm9CachedWritePage(ArmAluState *state, uint32_t address)
     if (state->writeCacheTag == tag && state->writeCachePage)
         return state->writeCachePage;
 
-    uint8_t *page = state->memory->getDirectWritePageCached(0, address);
+    uint8_t *page = state->memory->getDirectWritePageCached(state->cpuId != 0, address);
     if (!page)
         return nullptr;
 
@@ -576,7 +582,7 @@ void restoreArmMemoryWrites(ArmAluState *state)
     {
         const ArmMemoryWrite &write = state->writes[i - 1];
         uint32_t offset = write.address & 0xFFFu;
-        uint8_t *page = state->memory->getDirectWritePageCached(0, write.address);
+        uint8_t *page = state->memory->getDirectWritePageCached(state->cpuId != 0, write.address);
         if (!page || !write.size || offset + write.size > 0x1000u)
             continue;
         page[offset] = static_cast<uint8_t>(write.before);
@@ -5649,6 +5655,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     state.readCachePage = block->cachedReadPage;
     state.writeCacheTag = block->cachedWriteTag;
     state.writeCachePage = block->cachedWritePage;
+    state.cpuId = 0;
     state.cycleLimit = cycleBudget;
     state.guestExecuted = 0;
 
