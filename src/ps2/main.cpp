@@ -1923,9 +1923,9 @@ int main(int argc, char **argv)
                     core->interpreter[0].getProfile();
                 logInterpreterProfile("ARM9", arm9Profile);
 #if NOODS_PROFILE_LEVEL >= 2
-                uint32_t selectiveHotPcs[3] = {};
+                uint32_t selectiveHotPcs[6] = {};
                 size_t selectiveHotCount = logDynarecHotBlocks(
-                    dynarec, arm9Profile, selectiveHotPcs, 3);
+                    dynarec, arm9Profile, selectiveHotPcs, 6);
 #endif
                 const InterpreterProfile &arm7Profile =
                     core->interpreter[1].getProfile();
@@ -1985,11 +1985,14 @@ int main(int argc, char **argv)
                 {
                     core->addArm9BlockHotPcs(selectiveHotPcs,
                         selectiveHotCount);
-                    PS2_LOG("[PS2][JIT] selective hot filter add count=%u pcs=%08lX,%08lX,%08lX\n",
+                    PS2_LOG("[PS2][JIT] selective hot filter add count=%u pcs=%08lX,%08lX,%08lX,%08lX,%08lX,%08lX\n",
                         static_cast<unsigned>(selectiveHotCount),
                         static_cast<unsigned long>(selectiveHotPcs[0]),
                         static_cast<unsigned long>(selectiveHotPcs[1]),
-                        static_cast<unsigned long>(selectiveHotPcs[2]));
+                        static_cast<unsigned long>(selectiveHotPcs[2]),
+                        static_cast<unsigned long>(selectiveHotPcs[3]),
+                        static_cast<unsigned long>(selectiveHotPcs[4]),
+                        static_cast<unsigned long>(selectiveHotPcs[5]));
                 }
 #endif
 
