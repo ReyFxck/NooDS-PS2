@@ -757,17 +757,37 @@ void Gpu2D::drawText(int bg, int line)
     Gpu2DDirectPageCache tilePageCache;
     Gpu2DDirectPageCache indexPageCache;
 
+    // H-offset fine scroll is constant across the whole scanline. Iterate 32
+    // tiles when aligned and fetch the 33rd only when a partial tile is
+    // actually visible. Advance tile-map X directly instead of rebuilding the
+    // wrapped pixel coordinate for every tile.
+    const int fineX = bgHOfs[bg] & 7;
+    const int tileCount = 32 + (fineX != 0);
+    const int firstTileX = (bgHOfs[bg] >> 3) & 0x3F;
+    const bool wide = (bgCnt[bg] & BIT(14)) != 0;
+
+    uint8_t *extendedPalette = nullptr;
+    if ((bgCnt[bg] & BIT(7)) && (dispCnt & BIT(30)))
+    {
+        // Extended-palette slot selection depends only on the BG, not on the
+        // individual tile, so resolve it once per scanline.
+        int slot = (bg < 2 && (bgCnt[bg] & BIT(13))) ? (bg + 2) : bg;
+        if (!extPalettes[slot])
+            return;
+        extendedPalette = extPalettes[slot];
+    }
+
     // Draw a line
     if (bgCnt[bg] & BIT(7)) // 8-bit
     {
-        for (int i = 0; i <= 256; i += 8)
+        for (int tileIndex = 0; tileIndex < tileCount; tileIndex++)
         {
-            // Move the tile address to the current tile
-            int xOffset = (i + bgHOfs[bg]) & 0x1FF;
-            uint32_t tileAddr = tileBase + ((xOffset & 0xF8) >> 2);
+            const int i = tileIndex << 3;
+            const int tileX = (firstTileX + tileIndex) & 0x3F;
+            uint32_t tileAddr = tileBase + ((tileX & 0x1F) << 1);
 
             // If the X-offset exceeds 256 and the background is 512 pixels wide, move to the next 256x256 section
-            if (xOffset >= 256 && (bgCnt[bg] & BIT(14)))
+            if ((tileX & 0x20) && wide)
                 tileAddr += 0x800;
 
             // Get the current tile. Text backgrounds repeatedly touch the
@@ -784,22 +804,11 @@ void Gpu2D::drawText(int bg, int line)
             else
                 tile = core->memory.read<uint16_t>(gba, tileAddr);
 
-            // Get the tile's palette
-            uint8_t *pal;
-            if (dispCnt & BIT(30)) // Extended palette
-            {
-                // Determine the extended palette slot
-                // Backgrounds 0 and 1 can alternatively use slots 2 and 3
-                int slot = (bg < 2 && (bgCnt[bg] & BIT(13))) ? (bg + 2) : bg;
-
-                // In extended palette mode, the tile can select from multiple 256-color palettes
-                if (!extPalettes[slot]) return;
-                pal = &extPalettes[slot][(tile & 0xF000) >> 3];
-            }
-            else // Standard palette
-            {
-                pal = palette;
-            }
+            // Get the tile's palette. Extended slot selection was already
+            // resolved once for this scanline above.
+            uint8_t *pal = extendedPalette
+                ? &extendedPalette[(tile & 0xF000) >> 3]
+                : palette;
 
             // Get the palette indices for the current line of the tile, flipped vertically if enabled
             uint32_t indexAddr = indexBase + (tile & 0x3FF) * 64 + ((tile & BIT(11)) ? (7 - (yOffset & 7)) : (yOffset & 7)) * 8;
@@ -823,7 +832,9 @@ void Gpu2D::drawText(int bg, int line)
             }
 
             // Draw the current line of the tile, flipped horizontally if enabled
-            for (int x = i - (xOffset & 7) + ((tile & BIT(10)) ? 7 : 0); indices != 0; ((tile & BIT(10)) ? x-- : x++), indices >>= 8)
+            const int xStep = (tile & BIT(10)) ? -1 : 1;
+            for (int x = i - fineX + ((tile & BIT(10)) ? 7 : 0);
+                indices != 0; x += xStep, indices >>= 8)
             {
                 // Draw a pixel if it's visible
                 if (x >= 0 && x < 256 && (indices & 0xFF))
@@ -833,14 +844,14 @@ void Gpu2D::drawText(int bg, int line)
     }
     else // 4-bit
     {
-        for (int i = 0; i <= 256; i += 8)
+        for (int tileIndex = 0; tileIndex < tileCount; tileIndex++)
         {
-            // Move the tile address to the current tile
-            int xOffset = (i + bgHOfs[bg]) & 0x1FF;
-            uint32_t tileAddr = tileBase + ((xOffset & 0xF8) >> 2);
+            const int i = tileIndex << 3;
+            const int tileX = (firstTileX + tileIndex) & 0x3F;
+            uint32_t tileAddr = tileBase + ((tileX & 0x1F) << 1);
 
             // If the X-offset exceeds 256 and the background is 512 pixels wide, move to the next 256x256 section
-            if (xOffset >= 256 && (bgCnt[bg] & BIT(14)))
+            if ((tileX & 0x20) && wide)
                 tileAddr += 0x800;
 
             // Get the current tile. Text backgrounds repeatedly touch the
@@ -876,7 +887,9 @@ void Gpu2D::drawText(int bg, int line)
                 indices = core->memory.read<uint32_t>(gba, indexAddr);
 
             // Draw the current line of the tile, flipped horizontally if enabled
-            for (int x = i - (xOffset & 7) + ((tile & BIT(10)) ? 7 : 0); indices != 0; ((tile & BIT(10)) ? x-- : x++), indices >>= 4)
+            const int xStep = (tile & BIT(10)) ? -1 : 1;
+            for (int x = i - fineX + ((tile & BIT(10)) ? 7 : 0);
+                indices != 0; x += xStep, indices >>= 4)
             {
                 // Draw a pixel if it's visible
                 if (x >= 0 && x < 256 && (indices & 0xF))
