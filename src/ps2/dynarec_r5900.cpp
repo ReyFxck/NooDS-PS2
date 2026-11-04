@@ -5576,6 +5576,199 @@ bool DynarecR5900::runArmAluSelfTest()
     if (arm7BlockStoreRestored != arm7BlockStoreBefore)
         return false;
 
+    // Gate the new 2-4 register inline block-transfer path independently of
+    // the portable helper. LDMIA {r1,r2} checks ascending register order and
+    // IA writeback; STMDB {r1-r4} checks DB address order, native ARM9/ARM7
+    // timing and transactional rollback.
+    const uint32_t multiLoadAddress = 0x02000040u;
+    uint8_t *multiLoadPage = memory->getDirectReadPage(0, multiLoadAddress);
+    uint8_t *arm7MultiLoadPage =
+        memory->getDirectReadPage(1, multiLoadAddress);
+    if (!multiLoadPage || !arm7MultiLoadPage)
+        return false;
+
+    auto readWordAt = [](uint8_t *page, uint32_t address)
+    {
+        uint32_t offset = address & 0xFFFu;
+        return static_cast<uint32_t>(page[offset]) |
+            (static_cast<uint32_t>(page[offset + 1]) << 8) |
+            (static_cast<uint32_t>(page[offset + 2]) << 16) |
+            (static_cast<uint32_t>(page[offset + 3]) << 24);
+    };
+
+    uint32_t expectedLoad0 = readWordAt(multiLoadPage, multiLoadAddress);
+    uint32_t expectedLoad1 = readWordAt(multiLoadPage, multiLoadAddress + 4u);
+    uint32_t arm7ExpectedLoad0 =
+        readWordAt(arm7MultiLoadPage, multiLoadAddress);
+    uint32_t arm7ExpectedLoad1 =
+        readWordAt(arm7MultiLoadPage, multiLoadAddress + 4u);
+
+    uint32_t *multiLoadCode = cache.reserveWords(192);
+    if (!multiLoadCode)
+        return false;
+    size_t multiLoadWords = emitArmMultiBlockTransferInstruction(
+        0xE8B00006u, multiLoadCode, false, false, 0);
+        // LDMIA r0!,{r1,r2}
+    if (!multiLoadWords)
+        return false;
+    multiLoadCode[multiLoadWords++] = R5900::jr(R5900::R_RA);
+    multiLoadCode[multiLoadWords++] = R5900::nop();
+    cache.commitWords(multiLoadWords);
+    cache.syncExecutable(multiLoadCode, multiLoadCode + multiLoadWords);
+    ArmBlockTransferFunction multiLoadFunction =
+        reinterpret_cast<ArmBlockTransferFunction>(multiLoadCode);
+
+    {
+        ArmAluState state = {};
+        state.r[0] = multiLoadAddress;
+        state.memory = memory;
+        state.readCacheTag = (multiLoadAddress >> 12) + 1u;
+        state.readCachePage = multiLoadPage;
+        multiLoadFunction(&state);
+        if (state.memoryFault || state.cycles != 2u ||
+            state.r[0] != multiLoadAddress + 8u ||
+            state.r[1] != expectedLoad0 || state.r[2] != expectedLoad1)
+            return false;
+    }
+
+    uint32_t *arm7MultiLoadCode = cache.reserveWords(192);
+    if (!arm7MultiLoadCode)
+        return false;
+    size_t arm7MultiLoadWords = emitArmMultiBlockTransferInstruction(
+        0xE8B00006u, arm7MultiLoadCode, false, false, 1);
+    if (!arm7MultiLoadWords)
+        return false;
+    arm7MultiLoadCode[arm7MultiLoadWords++] = R5900::jr(R5900::R_RA);
+    arm7MultiLoadCode[arm7MultiLoadWords++] = R5900::nop();
+    cache.commitWords(arm7MultiLoadWords);
+    cache.syncExecutable(arm7MultiLoadCode,
+        arm7MultiLoadCode + arm7MultiLoadWords);
+    ArmBlockTransferFunction arm7MultiLoadFunction =
+        reinterpret_cast<ArmBlockTransferFunction>(arm7MultiLoadCode);
+
+    {
+        ArmAluState state = {};
+        state.r[0] = multiLoadAddress;
+        state.memory = memory;
+        state.cpuId = 1;
+        state.readCacheTag = (multiLoadAddress >> 12) + 1u;
+        state.readCachePage = arm7MultiLoadPage;
+        arm7MultiLoadFunction(&state);
+        if (state.memoryFault || state.cycles != 4u ||
+            state.r[0] != multiLoadAddress + 8u ||
+            state.r[1] != arm7ExpectedLoad0 ||
+            state.r[2] != arm7ExpectedLoad1)
+            return false;
+    }
+
+    const uint32_t multiStoreStart = 0x02000080u;
+    const uint32_t multiStoreBase = multiStoreStart + 16u;
+    uint8_t *multiStorePage =
+        memory->getDirectWritePage(0, multiStoreStart);
+    uint8_t *arm7MultiStorePage =
+        memory->getDirectWritePage(1, multiStoreStart);
+    if (!multiStorePage || !arm7MultiStorePage)
+        return false;
+
+    uint32_t multiStoreBefore[4] = {};
+    uint32_t arm7MultiStoreBefore[4] = {};
+    for (uint32_t i = 0; i < 4; i++)
+    {
+        multiStoreBefore[i] =
+            readWordAt(multiStorePage, multiStoreStart + i * 4u);
+        arm7MultiStoreBefore[i] =
+            readWordAt(arm7MultiStorePage, multiStoreStart + i * 4u);
+    }
+
+    uint32_t *multiStoreCode = cache.reserveWords(320);
+    if (!multiStoreCode)
+        return false;
+    size_t multiStoreWords = emitArmMultiBlockTransferInstruction(
+        0xE920001Eu, multiStoreCode, false, false, 0);
+        // STMDB r0!,{r1-r4}
+    if (!multiStoreWords)
+        return false;
+    multiStoreCode[multiStoreWords++] = R5900::jr(R5900::R_RA);
+    multiStoreCode[multiStoreWords++] = R5900::nop();
+    cache.commitWords(multiStoreWords);
+    cache.syncExecutable(multiStoreCode, multiStoreCode + multiStoreWords);
+    ArmBlockTransferFunction multiStoreFunction =
+        reinterpret_cast<ArmBlockTransferFunction>(multiStoreCode);
+
+    {
+        ArmAluState state = {};
+        state.r[0] = multiStoreBase;
+        state.r[1] = 0x11111111u;
+        state.r[2] = 0x22222222u;
+        state.r[3] = 0x33333333u;
+        state.r[4] = 0x44444444u;
+        state.memory = memory;
+        state.writeCacheTag = (multiStoreStart >> 12) + 1u;
+        state.writeCachePage = multiStorePage;
+        ArmMemoryWriteGuard writes(&state);
+        multiStoreFunction(&state);
+        if (state.memoryFault || state.writeCount != 4 ||
+            state.cycles != 4u || state.r[0] != multiStoreStart)
+            return false;
+        for (uint32_t i = 0; i < 4; i++)
+        {
+            if (readWordAt(multiStorePage, multiStoreStart + i * 4u) !=
+                0x11111111u * (i + 1u))
+                return false;
+        }
+    }
+    for (uint32_t i = 0; i < 4; i++)
+    {
+        if (readWordAt(multiStorePage, multiStoreStart + i * 4u) !=
+            multiStoreBefore[i])
+            return false;
+    }
+
+    uint32_t *arm7MultiStoreCode = cache.reserveWords(320);
+    if (!arm7MultiStoreCode)
+        return false;
+    size_t arm7MultiStoreWords = emitArmMultiBlockTransferInstruction(
+        0xE920001Eu, arm7MultiStoreCode, false, false, 1);
+    if (!arm7MultiStoreWords)
+        return false;
+    arm7MultiStoreCode[arm7MultiStoreWords++] = R5900::jr(R5900::R_RA);
+    arm7MultiStoreCode[arm7MultiStoreWords++] = R5900::nop();
+    cache.commitWords(arm7MultiStoreWords);
+    cache.syncExecutable(arm7MultiStoreCode,
+        arm7MultiStoreCode + arm7MultiStoreWords);
+    ArmBlockTransferFunction arm7MultiStoreFunction =
+        reinterpret_cast<ArmBlockTransferFunction>(arm7MultiStoreCode);
+
+    {
+        ArmAluState state = {};
+        state.r[0] = multiStoreBase;
+        state.r[1] = 0x11111111u;
+        state.r[2] = 0x22222222u;
+        state.r[3] = 0x33333333u;
+        state.r[4] = 0x44444444u;
+        state.memory = memory;
+        state.cpuId = 1;
+        state.writeCacheTag = (multiStoreStart >> 12) + 1u;
+        state.writeCachePage = arm7MultiStorePage;
+        ArmMemoryWriteGuard writes(&state);
+        arm7MultiStoreFunction(&state);
+        if (state.memoryFault || state.writeCount != 4 ||
+            state.cycles != 5u || state.r[0] != multiStoreStart)
+            return false;
+        for (uint32_t i = 0; i < 4; i++)
+        {
+            if (readWordAt(arm7MultiStorePage,
+                multiStoreStart + i * 4u) != 0x11111111u * (i + 1u))
+                return false;
+        }
+    }
+    for (uint32_t i = 0; i < 4; i++)
+    {
+        if (readWordAt(arm7MultiStorePage, multiStoreStart + i * 4u) !=
+            arm7MultiStoreBefore[i])
+            return false;
+    }
+
     // Gate the real hot copy-loop pair seen in PROFILE logs:
     //   LDMIA.LT r0!,{r2}
     //   STMIA.LT r1!,{r2}
