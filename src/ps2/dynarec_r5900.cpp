@@ -2086,11 +2086,91 @@ size_t emitArmSingleBlockTransferFastInstruction(uint32_t opcode,
         code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
         code[words++] = R5900::nop();
     }
-
     words += emitArmCycleAdd(1, code + words, registerCycles);
 
-    // The helper does not inspect CPSR, but v1/t8 are caller-saved and must
-    // survive the C++ call when the enclosing block caches them.
+    // Increment-after: effective address is the original base register.
+    code[words++] = R5900::lw(R5900::R_T0,
+        static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+
+    // Direct word access is intentionally aligned in this dynarec subset.
+    code[words++] = R5900::andi(R5900::R_T4, R5900::R_T0, 3);
+    size_t unalignedBranch = words;
+    code[words++] = R5900::bne(R5900::R_T4, R5900::R_ZERO, 0);
+    code[words++] = R5900::nop();
+
+    code[words++] = R5900::andi(R5900::R_T4, R5900::R_T0, 0x0FFFu);
+    code[words++] = R5900::srl(R5900::R_T1, R5900::R_T0, 12);
+    code[words++] = R5900::addiu(R5900::R_T1, R5900::R_T1, 1);
+
+    size_t cacheMissBranch = words;
+    size_t nullPageBranch = static_cast<size_t>(-1);
+    size_t journalFullBranch = static_cast<size_t>(-1);
+
+    if (decoded.load)
+    {
+        code[words++] = R5900::lw(R5900::R_T2, 88, R5900::R_A0);
+        cacheMissBranch = words;
+        code[words++] = R5900::bne(R5900::R_T1, R5900::R_T2, 0);
+        code[words++] = R5900::nop();
+        code[words++] = R5900::lw(R5900::R_T3, 92, R5900::R_A0);
+        nullPageBranch = words;
+        code[words++] = R5900::beq(R5900::R_T3, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+
+        code[words++] = R5900::addu(R5900::R_T3, R5900::R_T3, R5900::R_T4);
+        code[words++] = R5900::lw(R5900::R_T2, 0, R5900::R_T3);
+        code[words++] = R5900::sw(R5900::R_T2,
+            static_cast<int16_t>(decoded.reg * 4), R5900::R_A0);
+    }
+    else
+    {
+        code[words++] = R5900::lw(R5900::R_T2, 104, R5900::R_A0);
+        cacheMissBranch = words;
+        code[words++] = R5900::bne(R5900::R_T1, R5900::R_T2, 0);
+        code[words++] = R5900::nop();
+        code[words++] = R5900::lw(R5900::R_T3, 108, R5900::R_A0);
+        nullPageBranch = words;
+        code[words++] = R5900::beq(R5900::R_T3, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+
+        code[words++] = R5900::lw(R5900::R_T5, 80, R5900::R_A0);
+        code[words++] = R5900::sltiu(R5900::R_T6, R5900::R_T5, 16);
+        journalFullBranch = words;
+        code[words++] = R5900::beq(R5900::R_T6, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+
+        code[words++] = R5900::addu(R5900::R_T3, R5900::R_T3, R5900::R_T4);
+        code[words++] = R5900::lw(R5900::R_T1,
+            static_cast<int16_t>(decoded.reg * 4), R5900::R_A0);
+
+        // ArmMemoryWrite is 16 bytes and starts at state+112.
+        code[words++] = R5900::sll(R5900::R_T6, R5900::R_T5, 4);
+        code[words++] = R5900::addiu(R5900::R_T7, R5900::R_A0, 112);
+        code[words++] = R5900::addu(R5900::R_T7, R5900::R_T7, R5900::R_T6);
+        code[words++] = R5900::lw(R5900::R_T6, 0, R5900::R_T3);
+        code[words++] = R5900::sw(R5900::R_T0, 0, R5900::R_T7);
+        code[words++] = R5900::sw(R5900::R_T6, 4, R5900::R_T7);
+        code[words++] = R5900::sw(R5900::R_T1, 8, R5900::R_T7);
+        code[words++] = R5900::addiu(R5900::R_T6, R5900::R_ZERO, 4);
+        code[words++] = R5900::sw(R5900::R_T6, 12, R5900::R_T7);
+        code[words++] = R5900::sw(R5900::R_T1, 0, R5900::R_T3);
+        code[words++] = R5900::addiu(R5900::R_T5, R5900::R_T5, 1);
+        code[words++] = R5900::sw(R5900::R_T5, 80, R5900::R_A0);
+    }
+
+    if (decoded.writeBack)
+    {
+        code[words++] = R5900::addiu(R5900::R_T2, R5900::R_T0, 4);
+        code[words++] = R5900::sw(R5900::R_T2,
+            static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+    }
+
+    size_t fastDoneBranch = words;
+    code[words++] = R5900::beq(R5900::R_ZERO, R5900::R_ZERO, 0);
+    code[words++] = R5900::nop();
+
+    // Cold/unsafe path seeds the same persistent read/write page cache.
+    size_t slowPath = words;
     if (registerCpsr)
         code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
     if (registerCycles)
@@ -2120,18 +2200,40 @@ size_t emitArmSingleBlockTransferFastInstruction(uint32_t opcode,
     if (registerCpsr)
         code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
 
-    if (conditionBranch != static_cast<size_t>(-1))
+    size_t done = words;
+
+    auto patchBne = [&](size_t branch, int rs, int rt, size_t target)
     {
-        size_t distance = words - (conditionBranch + 1);
+        size_t distance = target - (branch + 1);
         if (distance > 0x7FFFu)
-            return 0;
-        code[conditionBranch] = R5900::beq(R5900::R_T7,
-            R5900::R_ZERO, static_cast<int16_t>(distance));
-    }
+            return false;
+        code[branch] = R5900::bne(rs, rt, static_cast<int16_t>(distance));
+        return true;
+    };
+    auto patchBeq = [&](size_t branch, int rs, int rt, size_t target)
+    {
+        if (branch == static_cast<size_t>(-1))
+            return true;
+        size_t distance = target - (branch + 1);
+        if (distance > 0x7FFFu)
+            return false;
+        code[branch] = R5900::beq(rs, rt, static_cast<int16_t>(distance));
+        return true;
+    };
+
+    if (!patchBne(unalignedBranch, R5900::R_T4, R5900::R_ZERO, slowPath) ||
+        !patchBne(cacheMissBranch, R5900::R_T1, R5900::R_T2, slowPath) ||
+        !patchBeq(nullPageBranch, R5900::R_T3, R5900::R_ZERO, slowPath) ||
+        !patchBeq(journalFullBranch, R5900::R_T6, R5900::R_ZERO, slowPath) ||
+        !patchBeq(fastDoneBranch, R5900::R_ZERO, R5900::R_ZERO, done))
+        return 0;
+
+    if (conditionBranch != static_cast<size_t>(-1) &&
+        !patchBeq(conditionBranch, R5900::R_T7, R5900::R_ZERO, done))
+        return 0;
 
     return words;
 }
-
 size_t emitArmSingleBlockTransferInstruction(uint32_t opcode,
     uint32_t *code)
 {
