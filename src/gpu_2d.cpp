@@ -1352,7 +1352,7 @@ void Gpu2D::drawObjects(int line, bool window)
     ProfileScope profile(this, GPU2D_PROFILE_OBJECTS);
 #endif
 
-    const bool gba = gba;
+    const bool gba = core->isGbaMode();
     const bool noWindows = (dispCnt & 0x0000E000u) == 0;
     auto putObjPixel = [&](int x, uint32_t pixel, int8_t priority)
     {
