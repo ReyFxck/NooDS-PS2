@@ -105,6 +105,8 @@ namespace Ps2ArmAlu
     {
         uint8_t condition = 0xE;
         bool load = false;
+        bool signedLoad = false;
+        bool byteLoad = false;
         bool immediate = false;
         bool preIndex = true;
         bool addOffset = true;
