@@ -1700,6 +1700,9 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
             static_cast<int16_t>(decoded.rd * 4), R5900::R_A0);
     code[words++] = R5900::or_(R5900::R_T2,
         R5900::R_V0, R5900::R_ZERO);
+    if (decoded.load)
+        code[words++] = R5900::lw(R5900::R_T2,
+            static_cast<int16_t>(decoded.reg * 4), R5900::R_A0);
     if (registerCycles)
         code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
     if (registerCpsr)
@@ -2805,7 +2808,8 @@ size_t emitArmSingleTransferInstruction(uint32_t opcode, uint32_t *code)
 }
 
 size_t emitArmSingleBlockTransferFastInstruction(uint32_t opcode,
-    uint32_t *code, bool registerCycles, bool registerCpsr)
+    uint32_t *code, bool registerCycles, bool registerCpsr,
+    int forwardedGuestReg = -1, uint8_t forwardedCondition = 0xEu)
 {
     Ps2ArmAlu::DecodedSingleBlockTransfer decoded;
     if (!code || !Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &decoded))
@@ -2830,6 +2834,17 @@ size_t emitArmSingleBlockTransferFastInstruction(uint32_t opcode,
         code[words++] = R5900::nop();
     }
     words += emitArmCycleAdd(1, code + words, registerCycles);
+
+    // If the immediately preceding generated instruction left the exact store
+    // value in t2 under the same ARM condition, preserve it before the cache
+    // machinery reuses t2. Architectural state is still written normally by
+    // the producer, so the helper fallback remains fully correct.
+    bool useForwardedStore = !decoded.load &&
+        forwardedGuestReg == decoded.reg &&
+        forwardedCondition == decoded.condition;
+    if (useForwardedStore)
+        code[words++] = R5900::or_(R5900::R_T9,
+            R5900::R_T2, R5900::R_ZERO);
 
     // Increment-after: effective address is the original base register.
     code[words++] = R5900::lw(R5900::R_T0,
@@ -2883,8 +2898,12 @@ size_t emitArmSingleBlockTransferFastInstruction(uint32_t opcode,
         code[words++] = R5900::nop();
 
         code[words++] = R5900::addu(R5900::R_T3, R5900::R_T3, R5900::R_T4);
-        code[words++] = R5900::lw(R5900::R_T1,
-            static_cast<int16_t>(decoded.reg * 4), R5900::R_A0);
+        if (useForwardedStore)
+            code[words++] = R5900::or_(R5900::R_T1,
+                R5900::R_T9, R5900::R_ZERO);
+        else
+            code[words++] = R5900::lw(R5900::R_T1,
+                static_cast<int16_t>(decoded.reg * 4), R5900::R_A0);
 
         // ArmMemoryWrite is 16 bytes and starts at state+112.
         code[words++] = R5900::sll(R5900::R_T6, R5900::R_T5, 4);
@@ -2903,8 +2922,11 @@ size_t emitArmSingleBlockTransferFastInstruction(uint32_t opcode,
 
     if (decoded.writeBack)
     {
-        code[words++] = R5900::addiu(R5900::R_T2, R5900::R_T0, 4);
-        code[words++] = R5900::sw(R5900::R_T2,
+        // Preserve t2 across LDM writeback so the loaded guest value remains
+        // available to an immediately following generated consumer.
+        int writebackReg = decoded.load ? R5900::R_T6 : R5900::R_T2;
+        code[words++] = R5900::addiu(writebackReg, R5900::R_T0, 4);
+        code[words++] = R5900::sw(writebackReg,
             static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
     }
 
@@ -3208,13 +3230,13 @@ size_t emitArmMultiplyInstruction(uint32_t opcode, uint32_t *code,
 size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
     bool registerCycles = false, bool registerCpsr = false,
     Memory *directMemory = nullptr, int forwardedGuestReg = -1,
-    bool suppressResultStore = false)
+    bool suppressResultStore = false, uint8_t forwardedCondition = 0xEu)
 {
     Ps2ArmAlu::Decoded decoded;
     if (Ps2ArmAlu::decode(opcode, &decoded))
     {
-        int usableForward = (decoded.condition == 0xEu)
-            ? forwardedGuestReg : -1;
+        int usableForward = (decoded.condition == 0xEu &&
+            forwardedCondition == 0xEu) ? forwardedGuestReg : -1;
         return emitArmAluInstruction(opcode, code, registerCycles,
             registerCpsr, usableForward, suppressResultStore);
     }
@@ -3326,7 +3348,8 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
                     if (Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &blockTransfer))
                     {
                         return emitArmSingleBlockTransferFastInstruction(opcode,
-                            code, registerCycles, registerCpsr);
+                            code, registerCycles, registerCpsr,
+                            forwardedGuestReg, forwardedCondition);
                     }
                     else
                     {
@@ -3567,6 +3590,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
 
     size_t bodyStart = words;
     int forwardedGuestReg = -1;
+    uint8_t forwardedCondition = 0xFFu;
     for (size_t i = 0; i < count; i++)
     {
         Ps2ArmAlu::Decoded currentAlu;
@@ -3574,9 +3598,11 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             currentAlu.condition == 0xEu;
 
         int producedGuestReg = -1;
+        uint8_t producedCondition = 0xFFu;
         if (currentDirectAlu && currentAlu.writesResult)
         {
             producedGuestReg = currentAlu.rd;
+            producedCondition = currentAlu.condition;
         }
         else
         {
@@ -3587,6 +3613,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
                 // The direct R5900 multiply emitter leaves its low-32 result
                 // in t2, matching the existing ALU/load forwarding ABI.
                 producedGuestReg = multiply.rd;
+                producedCondition = multiply.condition;
             }
             else
             {
@@ -3598,18 +3625,21 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
                 !half.writeBack)
             {
                 producedGuestReg = half.rd;
+                producedCondition = half.condition;
             }
             else if (Ps2ArmAlu::decodeByteTransfer(opcodes[i], &byte) &&
                 byte.condition == 0xEu && byte.load &&
                 byte.preIndex && !byte.writeBack)
             {
                 producedGuestReg = byte.rd;
+                producedCondition = byte.condition;
             }
             else if (Ps2ArmAlu::decodeSingleTransfer(opcodes[i], &word) &&
                 word.condition == 0xEu && word.load &&
                 word.preIndex && !word.writeBack)
             {
                 producedGuestReg = word.rd;
+                producedCondition = word.condition;
             }
             else
             {
@@ -3627,9 +3657,20 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
                         memory->getDirectReadPage(0, address))
                     {
                         producedGuestReg = literal.rd;
+                        producedCondition = literal.condition;
                     }
                 }
             }
+            }
+
+            Ps2ArmAlu::DecodedSingleBlockTransfer blockTransferProducer;
+            if (producedGuestReg < 0 &&
+                Ps2ArmAlu::decodeSingleBlockTransfer(opcodes[i],
+                    &blockTransferProducer) &&
+                blockTransferProducer.load)
+            {
+                producedGuestReg = blockTransferProducer.reg;
+                producedCondition = blockTransferProducer.condition;
             }
         }
 
@@ -3648,12 +3689,14 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
 
         size_t emitted = emitArmInstruction(opcodes[i],
             guestPc + static_cast<uint32_t>(i * 4), code + words, true,
-            registerCpsr, memory, forwardedGuestReg, suppressCurrentStore);
+            registerCpsr, memory, forwardedGuestReg, suppressCurrentStore,
+            forwardedCondition);
         if (!emitted)
             return false;
         words += emitted;
 
         forwardedGuestReg = producedGuestReg;
+        forwardedCondition = producedCondition;
 
         // Generic ALU-S -> B.EQ/B.NE fusion. The ALU emitter has already
         // committed architectural NZCV to v1/state, but its result is still
@@ -3677,6 +3720,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
                 words += fused;
                 i++;
                 forwardedGuestReg = -1;
+                forwardedCondition = 0xFFu;
             }
         }
 
@@ -3684,7 +3728,10 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         // terminate host-register forwarding. Fast direct loads are producers
         // just like ALU writes.
         if (producedGuestReg < 0)
+        {
             forwardedGuestReg = -1;
+            forwardedCondition = 0xFFu;
+        }
     }
 
     size_t loopExitBranches[4] = {};
