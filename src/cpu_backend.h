@@ -124,6 +124,35 @@ class CpuBackendAccess
             return true;
         }
 
+        // A generated ARM self-loop already owns the exact first two opcodes
+        // of its entry block. Reusing them is architecturally identical to an
+        // ARM flushPipeline() back to the same PC and avoids two memory/page
+        // lookups on every taken polling-loop iteration.
+        static bool commitBlockStateSparseKnownArmPipeline(Interpreter &cpu,
+            const uint32_t regs[16], const uint8_t *writeRegs,
+            uint8_t writeRegCount, uint32_t cpsr, uint32_t nextPc,
+            uint32_t opcode0, uint32_t opcode1)
+        {
+            if (!regs || (writeRegCount && !writeRegs) ||
+                (cpsr & BIT(5)) || ((cpsr ^ cpu.cpsr) & 0x1Fu))
+                return false;
+
+            for (uint8_t i = 0; i < writeRegCount; i++)
+            {
+                uint8_t reg = writeRegs[i];
+                if (reg >= 15)
+                    return false;
+                *cpu.registers[reg] = regs[reg];
+            }
+
+            uint32_t pc = nextPc & ~3u;
+            cpu.cpsr = cpsr;
+            *cpu.registers[15] = pc + 4u;
+            cpu.pipeline[0] = opcode0;
+            cpu.pipeline[1] = opcode1;
+            return true;
+        }
+
         static void writeCpsr(Interpreter &cpu, uint32_t value, bool save = false)
         {
             cpu.setCpsr(value, save);

@@ -1371,6 +1371,8 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     block.mapGeneration = mappedGeneration;
     block.guestInstructions = static_cast<uint32_t>(count);
     block.cycles = 0; // Runtime state records exact condition-dependent cycles.
+    block.entryOpcode0 = opcodes[0];
+    block.entryOpcode1 = (count > 1) ? opcodes[1] : 0;
     block.thumb = false;
     block.hostCode = code;
     block.hostWords = static_cast<uint32_t>(words);
@@ -2547,8 +2549,21 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         return -static_cast<int>(state.cycles);
     }
 
-    if (!CpuBackendAccess::commitBlockStateSparse(cpu, state.r,
-        block->writeRegs, block->writeRegCount, state.cpsr, state.nextPc))
+    bool committed = false;
+    if (block->guestInstructions >= 2 && state.nextPc == block->guestPc &&
+        !(state.cpsr & BIT(5)))
+    {
+        committed = CpuBackendAccess::commitBlockStateSparseKnownArmPipeline(
+            cpu, state.r, block->writeRegs, block->writeRegCount, state.cpsr,
+            state.nextPc, block->entryOpcode0, block->entryOpcode1);
+    }
+    else
+    {
+        committed = CpuBackendAccess::commitBlockStateSparse(cpu, state.r,
+            block->writeRegs, block->writeRegCount, state.cpsr, state.nextPc);
+    }
+
+    if (!committed)
     {
         profile.activeStateFallbacks++;
         return 0;
