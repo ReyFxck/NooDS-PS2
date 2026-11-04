@@ -3918,6 +3918,7 @@ bool DynarecR5900::runArmAluSelfTest()
             0xE1A00000u, // MOV r0,r0
             0xEAFFFFFDu  // B loopPc
         };
+        size_t loopBlockCountBefore = blocks.size();
         uint32_t *loopEntry = nullptr;
         uint32_t loopHostWords = 0;
         if (!emitArmAluSequence(loopOpcodes, 2, loopPc,
@@ -3933,10 +3934,21 @@ bool DynarecR5900::runArmAluSelfTest()
         ArmSelfLoopFunction loopFunction =
             reinterpret_cast<ArmSelfLoopFunction>(loopEntry);
         loopFunction(&loopState);
-        if (loopState.r[0] != 0x12345678u ||
-            loopState.nextPc != loopPc ||
-            loopState.cycles != 12u ||
-            loopState.guestExecuted != 6u)
+
+        bool loopOk = loopState.r[0] == 0x12345678u &&
+            loopState.nextPc == loopPc &&
+            loopState.cycles == 12u &&
+            loopState.guestExecuted == 6u;
+
+        // emitArmAluSequence publishes normal runtime metadata. This sequence
+        // is synthetic, so remove that metadata before the emulator can ever
+        // dispatch a real guest PC through it. Generated test bytes may remain
+        // in the code cache just like the other startup gates.
+        if (blocks.size() > loopBlockCountBefore)
+            blocks.resize(loopBlockCountBefore);
+        clearActiveLookups();
+
+        if (!loopOk)
             return false;
     }
 
