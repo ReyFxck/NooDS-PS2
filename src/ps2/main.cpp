@@ -1407,13 +1407,23 @@ int main(int argc, char **argv)
 
         if (arm7ShadowReady)
         {
-            // Runtime quarantine: the current ARM7 live executor can leave the
-            // emulated ARM9 waiting indefinitely while both LCD outputs settle
-            // on solid black. Keep compiling/probing/shadowing/differential-
-            // checking ARM7 blocks, but do not let them commit live state until
-            // the scheduler/IRQ timing regression is isolated.
-            arm7ActiveExecutorEnabled = false;
-            PS2_LOG("[PS2][WARN] ARM7 guarded dynarec is shadow-only for this build; live execution quarantined after black-screen regression.\n");
+            // Re-enable only the conservative recovery executor. The backend
+            // now admits read-only, non-self-loop blocks, executes one block
+            // per architectural commit, disables resident/scheduler chaining
+            // and uses the ordinary pipeline refill path. Every hot block still
+            // has to pass the existing shadow + Interpreter differential gate
+            // before it can commit live state.
+            core->setArm7BlockRunner(arm7ShadowDynarec,
+                [](void *context, Interpreter &cpu,
+                    uint32_t cycleBudget,
+                    uint32_t *guestInstructions) -> int
+                {
+                    return static_cast<DynarecR5900*>(context)
+                        ->runArm7ActiveAluBranchBlock(cpu, cycleBudget,
+                            guestInstructions);
+                });
+            arm7ActiveExecutorEnabled = true;
+            PS2_LOG("[PS2][OK] ARM7 conservative live dynarec armed: read-only non-self-loop blocks, one commit per scheduler slot.\n");
         }
 
         bool arm9ActiveExecutorEnabled = false;
