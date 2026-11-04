@@ -5611,7 +5611,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
             {
                 cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
                 DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
-                return 0;
+                return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
             }
 
             block = findMutableBlock(guestPc, false);
@@ -5619,7 +5619,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
             {
                 cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
                 DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
-                return 0;
+                return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
             }
         }
 
