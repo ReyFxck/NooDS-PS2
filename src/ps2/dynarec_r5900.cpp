@@ -353,9 +353,14 @@ static_assert(offsetof(ArmAluState, cycles) == 84,
 
 bool applyArmAlu(uint32_t opcode, ArmAluState *state)
 {
-    if (!state || !Ps2ArmAlu::execute(opcode, state->r, &state->cpsr))
+    Ps2ArmAlu::Decoded decoded;
+    if (!state || !Ps2ArmAlu::decode(opcode, &decoded) ||
+        !Ps2ArmAlu::execute(opcode, state->r, &state->cpsr))
         return false;
-    state->cycles++;
+
+    // ARM data-processing with a register-specified shift consumes one extra
+    // ARM9 cycle in NooDS' interpreter (the ...llr/lrr/arr/rrr paths add 1).
+    state->cycles += decoded.registerShift ? 2u : 1u;
     return true;
 }
 
@@ -946,7 +951,8 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
     }
 
     size_t words = 0;
-    words += emitArmCycleAdd(1, code + words, registerCycles);
+    words += emitArmCycleAdd(decoded.registerShift ? 2u : 1u,
+        code + words, registerCycles);
     size_t conditionBranch = static_cast<size_t>(-1);
     if (decoded.condition != 0xEu)
     {
@@ -1587,6 +1593,32 @@ bool DynarecR5900::runArmAluSelfTest()
         function(&state);
 
         if (state.r[rd] != tests[i].expected)
+            return false;
+    }
+
+    // Deterministically gate the ARM register-shift timing too. This exact
+    // form appears in real hot blocks (MOV Rd,Rm,LSL Rs) and must match the
+    // interpreter's +1 cycle before such blocks can pass the differential gate.
+    {
+        const uint32_t opcode = 0xE1A02013u; // MOV r2,r3,LSL r0
+        ArmAluState expected = {};
+        expected.r[0] = 2u;
+        expected.r[3] = 0x11u;
+        if (!applyArmAlu(opcode, &expected) || expected.cycles != 2u)
+            return false;
+
+        uint32_t *entry = nullptr;
+        uint8_t rd = 0;
+        if (!emitArmAluBlock(opcode, &entry, &rd) || rd != 2)
+            return false;
+        ArmAluState actual = {};
+        actual.r[0] = 2u;
+        actual.r[3] = 0x11u;
+        typedef void (*ArmShiftCycleFunction)(ArmAluState *);
+        ArmShiftCycleFunction function =
+            reinterpret_cast<ArmShiftCycleFunction>(entry);
+        function(&actual);
+        if (actual.r[2] != expected.r[2] || actual.cycles != expected.cycles)
             return false;
     }
 
