@@ -207,7 +207,7 @@ class Core
         void *arm9BlockRunnerContext = nullptr;
         Arm9BlockRunner arm9BlockRunner = nullptr;
 
-        static constexpr size_t ARM9_BLOCK_FILTER_SLOTS = 64;
+        static constexpr size_t ARM9_BLOCK_FILTER_SLOTS = 128;
         uint32_t arm9BlockHotPc[ARM9_BLOCK_FILTER_SLOTS] = {};
         uint8_t arm9BlockHotFailures[ARM9_BLOCK_FILTER_SLOTS] = {};
         uint8_t arm9BlockMinCycles[ARM9_BLOCK_FILTER_SLOTS] = {};
@@ -216,7 +216,7 @@ class Core
         // Always-on, bounded hot-PC discovery for PS2 dynarec backends. One
         // sample per 64 interpreted ARM9 opcodes is cheap enough for RELEASE
         // and removes the old dependency on 60-frame PROFILE windows.
-        static constexpr size_t ARM9_HOT_SAMPLE_SLOTS = 64;
+        static constexpr size_t ARM9_HOT_SAMPLE_SLOTS = 128;
         uint32_t arm9HotSamplePc[ARM9_HOT_SAMPLE_SLOTS] = {};
         uint8_t arm9HotSampleScore[ARM9_HOT_SAMPLE_SLOTS] = {};
         uint8_t arm9HotSampleDivider = 0;
