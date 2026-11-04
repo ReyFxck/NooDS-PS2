@@ -386,11 +386,6 @@ bool applyArmAlu(uint32_t opcode, ArmAluState *state)
     return true;
 }
 
-bool applyArmAluHelper(ArmAluState *state, uint32_t opcode)
-{
-    return applyArmAlu(opcode, state);
-}
-
 uint8_t *getArm9CachedReadPage(ArmAluState *state, uint32_t address)
 {
     if (!state || !state->memory)
@@ -1198,46 +1193,6 @@ size_t emitArmFlags(const Ps2ArmAlu::Decoded &decoded, uint32_t *code,
     return words;
 }
 
-bool logicalShiftNeedsHelper(const Ps2ArmAlu::Decoded &decoded)
-{
-    if (!decoded.setFlags)
-        return false;
-    bool logical = decoded.operation == 0 || decoded.operation == 1 ||
-        decoded.operation == 8 || decoded.operation == 9 ||
-        decoded.operation == 12 || decoded.operation == 13 ||
-        decoded.operation == 14 || decoded.operation == 15;
-    if (!logical)
-        return false;
-    // All admitted logical shifter forms, including register shifts, have
-    // explicit carry handling in the R5900 emitter. RRX is rejected by decode().
-    return false;
-}
-
-size_t emitArmAluHelperInstruction(uint32_t opcode, uint32_t *code)
-{
-    if (!code)
-        return 0;
-    uintptr_t helper = reinterpret_cast<uintptr_t>(&applyArmAluHelper);
-    size_t words = 0;
-    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, -32);
-    code[words++] = R5900::sw(R5900::R_RA, 28, R5900::R_SP);
-    code[words++] = R5900::sw(R5900::R_A0, 24, R5900::R_SP);
-    code[words++] = R5900::lui(R5900::R_A1,
-        static_cast<uint16_t>(opcode >> 16));
-    code[words++] = R5900::ori(R5900::R_A1, R5900::R_A1,
-        static_cast<uint16_t>(opcode));
-    code[words++] = R5900::lui(R5900::R_T9,
-        static_cast<uint16_t>(helper >> 16));
-    code[words++] = R5900::ori(R5900::R_T9, R5900::R_T9,
-        static_cast<uint16_t>(helper));
-    code[words++] = R5900::jalr(R5900::R_RA, R5900::R_T9);
-    code[words++] = R5900::nop();
-    code[words++] = R5900::lw(R5900::R_A0, 24, R5900::R_SP);
-    code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
-    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
-    return words;
-}
-
 size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
     bool registerCycles = false, bool registerCpsr = false,
     int forwardedGuestReg = -1, bool suppressResultStore = false)
@@ -1248,24 +1203,6 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
     Ps2ArmAlu::Decoded decoded;
     if (!Ps2ArmAlu::decode(opcode, &decoded))
         return 0;
-    if (logicalShiftNeedsHelper(decoded))
-    {
-        size_t words = 0;
-        if (registerCpsr)
-            code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
-        if (registerCycles)
-            code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
-        size_t emitted = emitArmAluHelperInstruction(opcode, code + words);
-        if (!emitted)
-            return 0;
-        words += emitted;
-        if (registerCycles)
-            code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
-        if (registerCpsr)
-            code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
-        return words;
-    }
-
     size_t words = 0;
     bool logicalSetFlags = decoded.setFlags &&
         (decoded.operation == 0 || decoded.operation == 1 ||
@@ -2839,8 +2776,8 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
     Ps2ArmAlu::Decoded decoded;
     if (Ps2ArmAlu::decode(opcode, &decoded))
     {
-        int usableForward = (decoded.condition == 0xEu &&
-            !logicalShiftNeedsHelper(decoded)) ? forwardedGuestReg : -1;
+        int usableForward = (decoded.condition == 0xEu)
+            ? forwardedGuestReg : -1;
         return emitArmAluInstruction(opcode, code, registerCycles,
             registerCpsr, usableForward, suppressResultStore);
     }
@@ -3088,10 +3025,9 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         Ps2ArmAlu::Decoded decoded;
         if (Ps2ArmAlu::decode(opcodes[i], &decoded))
         {
-            if (!logicalShiftNeedsHelper(decoded) &&
-                (decoded.condition != 0xEu || decoded.setFlags))
+            if (decoded.condition != 0xEu || decoded.setFlags)
                 registerCpsr = true;
-            if (!logicalShiftNeedsHelper(decoded) && decoded.setFlags)
+            if (decoded.setFlags)
                 writesRegisterCpsr = true;
             continue;
         }
@@ -3133,8 +3069,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     {
         Ps2ArmAlu::Decoded currentAlu;
         bool currentDirectAlu = Ps2ArmAlu::decode(opcodes[i], &currentAlu) &&
-            currentAlu.condition == 0xEu &&
-            !logicalShiftNeedsHelper(currentAlu);
+            currentAlu.condition == 0xEu;
 
         int producedGuestReg = -1;
         if (currentDirectAlu && currentAlu.writesResult)
@@ -3191,7 +3126,6 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             Ps2ArmAlu::Decoded nextAlu;
             if (Ps2ArmAlu::decode(opcodes[i + 1], &nextAlu) &&
                 nextAlu.condition == 0xEu &&
-                !logicalShiftNeedsHelper(nextAlu) &&
                 nextAlu.writesResult &&
                 nextAlu.rd == static_cast<uint8_t>(producedGuestReg))
             {
@@ -3218,7 +3152,6 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             Ps2ArmAlu::DecodedBranch branch;
             if (Ps2ArmAlu::decode(opcodes[i], &alu) &&
                 alu.condition == 0xEu && alu.setFlags &&
-                !logicalShiftNeedsHelper(alu) &&
                 Ps2ArmAlu::decodeBranch(opcodes[i + 1], &branch) &&
                 (branch.condition == 0x0u || branch.condition == 0x1u))
             {
