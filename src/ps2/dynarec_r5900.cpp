@@ -538,6 +538,11 @@ class ArmMemoryWriteGuard
         bool active = true;
 };
 
+// Store helpers are defined below their matching read helpers. Keep the
+// predecoded store fast path independent of source ordering.
+bool writeDirectArm9Byte(void *context, uint32_t address, uint8_t value);
+bool writeDirectArm9Word(void *context, uint32_t address, uint32_t value);
+
 bool applyArmImmediateStoreFast(ArmAluState *state, uint32_t packed)
 {
     if (!state || !state->memory)
