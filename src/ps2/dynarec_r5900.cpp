@@ -4095,6 +4095,44 @@ bool DynarecR5900::runArmAluSelfTest()
     if (bytePage[postByteBase & 0xFFFu] != postByteBefore)
         return false;
 
+    // Gate post-index ROR addressing specifically: the address emitter uses
+    // t2/t3 internally, so the original base must survive in a separate host
+    // register until the store address/writeback split is complete.
+    const uint32_t postRorBase = byteAddress + 12u;
+    uint8_t postRorBefore = bytePage[postRorBase & 0xFFFu];
+    uint32_t *postRorCode = cache.reserveWords(160);
+    if (!postRorCode)
+        return false;
+    size_t postRorWords = emitArmRegisterStoreFastInstruction(
+        0xE6C01462u, postRorCode, false, false); // STRB r1,[r0],r2,ROR #8
+    if (!postRorWords)
+        return false;
+    postRorCode[postRorWords++] = R5900::jr(R5900::R_RA);
+    postRorCode[postRorWords++] = R5900::nop();
+    cache.commitWords(postRorWords);
+    cache.syncExecutable(postRorCode, postRorCode + postRorWords);
+    {
+        ArmAluState postRorState = {};
+        postRorState.r[0] = postRorBase;
+        postRorState.r[1] = 0xD7u;
+        postRorState.r[2] = 0x00000400u; // ROR #8 -> 4
+        postRorState.memory = memory;
+        postRorState.writeCacheTag = (postRorBase >> 12) + 1u;
+        postRorState.writeCachePage = bytePage;
+        ArmMemoryWriteGuard postRorWrites(&postRorState);
+        typedef void (*ArmPostRorStoreFunction)(ArmAluState *);
+        ArmPostRorStoreFunction postRorFunction =
+            reinterpret_cast<ArmPostRorStoreFunction>(postRorCode);
+        postRorFunction(&postRorState);
+        if (postRorState.memoryFault || postRorState.writeCount != 1 ||
+            postRorState.cycles != 1u ||
+            postRorState.r[0] != postRorBase + 4u ||
+            bytePage[postRorBase & 0xFFFu] != 0xD7u)
+            return false;
+    }
+    if (bytePage[postRorBase & 0xFFFu] != postRorBefore)
+        return false;
+
     // Gate LDR literal with an explicit guest PC+8 base.
     const uint32_t literalPc = 0x02000000u;
     uint8_t *literalPage = memory->getDirectReadPage(0, literalPc + 8u);
