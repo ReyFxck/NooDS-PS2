@@ -18,6 +18,9 @@
 */
 
 #include "interpreter.h"
+
+#include <cstring>
+
 #include "interpreter_alu.h"
 #include "interpreter_branch.h"
 #include "interpreter_transfer.h"
@@ -2629,6 +2632,47 @@ void Interpreter::flushPipeline()
         pipeline[0] = core->memory.read<uint32_t>(cpu, *registers[15] - 4);
         pipeline[1] = core->memory.read<uint32_t>(cpu, *registers[15]);
     }
+}
+
+bool Interpreter::refillPipelineDirect()
+{
+    // JIT commits land overwhelmingly in ordinary RAM/TCM. When both fetches
+    // are backed by direct pages, refill the architectural two-entry pipeline
+    // without paying for the generic Memory::read lookup/fallback machinery.
+    // Gather everything before mutating PC/pipeline so a miss can fall back to
+    // flushPipeline() with exactly the original state.
+    if (cpsr & BIT(5))
+    {
+        uint32_t pc = *registers[15] & ~1u;
+        uint32_t next = pc + 2u;
+        uint8_t *page0 = core->memory.getDirectReadPage(cpu, pc);
+        uint8_t *page1 = core->memory.getDirectReadPage(cpu, next);
+        if (!page0 || !page1)
+            return false;
+
+        uint16_t opcode0 = 0, opcode1 = 0;
+        std::memcpy(&opcode0, page0 + (pc & 0xFFFu), sizeof(opcode0));
+        std::memcpy(&opcode1, page1 + (next & 0xFFFu), sizeof(opcode1));
+        *registers[15] = pc + 2u;
+        pipeline[0] = opcode0;
+        pipeline[1] = opcode1;
+        return true;
+    }
+
+    uint32_t pc = *registers[15] & ~3u;
+    uint32_t next = pc + 4u;
+    uint8_t *page0 = core->memory.getDirectReadPage(cpu, pc);
+    uint8_t *page1 = core->memory.getDirectReadPage(cpu, next);
+    if (!page0 || !page1)
+        return false;
+
+    uint32_t opcode0 = 0, opcode1 = 0;
+    std::memcpy(&opcode0, page0 + (pc & 0xFFFu), sizeof(opcode0));
+    std::memcpy(&opcode1, page1 + (next & 0xFFFu), sizeof(opcode1));
+    *registers[15] = pc + 4u;
+    pipeline[0] = opcode0;
+    pipeline[1] = opcode1;
+    return true;
 }
 
 void Interpreter::setCpsr(uint32_t value, bool save)

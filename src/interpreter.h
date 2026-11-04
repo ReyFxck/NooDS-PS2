@@ -130,6 +130,7 @@ class Interpreter
 
         void interrupt();
         void flushPipeline();
+        bool refillPipelineDirect();
         void setCpsr(uint32_t value, bool save = false);
         int handleReserved(uint32_t opcode);
 

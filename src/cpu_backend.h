@@ -119,7 +119,8 @@ class CpuBackendAccess
 
             cpu.cpsr = cpsr;
             *cpu.registers[15] = nextPc;
-            cpu.flushPipeline();
+            if (!cpu.refillPipelineDirect())
+                cpu.flushPipeline();
             return true;
         }
 
