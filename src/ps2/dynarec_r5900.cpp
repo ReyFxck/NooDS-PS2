@@ -5480,6 +5480,85 @@ bool DynarecR5900::runArmAluSelfTest()
         }
     }
 
+    // Gate ARM long multiplies directly in generated R5900 code. Cover
+    // unsigned/signed, accumulate, S flags, failed condition and ARM7's
+    // data-dependent m timing independently of live game code.
+    {
+        struct LongMultiplyCase
+        {
+            uint32_t opcode;
+            uint32_t rmValue;
+            uint32_t rsValue;
+            uint32_t loValue;
+            uint32_t hiValue;
+            uint32_t cpsr;
+            uint8_t cpuId;
+            uint32_t expectedCycles;
+        };
+
+        const LongMultiplyCase cases[] =
+        {
+            { 0xE0810392u, 0xFFFFFFFFu, 2u, 0u, 0u,
+              0x30000013u, 0u, 3u }, // ARM9 UMULL
+            { 0xE0C10392u, 0xFFFFFFFFu, 2u, 0u, 0u,
+              0x30000013u, 0u, 3u }, // ARM9 SMULL
+            { 0xE0A10392u, 0xFFFFFFFFu, 2u, 5u, 1u,
+              0x30000013u, 0u, 3u }, // ARM9 UMLAL
+            { 0xE0910392u, 0u, 7u, 0xFFFFFFFFu, 0xFFFFFFFFu,
+              0x30000013u, 0u, 5u }, // ARM9 UMULLS
+            { 0x00810392u, 3u, 4u, 0xA5A55A5Au, 0x11223344u,
+              0x00000013u, 0u, 1u }, // ARM9 UMULL.EQ fails
+            { 0xE0810392u, 7u, 0x0000007Fu, 0u, 0u,
+              0x00000013u, 1u, 3u }, // ARM7 UMULL m=1
+            { 0xE0810392u, 7u, 0x01000000u, 0u, 0u,
+              0x00000013u, 1u, 6u }, // ARM7 UMULL m=4
+            { 0xE0A10392u, 7u, 0x01000000u, 9u, 3u,
+              0x00000013u, 1u, 7u }, // ARM7 UMLAL m=4
+            { 0xE0D10392u, 0xFFFFFFFFu, 0x00000100u, 0u, 0u,
+              0x30000013u, 1u, 4u }  // ARM7 SMULLS m=2
+        };
+
+        for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+        {
+            ArmAluState source = {};
+            source.r[2] = cases[i].rmValue;
+            source.r[3] = cases[i].rsValue;
+            source.r[0] = cases[i].loValue;
+            source.r[1] = cases[i].hiValue;
+            source.cpsr = cases[i].cpsr;
+            source.cpuId = cases[i].cpuId;
+
+            ArmAluState expected = source;
+            if (!applyArmLongMultiply(cases[i].opcode, &expected) ||
+                expected.cycles != cases[i].expectedCycles)
+                return false;
+
+            uint32_t *longCode = cache.reserveWords(224);
+            if (!longCode)
+                return false;
+            size_t longWords = emitArmLongMultiplyInstruction(
+                cases[i].opcode, longCode, false, false, cases[i].cpuId);
+            if (!longWords)
+                return false;
+            longCode[longWords++] = R5900::jr(R5900::R_RA);
+            longCode[longWords++] = R5900::nop();
+            cache.commitWords(longWords);
+            cache.syncExecutable(longCode, longCode + longWords);
+
+            ArmAluState actual = source;
+            typedef void (*ArmLongMultiplyFunction)(ArmAluState *);
+            ArmLongMultiplyFunction function =
+                reinterpret_cast<ArmLongMultiplyFunction>(longCode);
+            function(&actual);
+
+            if (actual.r[0] != expected.r[0] ||
+                actual.r[1] != expected.r[1] ||
+                actual.cpsr != expected.cpsr ||
+                actual.cycles != cases[i].expectedCycles)
+                return false;
+        }
+    }
+
     // Gate writeback-load -> ALU forwarding with dead intermediate-store
     // elimination. The LDR result is deliberately not committed to state.r1;
     // ADD must consume the still-live t2 value while LDR also updates r0.
