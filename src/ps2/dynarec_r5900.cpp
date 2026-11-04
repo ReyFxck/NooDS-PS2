@@ -6711,6 +6711,122 @@ bool DynarecR5900::runArmAluSelfTest()
     if (arm7HalfRestored != arm7BeforeHalf)
         return false;
 
+    // Gate signed extra loads with known negative values. The hot aligned path
+    // must use EE LB/LH directly; ARM7 odd LDRSH deliberately faults out of the
+    // JIT so the Interpreter keeps its special misaligned semantics.
+    {
+        const uint32_t signedAddress = (loadAddress + 0x150u) & ~1u;
+        ArmAluState seed = {};
+        seed.memory = memory;
+        seed.cpuId = 1;
+        ArmMemoryWriteGuard restoreSignedBytes(&seed);
+        if (!writeDirectArm9Byte(&seed, signedAddress + 0u, 0x80u) ||
+            !writeDirectArm9Byte(&seed, signedAddress + 1u, 0xFFu) ||
+            !writeDirectArm9Byte(&seed, signedAddress + 2u, 0x80u))
+            return false;
+
+        uint8_t *page = memory->getDirectReadPage(1, signedAddress);
+        if (!page)
+            return false;
+
+        uint32_t *signedByteCode = cache.reserveWords(160);
+        if (!signedByteCode)
+            return false;
+        size_t signedByteWords = emitArmHalfwordLoadCachedInstruction(
+            0x01D010D0u, signedByteCode, false, false, false, 1);
+            // LDRSB.EQ r1,[r0]
+        if (!signedByteWords)
+            return false;
+        signedByteCode[signedByteWords++] = R5900::jr(R5900::R_RA);
+        signedByteCode[signedByteWords++] = R5900::nop();
+        cache.commitWords(signedByteWords);
+        cache.syncExecutable(signedByteCode,
+            signedByteCode + signedByteWords);
+        ArmLoadFunction signedByteFunction =
+            reinterpret_cast<ArmLoadFunction>(signedByteCode);
+
+        {
+            ArmAluState notTaken = {};
+            notTaken.r[0] = signedAddress;
+            notTaken.r[1] = 0xCAFEBABEu;
+            notTaken.cpsr = 0x00000013u; // Z clear
+            notTaken.memory = memory;
+            notTaken.cpuId = 1;
+            notTaken.readCacheTag = (signedAddress >> 12) + 1u;
+            notTaken.readCachePage = page;
+            signedByteFunction(&notTaken);
+            if (notTaken.memoryFault ||
+                notTaken.r[1] != 0xCAFEBABEu ||
+                notTaken.cycles != 1u)
+                return false;
+        }
+        {
+            ArmAluState taken = {};
+            taken.r[0] = signedAddress;
+            taken.r[1] = 0;
+            taken.cpsr = 0x40000013u; // Z set
+            taken.memory = memory;
+            taken.cpuId = 1;
+            taken.readCacheTag = (signedAddress >> 12) + 1u;
+            taken.readCachePage = page;
+            signedByteFunction(&taken);
+            if (taken.memoryFault ||
+                taken.r[1] != 0xFFFFFF80u ||
+                taken.cycles != 3u)
+                return false;
+        }
+
+        uint32_t *signedHalfCode = cache.reserveWords(176);
+        if (!signedHalfCode)
+            return false;
+        size_t signedHalfWords = emitArmHalfwordLoadCachedInstruction(
+            0xE1D010F0u, signedHalfCode, false, false, false, 1);
+            // LDRSH r1,[r0]
+        if (!signedHalfWords)
+            return false;
+        signedHalfCode[signedHalfWords++] = R5900::jr(R5900::R_RA);
+        signedHalfCode[signedHalfWords++] = R5900::nop();
+        cache.commitWords(signedHalfWords);
+        cache.syncExecutable(signedHalfCode,
+            signedHalfCode + signedHalfWords);
+        ArmLoadFunction signedHalfFunction =
+            reinterpret_cast<ArmLoadFunction>(signedHalfCode);
+
+        {
+            ArmAluState taken = {};
+            taken.r[0] = signedAddress;
+            taken.memory = memory;
+            taken.cpuId = 1;
+            taken.readCacheTag = (signedAddress >> 12) + 1u;
+            taken.readCachePage = page;
+            signedHalfFunction(&taken);
+            if (taken.memoryFault ||
+                taken.r[1] != 0xFFFFFF80u ||
+                taken.cycles != 3u)
+                return false;
+        }
+        {
+            ArmAluState odd = {};
+            odd.r[0] = signedAddress + 1u;
+            odd.memory = memory;
+            odd.cpuId = 1;
+            odd.readCacheTag = ((signedAddress + 1u) >> 12) + 1u;
+            odd.readCachePage = page;
+            signedHalfFunction(&odd);
+            if (!odd.memoryFault)
+                return false;
+
+            ArmAluState portable = {};
+            portable.r[0] = signedAddress + 1u;
+            portable.memory = memory;
+            portable.cpuId = 1;
+            if (!applyArmHalfwordTransfer(&portable, 0xE1D010F0u) ||
+                portable.r[1] != 0xFFFFFF80u ||
+                portable.cycles != 3u)
+                return false;
+        }
+    }
+
     // Gate ARM7 register-offset loads. The decoder already excludes PC/RRX;
     // these cases verify shifted word addressing plus byte/halfword Rm forms
     // and their native 3-cycle load timing.
