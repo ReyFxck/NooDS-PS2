@@ -6689,6 +6689,111 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
+    // Gate ARM7 post-index store/writeback forms. These paths share the
+    // same transactional journal as pre-index stores but must use the original
+    // base as the memory address and commit the adjusted base afterwards.
+    {
+        const uint32_t base = loadAddress + 0x60u;
+        uint8_t *page = memory->getDirectWritePage(1, base);
+        if (!page)
+            return false;
+        uint32_t offset = base & 0xFFFu;
+        uint32_t before =
+            static_cast<uint32_t>(page[offset]) |
+            (static_cast<uint32_t>(page[offset + 1]) << 8) |
+            (static_cast<uint32_t>(page[offset + 2]) << 16) |
+            (static_cast<uint32_t>(page[offset + 3]) << 24);
+
+        uint32_t *code = cache.reserveWords(192);
+        if (!code)
+            return false;
+        size_t words = emitArmImmediateStoreFastInstruction(
+            0xE4801004u, code, false, false, 1);
+            // STR r1,[r0],#4
+        if (!words)
+            return false;
+        code[words++] = R5900::jr(R5900::R_RA);
+        code[words++] = R5900::nop();
+        cache.commitWords(words);
+        cache.syncExecutable(code, code + words);
+        typedef void (*Arm7PostWordStoreFunction)(ArmAluState *);
+        Arm7PostWordStoreFunction function =
+            reinterpret_cast<Arm7PostWordStoreFunction>(code);
+
+        {
+            ArmAluState state = {};
+            state.r[0] = base;
+            state.r[1] = 0x10203040u;
+            state.memory = memory;
+            state.cpuId = 1;
+            state.writeCacheTag = (base >> 12) + 1u;
+            state.writeCachePage = page;
+            ArmMemoryWriteGuard writes(&state);
+            function(&state);
+            uint32_t stored =
+                static_cast<uint32_t>(page[offset]) |
+                (static_cast<uint32_t>(page[offset + 1]) << 8) |
+                (static_cast<uint32_t>(page[offset + 2]) << 16) |
+                (static_cast<uint32_t>(page[offset + 3]) << 24);
+            if (state.memoryFault || state.writeCount != 1 ||
+                state.cycles != 2u || state.r[0] != base + 4u ||
+                stored != 0x10203040u)
+                return false;
+        }
+
+        uint32_t restored =
+            static_cast<uint32_t>(page[offset]) |
+            (static_cast<uint32_t>(page[offset + 1]) << 8) |
+            (static_cast<uint32_t>(page[offset + 2]) << 16) |
+            (static_cast<uint32_t>(page[offset + 3]) << 24);
+        if (restored != before)
+            return false;
+    }
+
+    {
+        const uint32_t base = loadAddress + 0x70u;
+        uint8_t *page = memory->getDirectWritePage(1, base);
+        if (!page)
+            return false;
+        uint32_t offset = base & 0xFFFu;
+        uint8_t before = page[offset];
+
+        uint32_t *code = cache.reserveWords(192);
+        if (!code)
+            return false;
+        size_t words = emitArmRegisterStoreFastInstruction(
+            0xE6C01002u, code, false, false, 1);
+            // STRB r1,[r0],r2
+        if (!words)
+            return false;
+        code[words++] = R5900::jr(R5900::R_RA);
+        code[words++] = R5900::nop();
+        cache.commitWords(words);
+        cache.syncExecutable(code, code + words);
+        typedef void (*Arm7PostByteStoreFunction)(ArmAluState *);
+        Arm7PostByteStoreFunction function =
+            reinterpret_cast<Arm7PostByteStoreFunction>(code);
+
+        {
+            ArmAluState state = {};
+            state.r[0] = base;
+            state.r[1] = 0xD7u;
+            state.r[2] = 4u;
+            state.memory = memory;
+            state.cpuId = 1;
+            state.writeCacheTag = (base >> 12) + 1u;
+            state.writeCachePage = page;
+            ArmMemoryWriteGuard writes(&state);
+            function(&state);
+            if (state.memoryFault || state.writeCount != 1 ||
+                state.cycles != 2u || state.r[0] != base + 4u ||
+                page[offset] != 0xD7u)
+                return false;
+        }
+        if (page[offset] != before)
+            return false;
+    }
+
     return true;
 }
 
