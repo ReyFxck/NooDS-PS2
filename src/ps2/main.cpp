@@ -1146,10 +1146,10 @@ int main(int argc, char **argv)
     PS2_LOG(" Instrumentation: disabled\n");
 #endif
 #ifdef NOODS_PROFILE
-    PS2_LOG(" Dynarec: ARM-ALU-v51 hot-chain-multi-transfer (profile L%d)\n",
+    PS2_LOG(" Dynarec: ARM-ALU-v52 ARM9-hot-chain + ARM7-guarded (profile L%d)\n",
         NOODS_PROFILE_LEVEL);
 #else
-    PS2_LOG(" Dynarec: ARM-ALU-v51 hot-chain-multi-transfer\n");
+    PS2_LOG(" Dynarec: ARM-ALU-v52 ARM9-hot-chain + ARM7-guarded\n");
 #endif
     PS2_LOG("============================================================\n");
 
@@ -1899,6 +1899,12 @@ int main(int argc, char **argv)
                     static_cast<unsigned long long>(runProfile.arm9BlockExecutions),
                     static_cast<unsigned long long>(runProfile.arm9BlockFilterDrops),
                     static_cast<unsigned long long>(runProfile.arm9BlockBudgetSkips));
+                PS2_LOG("[PS2][PROF] arm7-block: filterHit=%llu exec=%llu drop=%llu budgetSkip=%llu autoHot=%llu\n",
+                    static_cast<unsigned long long>(runProfile.arm7BlockFilterHits),
+                    static_cast<unsigned long long>(runProfile.arm7BlockExecutions),
+                    static_cast<unsigned long long>(runProfile.arm7BlockFilterDrops),
+                    static_cast<unsigned long long>(runProfile.arm7BlockBudgetSkips),
+                    static_cast<unsigned long long>(runProfile.arm7AutoHotPromotions));
 
                 double schedulerInsertUs = runProfile.schedulerInsertSamples
                     ? static_cast<double>(runProfile.schedulerInsertTicks) *
@@ -2050,6 +2056,21 @@ int main(int argc, char **argv)
                 InterpreterHotPc summaryHot[1] = {};
                 collectTopHotPc(arm9Profile, summaryHot, 1);
                 const R5900DynarecProfile &jitProfile = dynarec.getProfile();
+                if (arm7ShadowDynarec && arm7ActiveExecutorEnabled)
+                {
+                    const R5900DynarecProfile &arm7Jit =
+                        arm7ShadowDynarec->getProfile();
+                    PS2_LOG("[PS2][ARM7JIT] active attempts=%llu exec=%llu guest=%llu cycles=%llu compileMiss=%llu budgetFallback=%llu verifyFallback=%llu stateFallback=%llu\n",
+                        static_cast<unsigned long long>(arm7Jit.activeAttempts),
+                        static_cast<unsigned long long>(arm7Jit.activeExecutions),
+                        static_cast<unsigned long long>(
+                            arm7Jit.activeGuestInstructions),
+                        static_cast<unsigned long long>(arm7Jit.activeCycles),
+                        static_cast<unsigned long long>(arm7Jit.activeCompileMisses),
+                        static_cast<unsigned long long>(arm7Jit.activeBudgetFallbacks),
+                        static_cast<unsigned long long>(arm7Jit.activeVerifyFallbacks),
+                        static_cast<unsigned long long>(arm7Jit.activeStateFallbacks));
+                }
                 double jitCoverage = jitProfile.guestInstructions
                     ? 100.0 * static_cast<double>(jitProfile.supportedInstructions) /
                         static_cast<double>(jitProfile.guestInstructions)

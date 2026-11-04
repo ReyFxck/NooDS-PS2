@@ -585,8 +585,12 @@ void Core::runNdsFrame()
                 }
                 else
                 {
-                    sampleArm7HotPc(
-                        CpuBackendAccess::nextInstructionAddress(interpreter[1]));
+                    if (!CpuBackendAccess::isThumb(interpreter[1]))
+                    {
+                        sampleArm7HotPc(
+                            CpuBackendAccess::nextInstructionAddress(
+                                interpreter[1]));
+                    }
 #ifdef NOODS_PROFILE
                     if (profileEnabled)
                         runProfile.arm7Opcodes++;
