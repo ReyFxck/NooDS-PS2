@@ -148,8 +148,12 @@ R5900CompiledBlock *DynarecR5900::findMutableBlock(uint32_t pc, bool thumb)
         }
     }
 
-    for (size_t i = 0; i < blocks.size(); i++)
+    // Search newest-first on a direct-cache miss. A PC may have an older,
+    // shorter shadow block plus a newer active compilation; collisions in the
+    // direct lookup must not resurrect the stale/partial version.
+    for (size_t end = blocks.size(); end > 0; end--)
     {
+        size_t i = end - 1;
         if (blocks[i].guestPc == pc && blocks[i].thumb == thumb &&
             blocks[i].mapGeneration == mappedGeneration)
         {
@@ -5212,6 +5216,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         return 0;
     }
 
+    bool wroteMemory = state.writeCount != 0;
+
     // The common single-block case reuses its compile-time sparse write list.
     // Multi-block chains build the union incrementally from each compact
     // writeRegs[] list, avoiding a final r0-r14 mask scan.
@@ -5225,8 +5231,11 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
 
     bool committed = false;
     R5900CompiledBlock *pipelineBlock = nullptr;
-    if (!(state.cpsr & BIT(5)))
+    if (!(state.cpsr & BIT(5)) && !wroteMemory)
     {
+        // A live store may have modified the next instruction bytes without a
+        // memory-map generation change. Re-read the pipeline from Memory after
+        // any actual write instead of trusting compiled entryOpcode metadata.
         pipelineBlock = pipelineHint;
         if (!pipelineBlock)
         {
