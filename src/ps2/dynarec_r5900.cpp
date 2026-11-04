@@ -5268,6 +5268,55 @@ bool DynarecR5900::runArmAluSelfTest()
         }
     }
 
+    // Gate writeback-load -> ALU forwarding with dead intermediate-store
+    // elimination. The LDR result is deliberately not committed to state.r1;
+    // ADD must consume the still-live t2 value while LDR also updates r0.
+    {
+        const uint32_t forwardLoadAddress = 0x02000000u;
+        uint8_t *forwardLoadPage = memory
+            ? memory->getDirectReadPage(targetCpuId != 0, forwardLoadAddress)
+            : nullptr;
+        if (!forwardLoadPage)
+            return false;
+        uint32_t forwardOffset = forwardLoadAddress & 0xFFFu;
+        uint32_t loaded =
+            static_cast<uint32_t>(forwardLoadPage[forwardOffset]) |
+            (static_cast<uint32_t>(forwardLoadPage[forwardOffset + 1]) << 8) |
+            (static_cast<uint32_t>(forwardLoadPage[forwardOffset + 2]) << 16) |
+            (static_cast<uint32_t>(forwardLoadPage[forwardOffset + 3]) << 24);
+
+        const uint32_t opcodes[] =
+        {
+            0xE4901004u, // LDR r1,[r0],#4
+            0xE2811001u  // ADD r1,r1,#1
+        };
+        uint32_t *entry = nullptr;
+        uint32_t hostWords = 0;
+        if (!emitArmAluSequence(opcodes, 2, 0x02001000u,
+            &entry, &hostWords))
+            return false;
+
+        ArmAluState state = {};
+        state.r[0] = forwardLoadAddress;
+        state.r[1] = 0xDEADBEEFu;
+        state.memory = memory;
+        state.cpuId = targetCpuId;
+        state.readCacheTag = (forwardLoadAddress >> 12) + 1u;
+        state.readCachePage = forwardLoadPage;
+
+        typedef void (*ArmLoadForwardFunction)(ArmAluState *);
+        ArmLoadForwardFunction function =
+            reinterpret_cast<ArmLoadForwardFunction>(entry);
+        function(&state);
+
+        uint32_t expectedCycles = targetCpuId ? 4u : 2u;
+        if (state.memoryFault ||
+            state.r[0] != forwardLoadAddress + 4u ||
+            state.r[1] != loaded + 1u ||
+            state.cycles != expectedCycles)
+            return false;
+    }
+
     // Gate MUL -> ALU host-register forwarding and dead intermediate store
     // elimination. ADD consumes the multiply result directly from t2.
     {
