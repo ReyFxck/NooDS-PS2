@@ -718,7 +718,7 @@ size_t logDynarecHotBlocks(DynarecR5900 &dynarec,
         if (activeHotPcs && activeHotCount < activeHotCapacity &&
             !top[hot].thumb && top[hot].samples >= 32 &&
             analysis.instructionCount >= 3 &&
-            analysis.instructionCount <= 16 &&
+            analysis.instructionCount <= 24 &&
             analysis.supportedInstructions == analysis.instructionCount &&
             analysis.instructions[analysis.instructionCount - 1]
                 .info.terminatesBlock)
