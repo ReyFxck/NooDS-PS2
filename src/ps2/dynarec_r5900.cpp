@@ -4716,6 +4716,74 @@ bool DynarecR5900::runArmAluSelfTest()
         }
     }
 
+    // Gate ARM7 data-dependent MUL/MLA timing against known cycle counts,
+    // not only against the portable helper. Rs selects m from the smallest
+    // signed 8/16/24/32-bit representation.
+    {
+        struct Arm7MultiplyTimingCase
+        {
+            uint32_t opcode;
+            uint32_t rsValue;
+            uint32_t cpsr;
+            uint32_t expectedCycles;
+        };
+        const Arm7MultiplyTimingCase cases[] =
+        {
+            { 0xE0040291u, 0x0000007Fu, 0x00000013u, 2u }, // MUL m=1
+            { 0xE0040291u, 0xFFFFFF00u, 0x00000013u, 2u }, // MUL m=1 (-256)
+            { 0xE0040291u, 0x00000100u, 0x00000013u, 3u }, // MUL m=2
+            { 0xE0040291u, 0xFFFF0000u, 0x00000013u, 3u }, // MUL m=2 (-65536)
+            { 0xE0040291u, 0x00010000u, 0x00000013u, 4u }, // MUL m=3
+            { 0xE0040291u, 0xFF000000u, 0x00000013u, 4u }, // MUL m=3 (-2^24)
+            { 0xE0040291u, 0x01000000u, 0x00000013u, 5u }, // MUL m=4
+            { 0xE0253291u, 0x01000000u, 0x00000013u, 6u }, // MLA m=4
+            { 0xE0140291u, 0x00000100u, 0x00000013u, 3u }, // MULS m=2
+            { 0x00040291u, 0x01000000u, 0x00000013u, 1u }  // MUL.EQ fails
+        };
+
+        for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+        {
+            ArmAluState source = {};
+            source.r[1] = 7u;
+            source.r[2] = cases[i].rsValue;
+            source.r[3] = 11u;
+            source.r[4] = 0x11223344u;
+            source.r[5] = 0x55667788u;
+            source.cpsr = cases[i].cpsr;
+            source.cpuId = 1;
+
+            ArmAluState expected = source;
+            if (!applyArmMultiply(cases[i].opcode, &expected) ||
+                expected.cycles != cases[i].expectedCycles)
+                return false;
+
+            uint32_t *multiplyCode = cache.reserveWords(160);
+            if (!multiplyCode)
+                return false;
+            size_t multiplyWords = emitArmMultiplyInstruction(
+                cases[i].opcode, multiplyCode, false, false, false, 1);
+            if (!multiplyWords)
+                return false;
+            multiplyCode[multiplyWords++] = R5900::jr(R5900::R_RA);
+            multiplyCode[multiplyWords++] = R5900::nop();
+            cache.commitWords(multiplyWords);
+            cache.syncExecutable(multiplyCode,
+                multiplyCode + multiplyWords);
+
+            ArmAluState actual = source;
+            typedef void (*Arm7MultiplyTimingFunction)(ArmAluState *);
+            Arm7MultiplyTimingFunction function =
+                reinterpret_cast<Arm7MultiplyTimingFunction>(multiplyCode);
+            function(&actual);
+
+            if (actual.cycles != cases[i].expectedCycles ||
+                actual.r[4] != expected.r[4] ||
+                actual.r[5] != expected.r[5] ||
+                actual.cpsr != expected.cpsr)
+                return false;
+        }
+    }
+
     // Gate MUL -> ALU host-register forwarding and dead intermediate store
     // elimination. ADD consumes the multiply result directly from t2.
     {
