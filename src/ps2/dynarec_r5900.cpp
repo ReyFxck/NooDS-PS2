@@ -755,6 +755,39 @@ bool applyArmBranch(ArmAluState *state, uint32_t opcode, uint32_t pc)
     return true;
 }
 
+bool applyArmSingleBlockTransferFast(ArmAluState *state,
+    uint32_t packed)
+{
+    if (!state || !state->memory)
+        return false;
+
+    uint8_t rn = static_cast<uint8_t>(packed & 0xFu);
+    uint8_t reg = static_cast<uint8_t>((packed >> 4) & 0xFu);
+    bool load = (packed & BIT(8)) != 0;
+    bool writeBack = (packed & BIT(9)) != 0;
+    uint32_t address = state->r[rn];
+
+    if (load)
+    {
+        uint32_t value = 0;
+        if (!readDirectArm9Word(state, address, &value))
+        {
+            state->memoryFault = 1;
+            return false;
+        }
+        state->r[reg] = value;
+    }
+    else if (!writeDirectArm9Word(state, address, state->r[reg]))
+    {
+        state->memoryFault = 1;
+        return false;
+    }
+
+    if (writeBack)
+        state->r[rn] = address + 4u;
+    return true;
+}
+
 bool applyArmSingleBlockTransfer(ArmAluState *state, uint32_t opcode)
 {
     if (!state || !state->memory)
@@ -1850,6 +1883,77 @@ size_t emitArmSingleTransferInstruction(uint32_t opcode, uint32_t *code)
     return words;
 }
 
+size_t emitArmSingleBlockTransferFastInstruction(uint32_t opcode,
+    uint32_t *code, bool registerCycles, bool registerCpsr)
+{
+    Ps2ArmAlu::DecodedSingleBlockTransfer decoded;
+    if (!code || !Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &decoded))
+        return 0;
+
+    uint32_t packed = static_cast<uint32_t>(decoded.rn) |
+        (static_cast<uint32_t>(decoded.reg) << 4) |
+        (decoded.load ? BIT(8) : 0u) |
+        (decoded.writeBack ? BIT(9) : 0u);
+
+    size_t words = 0;
+
+    // Failed condition costs one ARM9 cycle; taken one-register LDM/STM costs 2.
+    words += emitArmCycleAdd(1, code + words, registerCycles);
+    size_t conditionBranch = static_cast<size_t>(-1);
+    if (decoded.condition != 0xEu)
+    {
+        words += emitArmCondition(decoded.condition, code + words,
+            registerCpsr);
+        conditionBranch = words;
+        code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+    }
+
+    words += emitArmCycleAdd(1, code + words, registerCycles);
+
+    // The helper does not inspect CPSR, but v1/t8 are caller-saved and must
+    // survive the C++ call when the enclosing block caches them.
+    if (registerCpsr)
+        code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
+    if (registerCycles)
+        code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
+
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, -32);
+    code[words++] = R5900::sw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::sw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lui(R5900::R_A1,
+        static_cast<uint16_t>(packed >> 16));
+    code[words++] = R5900::ori(R5900::R_A1, R5900::R_A1,
+        static_cast<uint16_t>(packed));
+    uintptr_t helper =
+        reinterpret_cast<uintptr_t>(&applyArmSingleBlockTransferFast);
+    code[words++] = R5900::lui(R5900::R_T9,
+        static_cast<uint16_t>(helper >> 16));
+    code[words++] = R5900::ori(R5900::R_T9, R5900::R_T9,
+        static_cast<uint16_t>(helper));
+    code[words++] = R5900::jalr(R5900::R_RA, R5900::R_T9);
+    code[words++] = R5900::nop();
+    code[words++] = R5900::lw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
+
+    if (registerCycles)
+        code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
+    if (registerCpsr)
+        code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
+
+    if (conditionBranch != static_cast<size_t>(-1))
+    {
+        size_t distance = words - (conditionBranch + 1);
+        if (distance > 0x7FFFu)
+            return 0;
+        code[conditionBranch] = R5900::beq(R5900::R_T7,
+            R5900::R_ZERO, static_cast<int16_t>(distance));
+    }
+
+    return words;
+}
+
 size_t emitArmSingleBlockTransferInstruction(uint32_t opcode,
     uint32_t *code)
 {
@@ -2055,13 +2159,8 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
                     Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
                     if (Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &blockTransfer))
                     {
-                        helperNeedsCpsr = blockTransfer.condition != 0xEu;
-                        if (registerCpsr && helperNeedsCpsr)
-                            code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
-                        if (registerCycles)
-                            code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
-                        emitted = emitArmSingleBlockTransferInstruction(opcode,
-                            code + words);
+                        return emitArmSingleBlockTransferFastInstruction(opcode,
+                            code, registerCycles, registerCpsr);
                     }
                     else
                     {
