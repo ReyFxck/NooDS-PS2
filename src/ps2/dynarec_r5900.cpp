@@ -6359,11 +6359,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
 
     bool committed = false;
     R5900CompiledBlock *pipelineBlock = nullptr;
-    if (!(state.cpsr & BIT(5)) && !wroteMemory)
+    if (!(state.cpsr & BIT(5)))
     {
-        // A live store may have modified the next instruction bytes without a
-        // memory-map generation change. Re-read the pipeline from Memory after
-        // any actual write instead of trusting compiled entryOpcode metadata.
         pipelineBlock = pipelineHint;
         if (!pipelineBlock)
         {
@@ -6371,6 +6368,14 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
             if (next && next->guestInstructions >= 2)
                 pipelineBlock = next;
         }
+
+        // Stores no longer force a blind pipeline refill. The transactional
+        // journal records every direct write and writesOverlapBlockCode()
+        // compares both guest ranges and aliased physical pages. Reuse compiled
+        // entry opcodes only when those writes provably did not touch them.
+        if (pipelineBlock && wroteMemory &&
+            writesOverlapBlockCode(pipelineBlock))
+            pipelineBlock = nullptr;
     }
 
     if (pipelineBlock)
