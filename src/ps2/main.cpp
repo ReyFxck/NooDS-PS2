@@ -1147,10 +1147,10 @@ int main(int argc, char **argv)
     PS2_LOG(" Instrumentation: disabled\n");
 #endif
 #ifdef NOODS_PROFILE
-    PS2_LOG(" Dynarec: ARM-ALU-v52 ARM9-hot-chain + ARM7-guarded (profile L%d)\n",
+    PS2_LOG(" Dynarec: ARM-ALU-v53 ARM9-store-chain + ARM7-direct-mem-mul (profile L%d)\n",
         NOODS_PROFILE_LEVEL);
 #else
-    PS2_LOG(" Dynarec: ARM-ALU-v52 ARM9-hot-chain + ARM7-guarded\n");
+    PS2_LOG(" Dynarec: ARM-ALU-v53 ARM9-store-chain + ARM7-direct-mem-mul\n");
 #endif
     PS2_LOG("============================================================\n");
 
