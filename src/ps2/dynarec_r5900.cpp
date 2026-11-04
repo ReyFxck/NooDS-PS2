@@ -399,13 +399,17 @@ static_assert(sizeof(ArmMemoryWrite) == 16,
 bool applyArmAlu(uint32_t opcode, ArmAluState *state)
 {
     Ps2ArmAlu::Decoded decoded;
-    if (!state || !Ps2ArmAlu::decode(opcode, &decoded) ||
-        !Ps2ArmAlu::execute(opcode, state->r, &state->cpsr))
+    if (!state || !Ps2ArmAlu::decode(opcode, &decoded))
         return false;
 
-    // ARM data-processing with a register-specified shift consumes one extra
-    // ARM9 cycle in NooDS' interpreter (the ...llr/lrr/arr/rrr paths add 1).
-    state->cycles += decoded.registerShift ? 2u : 1u;
+    bool passed = Ps2ArmAlu::conditionPassed(decoded.condition, state->cpsr);
+    if (!Ps2ArmAlu::execute(opcode, state->r, &state->cpsr))
+        return false;
+
+    // The interpreter checks the ARM condition before decoding the operand.
+    // A register-specified shift therefore costs its extra cycle only when the
+    // instruction actually executes; a failed condition costs exactly 1.
+    state->cycles += (passed && decoded.registerShift) ? 2u : 1u;
     return true;
 }
 
@@ -1323,8 +1327,9 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
          decoded.operation == 12 || decoded.operation == 13 ||
          decoded.operation == 14 || decoded.operation == 15);
     bool logicalCarryValid = false;
-    words += emitArmCycleAdd(decoded.registerShift ? 2u : 1u,
-        code + words, registerCycles);
+    // Every ARM instruction costs one cycle even when its condition fails.
+    // Register-specified shifts add their second cycle only on the taken path.
+    words += emitArmCycleAdd(1, code + words, registerCycles);
     size_t conditionBranch = static_cast<size_t>(-1);
     if (decoded.condition != 0xEu)
     {
@@ -1334,6 +1339,9 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
         code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
         code[words++] = R5900::nop();
     }
+    if (decoded.registerShift)
+        words += emitArmCycleAdd(1, code + words, registerCycles);
+
     if (decoded.operation != 13 && decoded.operation != 15)
     {
         if (forwardedGuestReg >= 0 &&
@@ -3460,7 +3468,7 @@ uint32_t minArmInstructionCycles(uint32_t opcode)
 {
     Ps2ArmAlu::Decoded decoded;
     if (Ps2ArmAlu::decode(opcode, &decoded))
-        return decoded.registerShift ? 2u : 1u;
+        return (decoded.registerShift && decoded.condition == 0xEu) ? 2u : 1u;
 
     Ps2ArmAlu::DecodedMultiply multiply;
     if (Ps2ArmAlu::decodeMultiply(opcode, &multiply))
@@ -4178,6 +4186,49 @@ bool DynarecR5900::runArmAluSelfTest()
             reinterpret_cast<ArmShiftCycleFunction>(entry);
         function(&actual);
         if (actual.r[2] != expected.r[2] || actual.cycles != expected.cycles)
+            return false;
+    }
+
+    // A failed ARM condition is resolved before operand2/register-shift
+    // decoding in Interpreter::runOpcode(), so the extra shift cycle must not
+    // be charged on the not-taken path.
+    {
+        const uint32_t opcode = 0x01A02013u; // MOV.EQ r2,r3,LSL r0
+        uint32_t *entry = nullptr;
+        uint8_t rd = 0;
+        if (!emitArmAluBlock(opcode, &entry, &rd) || rd != 2)
+            return false;
+
+        typedef void (*ArmConditionalShiftFunction)(ArmAluState *);
+        ArmConditionalShiftFunction function =
+            reinterpret_cast<ArmConditionalShiftFunction>(entry);
+
+        ArmAluState notTaken = {};
+        notTaken.r[0] = 2u;
+        notTaken.r[2] = 0xCAFEBABEu;
+        notTaken.r[3] = 0x11u;
+        notTaken.cpsr = 0x00000013u; // Z clear => EQ fails
+        function(&notTaken);
+        if (notTaken.r[2] != 0xCAFEBABEu || notTaken.cycles != 1u)
+            return false;
+
+        ArmAluState taken = {};
+        taken.r[0] = 2u;
+        taken.r[2] = 0xCAFEBABEu;
+        taken.r[3] = 0x11u;
+        taken.cpsr = 0x40000013u; // Z set => EQ passes
+        function(&taken);
+        if (taken.r[2] != 0x44u || taken.cycles != 2u)
+            return false;
+
+        ArmAluState portableNotTaken = {};
+        portableNotTaken.r[0] = 2u;
+        portableNotTaken.r[2] = 0xCAFEBABEu;
+        portableNotTaken.r[3] = 0x11u;
+        portableNotTaken.cpsr = 0x00000013u;
+        if (!applyArmAlu(opcode, &portableNotTaken) ||
+            portableNotTaken.r[2] != 0xCAFEBABEu ||
+            portableNotTaken.cycles != 1u)
             return false;
     }
 
