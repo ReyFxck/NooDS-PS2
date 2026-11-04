@@ -864,10 +864,21 @@ bool applyArmHalfwordTransfer(ArmAluState *state, uint32_t opcode)
 {
     if (!state || !state->memory)
         return false;
+
+    Ps2ArmAlu::DecodedHalfwordTransfer decoded;
+    if (!Ps2ArmAlu::decodeHalfwordTransfer(opcode, &decoded))
+        return false;
+    bool passed = Ps2ArmAlu::conditionPassed(decoded.condition, state->cpsr);
+
     if (Ps2ArmAlu::executeHalfwordTransfer(opcode, state->r, &state->cpsr,
         state, readDirectArm9Halfword, writeDirectArm9Halfword))
     {
-        state->cycles++;
+        if (!passed)
+            state->cycles += 1u;
+        else if (state->cpuId)
+            state->cycles += decoded.load ? 3u : 2u;
+        else
+            state->cycles += 1u;
         return true;
     }
 
@@ -1753,7 +1764,7 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
 
 size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
     uint32_t *code, bool registerCycles, bool registerCpsr,
-    bool suppressResultStore = false)
+    bool suppressResultStore = false, uint8_t targetCpuId = 0)
 {
     Ps2ArmAlu::DecodedHalfwordTransfer decoded;
     if (!code || !Ps2ArmAlu::decodeHalfwordTransfer(opcode, &decoded) ||
@@ -1772,6 +1783,9 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
         code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
         code[words++] = R5900::nop();
     }
+
+    if (targetCpuId)
+        words += emitArmCycleAdd(2, code + words, registerCycles);
 
     // t0 = effective address.
     code[words++] = R5900::lw(R5900::R_T0,
@@ -3438,10 +3452,11 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
     {
         if (transfer.load && transfer.preIndex && !transfer.writeBack)
             return emitArmHalfwordLoadCachedInstruction(opcode, code,
-                registerCycles, registerCpsr, suppressResultStore);
+                registerCycles, registerCpsr, suppressResultStore,
+                targetCpuId);
         if (!transfer.load && transfer.immediate)
             return emitArmImmediateStoreFastInstruction(opcode, code,
-                registerCycles, registerCpsr);
+                registerCycles, registerCpsr, targetCpuId);
         if (!transfer.load && !transfer.immediate)
             return emitArmHalfwordRegisterStoreFastInstruction(opcode, code,
                 registerCycles, registerCpsr);
@@ -3612,6 +3627,11 @@ uint32_t maxArmInstructionCycles(uint32_t opcode, uint8_t targetCpuId = 0)
         targetCpuId)
         return byteTransfer.load ? 3u : 2u;
 
+    Ps2ArmAlu::DecodedHalfwordTransfer halfwordTransfer;
+    if (Ps2ArmAlu::decodeHalfwordTransfer(opcode, &halfwordTransfer) &&
+        targetCpuId)
+        return halfwordTransfer.load ? 3u : 2u;
+
     Ps2ArmAlu::DecodedMultiBlockTransfer multiBlockTransfer;
     if (Ps2ArmAlu::decodeMultiBlockTransfer(opcode, &multiBlockTransfer))
         return multiBlockTransfer.count;
@@ -3656,6 +3676,15 @@ uint32_t minArmInstructionCycles(uint32_t opcode, uint8_t targetCpuId = 0)
         if (byteTransfer.condition != 0xEu)
             return 1u;
         return byteTransfer.load ? 3u : 2u;
+    }
+
+    Ps2ArmAlu::DecodedHalfwordTransfer halfwordTransfer;
+    if (Ps2ArmAlu::decodeHalfwordTransfer(opcode, &halfwordTransfer) &&
+        targetCpuId)
+    {
+        if (halfwordTransfer.condition != 0xEu)
+            return 1u;
+        return halfwordTransfer.load ? 3u : 2u;
     }
 
     Ps2ArmAlu::DecodedMultiBlockTransfer multiBlockTransfer;
@@ -5894,6 +5923,15 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
             continue;
         }
 
+        Ps2ArmAlu::DecodedHalfwordTransfer halfwordTransfer;
+        if (Ps2ArmAlu::decodeHalfwordTransfer(opcode, &halfwordTransfer) &&
+            halfwordTransfer.immediate && halfwordTransfer.preIndex &&
+            !halfwordTransfer.writeBack)
+        {
+            opcodes[count++] = opcode;
+            continue;
+        }
+
         Ps2ArmAlu::DecodedBranchExchange branchExchange;
         if (Ps2ArmAlu::decodeBranchExchange(opcode, &branchExchange))
         {
@@ -5956,6 +5994,17 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
                 byteTransfer.writeBack)
                 return 0;
             if (!applyArmByteTransfer(&expected, opcodes[i]))
+                return 0;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedHalfwordTransfer halfwordTransfer;
+        if (Ps2ArmAlu::decodeHalfwordTransfer(opcodes[i], &halfwordTransfer))
+        {
+            if (!halfwordTransfer.immediate || !halfwordTransfer.preIndex ||
+                halfwordTransfer.writeBack)
+                return 0;
+            if (!applyArmHalfwordTransfer(&expected, opcodes[i]))
                 return 0;
             continue;
         }
