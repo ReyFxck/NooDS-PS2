@@ -91,13 +91,19 @@ void Gpu3DRenderer::drawScanline(int line)
 {
     if (line == 0)
     {
-        // Calculate the scanline bounds for each polygon
-        for (int i = 0; i < core->gpu3D.getPolygonCount(); i++)
+        // Calculate the scanline bounds for each polygon and build a
+        // compact active-polygon mask for every visible line. drawScanline1()
+        // can then skip all polygons that do not intersect its line instead of
+        // repeating polygonCount range checks 192 times per frame.
+        memset(polygonLineMask, 0, sizeof(polygonLineMask));
+        const int polygonCount = core->gpu3D.getPolygonCount();
+        _Polygon *polygons = core->gpu3D.getPolygons();
+        for (int i = 0; i < polygonCount; i++)
         {
             polygonTop[i] = 192;
             polygonBot[i] =   0;
 
-            _Polygon *polygon = &core->gpu3D.getPolygons()[i];
+            _Polygon *polygon = &polygons[i];
             for (int j = 0; j < polygon->size; j++)
             {
                 Vertex *vertex = &polygon->vertices[j];
@@ -107,6 +113,17 @@ void Gpu3DRenderer::drawScanline(int line)
 
             // Allow horizontal line polygons to be drawn
             if (polygonTop[i] == polygonBot[i]) polygonBot[i]++;
+
+            int firstLine = polygonTop[i];
+            int lastLine = polygonBot[i];
+            if (firstLine < 0) firstLine = 0;
+            if (lastLine > 192) lastLine = 192;
+            if (firstLine >= lastLine) continue;
+
+            const uint32_t bit = 1u << (i & 31);
+            const int word = i >> 5;
+            for (int y = firstLine; y < lastLine; y++)
+                polygonLineMask[y][word] |= bit;
         }
 
         // Clean up any existing threads
@@ -231,22 +248,27 @@ void Gpu3DRenderer::drawScanline1(int line)
     uint16_t translucent[2048];
     int translucentCount = 0;
 
-    // Draw the polygons
-    const int polygonCount = core->gpu3D.getPolygonCount();
+    // Draw only polygons pre-indexed for this scanline. Walking set bits
+    // in ascending word/bit order preserves the original polygon order.
     _Polygon *polygons = core->gpu3D.getPolygons();
-    for (int i = 0; i < polygonCount; i++)
+    for (int word = 0; word < 64; word++)
     {
-        // Skip polygons that aren't on the current scanline
-        if (line < polygonTop[i] || line >= polygonBot[i])
-            continue;
+        uint32_t bits = polygonLineMask[line][word];
+        while (bits)
+        {
+            const int bit = __builtin_ctz(bits);
+            const int i = (word << 5) + bit;
+            bits &= bits - 1;
 
-        // Draw solid polygons and save the translucent ones for later
-        _Polygon *polygon = &polygons[i];
-        if (polygon->alpha < 0x3F || polygon->textureFmt == 1 ||
-            polygon->textureFmt == 6)
-            translucent[translucentCount++] = i;
-        else
-            drawPolygon(line, i);
+            // Draw solid polygons and save the translucent ones for later
+            _Polygon *polygon = &polygons[i];
+            if (polygon->alpha < 0x3F || polygon->textureFmt == 1 ||
+                polygon->textureFmt == 6)
+                translucent[translucentCount++] =
+                    static_cast<uint16_t>(i);
+            else
+                drawPolygon(line, i);
+        }
     }
 
     // Draw the translucent polygons in the same submission order.
