@@ -1917,7 +1917,7 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
         }
         else
         {
-            if (decoded.registerOffset)
+            if (!decoded.immediate)
             {
                 code[words++] = R5900::sw(R5900::R_T9,
                     static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
@@ -1957,7 +1957,7 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
     if (decoded.writeBack)
     {
         code[words++] = R5900::sw(R5900::R_T0, 20, R5900::R_SP);
-        if (!decoded.preIndex && decoded.registerOffset)
+        if (!decoded.preIndex && !decoded.immediate)
             code[words++] = R5900::sw(R5900::R_T9, 16, R5900::R_SP);
     }
     code[words++] = R5900::or_(R5900::R_A1, R5900::R_T0, R5900::R_ZERO);
@@ -1973,7 +1973,7 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
     if (decoded.writeBack)
     {
         code[words++] = R5900::lw(R5900::R_T0, 20, R5900::R_SP);
-        if (!decoded.preIndex && decoded.registerOffset)
+        if (!decoded.preIndex && !decoded.immediate)
             code[words++] = R5900::lw(R5900::R_T9, 16, R5900::R_SP);
     }
     code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
@@ -1992,7 +1992,7 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
         }
         else
         {
-            if (decoded.registerOffset)
+            if (!decoded.immediate)
             {
                 code[words++] = R5900::sw(R5900::R_T9,
                     static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
