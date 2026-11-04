@@ -983,12 +983,20 @@ size_t emitArmEqNeBranchFromResult(uint32_t opcode, uint32_t pc,
         (decoded.condition != 0x0u && decoded.condition != 0x1u))
         return 0;
 
+    uint32_t fallthrough = pc + 4u;
     uint32_t target = pc + 8u + static_cast<uint32_t>(decoded.offset);
     size_t words = 0;
 
     // Base branch cost is one cycle. The previous S instruction left the
     // exact result in t2, so EQ/NE can test Z without re-extracting CPSR.Z.
+    // Write the fallthrough first because a generated self-loop may arrive
+    // here with nextPc still holding the target from a previous iteration.
     words += emitArmCycleAdd(1, code + words, registerCycles);
+    code[words++] = R5900::lui(R5900::R_T3,
+        static_cast<uint16_t>(fallthrough >> 16));
+    code[words++] = R5900::ori(R5900::R_T3, R5900::R_T3,
+        static_cast<uint16_t>(fallthrough));
+    code[words++] = R5900::sw(R5900::R_T3, 68, R5900::R_A0);
     size_t notTakenBranch = words;
     code[words++] = (decoded.condition == 0x0u)
         ? R5900::bne(R5900::R_T2, R5900::R_ZERO, 0)
