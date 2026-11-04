@@ -1043,7 +1043,7 @@ void logGpu2DProfile(const char *label, const Gpu2DRunProfile &profile)
             static_cast<unsigned long long>(counters.transparent),
             static_cast<unsigned long long>(counters.writes));
     }
-#if NOODS_PROFILE_LEVEL >= 2
+
     if (profile.textDetailSamples)
     {
         const Gpu2DTextDetailCounters &d = profile.textDetail;
