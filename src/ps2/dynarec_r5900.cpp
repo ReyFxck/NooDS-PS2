@@ -368,6 +368,10 @@ static_assert(offsetof(ArmAluState, writeCacheTag) == 104,
     "R5900 ARM-state write-cache tag ABI offset");
 static_assert(offsetof(ArmAluState, writeCachePage) == 108,
     "R5900 ARM-state write-cache page ABI offset");
+static_assert(offsetof(ArmAluState, writes) == 112,
+    "R5900 ARM-state write-journal ABI offset");
+static_assert(sizeof(ArmMemoryWrite) == 16,
+    "R5900 ARM write-journal entry ABI size");
 
 bool applyArmAlu(uint32_t opcode, ArmAluState *state)
 {
@@ -1497,6 +1501,115 @@ size_t emitArmImmediateStoreFastInstruction(uint32_t opcode,
         code[words++] = R5900::nop();
     }
 
+    // Compute the ARM effective address in t0. Post-index writeback is
+    // recomputed only after a successful store, preserving fallback semantics.
+    code[words++] = R5900::lw(R5900::R_T0,
+        static_cast<int16_t>(rn * 4), R5900::R_A0);
+    int32_t delta = addOffset ? static_cast<int32_t>(offset)
+                              : -static_cast<int32_t>(offset);
+    if (preIndex && delta)
+        code[words++] = R5900::addiu(R5900::R_T0, R5900::R_T0,
+            static_cast<int16_t>(delta));
+
+    // Host SH/SW require natural alignment. NooDS' bytewise halfword helper
+    // still accepts odd ARM addresses, so those stay on the exact slow path.
+    size_t alignBranch = static_cast<size_t>(-1);
+    if (sizeCode == 1)
+    {
+        code[words++] = R5900::andi(R5900::R_T6, R5900::R_T0, 1);
+        alignBranch = words;
+        code[words++] = R5900::bne(R5900::R_T6, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+    }
+    else if (sizeCode == 2)
+    {
+        code[words++] = R5900::andi(R5900::R_T6, R5900::R_T0, 3);
+        alignBranch = words;
+        code[words++] = R5900::bne(R5900::R_T6, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+    }
+
+    // One-page persistent write cache. A miss calls the existing exact helper,
+    // which also seeds these fields for the next hot iteration/dispatch.
+    code[words++] = R5900::srl(R5900::R_T5, R5900::R_T0, 12);
+    code[words++] = R5900::addiu(R5900::R_T5, R5900::R_T5, 1);
+    code[words++] = R5900::lw(R5900::R_T6, 104, R5900::R_A0);
+    size_t cacheMissBranch = words;
+    code[words++] = R5900::bne(R5900::R_T5, R5900::R_T6, 0);
+    code[words++] = R5900::nop();
+
+    code[words++] = R5900::lw(R5900::R_T3, 108, R5900::R_A0);
+    size_t nullPageBranch = words;
+    code[words++] = R5900::beq(R5900::R_T3, R5900::R_ZERO, 0);
+    code[words++] = R5900::nop();
+
+    // Ensure the fixed 16-entry transactional journal still has room.
+    code[words++] = R5900::lw(R5900::R_T5, 80, R5900::R_A0);
+    code[words++] = R5900::sltiu(R5900::R_T6, R5900::R_T5, 16);
+    size_t journalFullBranch = words;
+    code[words++] = R5900::beq(R5900::R_T6, R5900::R_ZERO, 0);
+    code[words++] = R5900::nop();
+
+    code[words++] = R5900::andi(R5900::R_T4, R5900::R_T0, 0x0FFFu);
+    code[words++] = R5900::addu(R5900::R_T3, R5900::R_T3, R5900::R_T4);
+    code[words++] = R5900::lw(R5900::R_T1,
+        static_cast<int16_t>(rd * 4), R5900::R_A0);
+
+    // t7 = &state->writes[writeCount], ArmMemoryWrite is 16 bytes.
+    code[words++] = R5900::sll(R5900::R_T6, R5900::R_T5, 4);
+    code[words++] = R5900::addiu(R5900::R_T7, R5900::R_A0, 112);
+    code[words++] = R5900::addu(R5900::R_T7, R5900::R_T7, R5900::R_T6);
+
+    // Capture the exact pre-store value for transactional rollback/differential.
+    if (sizeCode == 0)
+        code[words++] = R5900::lbu(R5900::R_T6, 0, R5900::R_T3);
+    else if (sizeCode == 1)
+        code[words++] = R5900::lhu(R5900::R_T6, 0, R5900::R_T3);
+    else
+        code[words++] = R5900::lw(R5900::R_T6, 0, R5900::R_T3);
+
+    code[words++] = R5900::sw(R5900::R_T0, 0, R5900::R_T7);
+    code[words++] = R5900::sw(R5900::R_T6, 4, R5900::R_T7);
+    code[words++] = R5900::sw(R5900::R_T1, 8, R5900::R_T7);
+    code[words++] = R5900::addiu(R5900::R_T6, R5900::R_ZERO,
+        static_cast<int16_t>(sizeCode == 0 ? 1 : (sizeCode == 1 ? 2 : 4)));
+    code[words++] = R5900::sw(R5900::R_T6, 12, R5900::R_T7);
+
+    if (sizeCode == 0)
+        code[words++] = R5900::sb(R5900::R_T1, 0, R5900::R_T3);
+    else if (sizeCode == 1)
+        code[words++] = R5900::sh(R5900::R_T1, 0, R5900::R_T3);
+    else
+        code[words++] = R5900::sw(R5900::R_T1, 0, R5900::R_T3);
+
+    code[words++] = R5900::addiu(R5900::R_T5, R5900::R_T5, 1);
+    code[words++] = R5900::sw(R5900::R_T5, 80, R5900::R_A0);
+
+    if (writeBack)
+    {
+        if (preIndex)
+        {
+            code[words++] = R5900::sw(R5900::R_T0,
+                static_cast<int16_t>(rn * 4), R5900::R_A0);
+        }
+        else
+        {
+            code[words++] = R5900::or_(R5900::R_T2, R5900::R_T0,
+                R5900::R_ZERO);
+            if (delta)
+                code[words++] = R5900::addiu(R5900::R_T2, R5900::R_T2,
+                    static_cast<int16_t>(delta));
+            code[words++] = R5900::sw(R5900::R_T2,
+                static_cast<int16_t>(rn * 4), R5900::R_A0);
+        }
+    }
+
+    size_t fastDoneBranch = words;
+    code[words++] = R5900::beq(R5900::R_ZERO, R5900::R_ZERO, 0);
+    code[words++] = R5900::nop();
+
+    // Cold/unsafe path: reuse the already differential-gated C++ helper.
+    size_t slowPath = words;
     if (registerCpsr)
         code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
     if (registerCycles)
@@ -1525,18 +1638,41 @@ size_t emitArmImmediateStoreFastInstruction(uint32_t opcode,
     if (registerCpsr)
         code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
 
-    if (conditionBranch != static_cast<size_t>(-1))
+    size_t done = words;
+    auto patchBne = [&](size_t branch, int rs, int rt, size_t target)
     {
-        size_t distance = words - (conditionBranch + 1);
+        if (branch == static_cast<size_t>(-1))
+            return true;
+        size_t distance = target - (branch + 1);
         if (distance > 0x7FFFu)
-            return 0;
-        code[conditionBranch] = R5900::beq(R5900::R_T7,
-            R5900::R_ZERO, static_cast<int16_t>(distance));
-    }
+            return false;
+        code[branch] = R5900::bne(rs, rt, static_cast<int16_t>(distance));
+        return true;
+    };
+    auto patchBeq = [&](size_t branch, int rs, int rt, size_t target)
+    {
+        if (branch == static_cast<size_t>(-1))
+            return true;
+        size_t distance = target - (branch + 1);
+        if (distance > 0x7FFFu)
+            return false;
+        code[branch] = R5900::beq(rs, rt, static_cast<int16_t>(distance));
+        return true;
+    };
+
+    if (!patchBne(alignBranch, R5900::R_T6, R5900::R_ZERO, slowPath) ||
+        !patchBne(cacheMissBranch, R5900::R_T5, R5900::R_T6, slowPath) ||
+        !patchBeq(nullPageBranch, R5900::R_T3, R5900::R_ZERO, slowPath) ||
+        !patchBeq(journalFullBranch, R5900::R_T6, R5900::R_ZERO, slowPath) ||
+        !patchBeq(fastDoneBranch, R5900::R_ZERO, R5900::R_ZERO, done))
+        return 0;
+
+    if (conditionBranch != static_cast<size_t>(-1) &&
+        !patchBeq(conditionBranch, R5900::R_T7, R5900::R_ZERO, done))
+        return 0;
 
     return words;
 }
-
 size_t emitArmHalfwordTransferInstruction(uint32_t opcode, uint32_t *code)
 {
     Ps2ArmAlu::DecodedHalfwordTransfer decoded;
