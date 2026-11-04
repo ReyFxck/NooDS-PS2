@@ -342,6 +342,8 @@ struct ArmAluState
     uint32_t memoryFault;
     uint32_t writeCount;
     uint32_t cycles;
+    uint32_t readCacheTag;
+    uint8_t *readCachePage;
     ArmMemoryWrite writes[16];
 };
 static_assert(offsetof(ArmAluState, cpsr) == 64,
@@ -350,6 +352,10 @@ static_assert(offsetof(ArmAluState, nextPc) == 68,
     "R5900 ARM-state next-PC ABI offset");
 static_assert(offsetof(ArmAluState, cycles) == 84,
     "R5900 ARM-state cycle ABI offset");
+static_assert(offsetof(ArmAluState, readCacheTag) == 88,
+    "R5900 ARM-state read-cache tag ABI offset");
+static_assert(offsetof(ArmAluState, readCachePage) == 92,
+    "R5900 ARM-state read-cache page ABI offset");
 
 bool applyArmAlu(uint32_t opcode, ArmAluState *state)
 {
@@ -383,6 +389,31 @@ bool readDirectArm9Halfword(void *context, uint32_t address, uint16_t *value)
     *value = static_cast<uint16_t>(page[offset] |
         (static_cast<uint16_t>(page[offset + 1]) << 8));
     return true;
+}
+
+uint32_t refillArm9HalfwordReadCache(ArmAluState *state,
+    uint32_t address)
+{
+    if (!state || !state->memory || (address & 1u) ||
+        (address & 0xFFFu) == 0xFFFu)
+    {
+        if (state)
+            state->memoryFault = 1;
+        return 0;
+    }
+
+    uint8_t *page = state->memory->getDirectReadPageCached(0, address);
+    if (!page)
+    {
+        state->memoryFault = 1;
+        return 0;
+    }
+
+    state->readCacheTag = (address >> 12) + 1u;
+    state->readCachePage = page;
+    uint32_t offset = address & 0xFFFu;
+    return static_cast<uint32_t>(page[offset]) |
+        (static_cast<uint32_t>(page[offset + 1]) << 8);
 }
 
 bool writeDirectArm9Halfword(void *context, uint32_t address, uint16_t value)
@@ -1095,6 +1126,143 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
     return words;
 }
 
+size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
+    uint32_t *code, bool registerCycles, bool registerCpsr)
+{
+    Ps2ArmAlu::DecodedHalfwordTransfer decoded;
+    if (!code || !Ps2ArmAlu::decodeHalfwordTransfer(opcode, &decoded) ||
+        !decoded.load || !decoded.preIndex || decoded.writeBack)
+        return 0;
+
+    size_t words = 0;
+    words += emitArmCycleAdd(1, code + words, registerCycles);
+
+    size_t conditionBranch = static_cast<size_t>(-1);
+    if (decoded.condition != 0xEu)
+    {
+        words += emitArmCondition(decoded.condition, code + words,
+            registerCpsr);
+        conditionBranch = words;
+        code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+    }
+
+    // t0 = effective address.
+    code[words++] = R5900::lw(R5900::R_T0,
+        static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+    if (decoded.immediate)
+    {
+        int32_t delta = decoded.addOffset
+            ? static_cast<int32_t>(decoded.immediateOffset)
+            : -static_cast<int32_t>(decoded.immediateOffset);
+        if (delta)
+            code[words++] = R5900::addiu(R5900::R_T0, R5900::R_T0,
+                static_cast<int16_t>(delta));
+    }
+    else
+    {
+        code[words++] = R5900::lw(R5900::R_T1,
+            static_cast<int16_t>(decoded.rm * 4), R5900::R_A0);
+        code[words++] = decoded.addOffset
+            ? R5900::addu(R5900::R_T0, R5900::R_T0, R5900::R_T1)
+            : R5900::subu(R5900::R_T0, R5900::R_T0, R5900::R_T1);
+    }
+
+    // Odd/cross-page halfwords stay on the helper path so generated LHU can
+    // never trigger an EE alignment exception or read beyond the cached page.
+    code[words++] = R5900::andi(R5900::R_T4, R5900::R_T0, 1);
+    size_t oddBranch = words;
+    code[words++] = R5900::bne(R5900::R_T4, R5900::R_ZERO, 0);
+    code[words++] = R5900::nop();
+
+    code[words++] = R5900::andi(R5900::R_T4, R5900::R_T0, 0x0FFFu);
+    code[words++] = R5900::xori(R5900::R_T5, R5900::R_T4, 0x0FFFu);
+    size_t crossBranch = words;
+    code[words++] = R5900::beq(R5900::R_T5, R5900::R_ZERO, 0);
+    code[words++] = R5900::nop();
+
+    // Compare the one-page JIT-local cache tag.
+    code[words++] = R5900::srl(R5900::R_T1, R5900::R_T0, 12);
+    code[words++] = R5900::addiu(R5900::R_T1, R5900::R_T1, 1);
+    code[words++] = R5900::lw(R5900::R_T2, 88, R5900::R_A0);
+    size_t missBranch = words;
+    code[words++] = R5900::bne(R5900::R_T1, R5900::R_T2, 0);
+    code[words++] = R5900::nop();
+
+    // Cache hit: page + offset -> unsigned halfword.
+    code[words++] = R5900::lw(R5900::R_T3, 92, R5900::R_A0);
+    code[words++] = R5900::addu(R5900::R_T3, R5900::R_T3, R5900::R_T4);
+    code[words++] = R5900::lhu(R5900::R_T2, 0, R5900::R_T3);
+    code[words++] = R5900::sw(R5900::R_T2,
+        static_cast<int16_t>(decoded.rd * 4), R5900::R_A0);
+    size_t hitDoneBranch = words;
+    code[words++] = R5900::beq(R5900::R_ZERO, R5900::R_ZERO, 0);
+    code[words++] = R5900::nop();
+
+    // Miss/unsafe path: synchronize caller-saved block state, resolve through
+    // Memory's cache once, and seed the JIT-local page cache for later loop
+    // iterations.
+    size_t slowPath = words;
+    if (registerCpsr)
+        code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
+    if (registerCycles)
+        code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
+
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, -32);
+    code[words++] = R5900::sw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::sw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::or_(R5900::R_A1, R5900::R_T0, R5900::R_ZERO);
+    uintptr_t helper =
+        reinterpret_cast<uintptr_t>(&refillArm9HalfwordReadCache);
+    code[words++] = R5900::lui(R5900::R_T9,
+        static_cast<uint16_t>(helper >> 16));
+    code[words++] = R5900::ori(R5900::R_T9, R5900::R_T9,
+        static_cast<uint16_t>(helper));
+    code[words++] = R5900::jalr(R5900::R_RA, R5900::R_T9);
+    code[words++] = R5900::nop();
+    code[words++] = R5900::lw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
+    code[words++] = R5900::sw(R5900::R_V0,
+        static_cast<int16_t>(decoded.rd * 4), R5900::R_A0);
+    if (registerCycles)
+        code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
+    if (registerCpsr)
+        code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
+
+    size_t done = words;
+
+    auto patch = [&](size_t branch, size_t target, bool equal)
+    {
+        size_t distance = target - (branch + 1);
+        if (distance > 0x7FFFu)
+            return false;
+        code[branch] = equal
+            ? R5900::beq((branch == hitDoneBranch) ? R5900::R_ZERO : R5900::R_T5,
+                R5900::R_ZERO, static_cast<int16_t>(distance))
+            : R5900::bne((branch == oddBranch) ? R5900::R_T4 : R5900::R_T1,
+                (branch == missBranch) ? R5900::R_T2 : R5900::R_ZERO,
+                static_cast<int16_t>(distance));
+        return true;
+    };
+
+    if (!patch(oddBranch, slowPath, false) ||
+        !patch(crossBranch, slowPath, true) ||
+        !patch(missBranch, slowPath, false) ||
+        !patch(hitDoneBranch, done, true))
+        return 0;
+
+    if (conditionBranch != static_cast<size_t>(-1))
+    {
+        size_t distance = done - (conditionBranch + 1);
+        if (distance > 0x7FFFu)
+            return 0;
+        code[conditionBranch] = R5900::beq(R5900::R_T7,
+            R5900::R_ZERO, static_cast<int16_t>(distance));
+    }
+    return words;
+}
+
 size_t emitArmHalfwordTransferInstruction(uint32_t opcode, uint32_t *code)
 {
     Ps2ArmAlu::DecodedHalfwordTransfer decoded;
@@ -1272,6 +1440,10 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
     Ps2ArmAlu::DecodedHalfwordTransfer transfer;
     if (Ps2ArmAlu::decodeHalfwordTransfer(opcode, &transfer))
     {
+        if (transfer.load && transfer.preIndex && !transfer.writeBack)
+            return emitArmHalfwordLoadCachedInstruction(opcode, code,
+                registerCycles, registerCpsr);
+
         helperNeedsCpsr = transfer.condition != 0xEu;
         if (registerCpsr && helperNeedsCpsr)
             code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
@@ -2643,6 +2815,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     state.memoryFault = 0;
     state.writeCount = 0;
     state.cycles = 0;
+    state.readCacheTag = 0;
+    state.readCachePage = nullptr;
 
     typedef void (*ArmAluBlockFunction)(ArmAluState *);
     ArmAluBlockFunction function =
