@@ -1900,7 +1900,7 @@ size_t emitArmRegisterStoreFastInstruction(uint32_t opcode,
     // Post-index stores use the original base as the memory address but
     // still need the adjusted value for writeback after a successful store.
     if (!preIndex)
-        code[words++] = R5900::lw(R5900::R_T2,
+        code[words++] = R5900::lw(R5900::R_T6,
             static_cast<int16_t>(rn * 4), R5900::R_A0);
 
     size_t addressWords = emitArmRegisterOffsetAddress(rn, rm,
@@ -1911,10 +1911,12 @@ size_t emitArmRegisterStoreFastInstruction(uint32_t opcode,
 
     if (!preIndex)
     {
+        // emitArmRegisterOffsetAddress may use t2/t3 for ROR, so preserve the
+        // original post-index base in t6, which the address emitter never uses.
         code[words++] = R5900::or_(R5900::R_T4,
             R5900::R_T0, R5900::R_ZERO);
         code[words++] = R5900::or_(R5900::R_T0,
-            R5900::R_T2, R5900::R_ZERO);
+            R5900::R_T6, R5900::R_ZERO);
         code[words++] = R5900::or_(R5900::R_T2,
             R5900::R_T4, R5900::R_ZERO);
     }
