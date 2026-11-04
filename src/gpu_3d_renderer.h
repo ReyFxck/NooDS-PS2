@@ -38,6 +38,7 @@ struct Gpu3DDetailProfile
     uint64_t solidCalls = 0;
     uint64_t translucentCalls = 0;
     uint64_t polygonSamples = 0;
+    uint64_t finishSamples = 0;
     uint64_t sampledPixels = 0;
     uint64_t linearPixels = 0;
     uint64_t perspectivePixels = 0;
@@ -72,6 +73,7 @@ class Gpu3DRenderer
 #if NOODS_PROFILE_LEVEL >= 2
             detailProfile = Gpu3DDetailProfile();
             detailSampleState = 0;
+            finishSampleState = 0;
 #endif
         }
 #if NOODS_PROFILE_LEVEL >= 2
@@ -101,6 +103,7 @@ class Gpu3DRenderer
 #if NOODS_PROFILE_LEVEL >= 2
         Gpu3DDetailProfile detailProfile;
         uint32_t detailSampleState = 0;
+        uint32_t finishSampleState = 0;
 #endif
 #endif
 
