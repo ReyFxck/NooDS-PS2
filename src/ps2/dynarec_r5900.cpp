@@ -4424,7 +4424,7 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
 
     synchronizeMemoryMap();
 
-    constexpr size_t MAX_BLOCK_INSTRUCTIONS = 16;
+    constexpr size_t MAX_BLOCK_INSTRUCTIONS = 24;
     if (!maxInstructions)
         return 0;
     maxInstructions = std::min(maxInstructions, MAX_BLOCK_INSTRUCTIONS);
@@ -4866,10 +4866,10 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         profile.activeCompileMisses++;
 
         // Compilation length is intentionally independent from cycleBudget.
-        // The block is built to its natural terminator (up to the validated
-        // 16-op ceiling); cycleBudget is checked only before live commit.
+        // Active hot blocks may extend to 24 instructions; every candidate is
+        // still shadow-checked and differentially gated before live commit.
         int shadow = runArm9BlockShadowSelfTest(cpu, nullptr, nullptr, nullptr,
-            16);
+            24);
         if (shadow <= 0)
         {
             cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
