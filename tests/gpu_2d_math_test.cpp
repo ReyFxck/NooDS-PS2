@@ -33,6 +33,35 @@ bool testWrapPowerOfTwo()
     return true;
 }
 
+bool testNativeLoads()
+{
+    uint8_t data[128];
+    for (size_t i = 0; i < sizeof(data); i++)
+        data[i] = static_cast<uint8_t>(nextRandom());
+
+    for (size_t offset = 0; offset + 8 <= sizeof(data); offset++)
+    {
+        uint16_t expected16 = 0;
+        uint32_t expected32 = 0;
+        uint64_t expected64 = 0;
+        for (size_t byte = 0; byte < 2; byte++)
+            expected16 |= static_cast<uint16_t>(data[offset + byte]) <<
+                (byte * 8);
+        for (size_t byte = 0; byte < 4; byte++)
+            expected32 |= static_cast<uint32_t>(data[offset + byte]) <<
+                (byte * 8);
+        for (size_t byte = 0; byte < 8; byte++)
+            expected64 |= static_cast<uint64_t>(data[offset + byte]) <<
+                (byte * 8);
+
+        if (gpu2dLoad16(data, offset) != expected16 ||
+            gpu2dLoad32(data, offset) != expected32 ||
+            gpu2dLoad64(data, offset) != expected64)
+            return false;
+    }
+    return true;
+}
+
 bool testFill32()
 {
     alignas(8) uint32_t storage[264];
@@ -266,6 +295,11 @@ int main()
     if (!testWrapPowerOfTwo())
     {
         std::fprintf(stderr, "power-of-two wrap mismatch\n");
+        return 1;
+    }
+    if (!testNativeLoads())
+    {
+        std::fprintf(stderr, "native little-endian load mismatch\n");
         return 1;
     }
     if (!testFill32())
