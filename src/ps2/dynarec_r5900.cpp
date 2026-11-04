@@ -2748,6 +2748,25 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             {
                 producedGuestReg = word.rd;
             }
+            else
+            {
+                Ps2ArmAlu::DecodedLiteralLoad literal;
+                if (Ps2ArmAlu::decodeLiteralLoad(opcodes[i], &literal) &&
+                    literal.condition == 0xEu)
+                {
+                    uint32_t literalPc =
+                        guestPc + static_cast<uint32_t>(i * 4);
+                    uint32_t base = literalPc + 8u;
+                    uint32_t address = literal.addOffset
+                        ? base + literal.immediateOffset
+                        : base - literal.immediateOffset;
+                    if (!(address & 3u) && memory &&
+                        memory->getDirectReadPage(0, address))
+                    {
+                        producedGuestReg = literal.rd;
+                    }
+                }
+            }
         }
 
         size_t emitted = emitArmInstruction(opcodes[i],
