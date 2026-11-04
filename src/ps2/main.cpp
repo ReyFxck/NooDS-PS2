@@ -1126,7 +1126,11 @@ int main(int argc, char **argv)
 #else
     PS2_LOG(" Instrumentation: disabled\n");
 #endif
-    PS2_LOG(" Dynarec: ARM-ALU-v9 guarded-active-fastcache\n");
+    #ifdef NOODS_PS2_EXPERIMENTAL_ACTIVE_DYNAREC
+    PS2_LOG(" Dynarec: ARM-ALU-v9 guarded-active-fastcache (experimental)\n");
+#else
+    PS2_LOG(" Dynarec: ARM-ALU-v9 shadow-gated (active executor held off)\n");
+#endif
     PS2_LOG("============================================================\n");
 
     if (argc > 0 && argv[0] && argv[0][0])
@@ -1351,6 +1355,7 @@ int main(int argc, char **argv)
         else
             PS2_LOG("[PS2][WARN] R5900 dynarec infrastructure unavailable; interpreter remains active.\n");
 
+#ifdef NOODS_PS2_EXPERIMENTAL_ACTIVE_DYNAREC
         bool arm9ActiveExecutorEnabled = false;
         auto enableArm9ActiveExecutor = [&]()
         {
@@ -1367,8 +1372,21 @@ int main(int argc, char **argv)
                         guestInstructions);
                 });
             arm9ActiveExecutorEnabled = true;
-            PS2_LOG("[PS2][OK] ARM9 guarded active dynarec enabled: per-block shadow+differential, read-only commit, scheduler-budgeted.\n");
+            PS2_LOG("[PS2][OK] ARM9 guarded active dynarec enabled: experimental build, per-block shadow+differential, read-only commit, scheduler-budgeted.\n");
         };
+#else
+        bool arm9ActiveHoldLogged = false;
+        auto enableArm9ActiveExecutor = [&]()
+        {
+            if (arm9ActiveHoldLogged || !arm9DeferredGateEligible ||
+                !arm9RealBlockGatePassed || !arm9DifferentialGatePassed ||
+                arm9GateHardFailure)
+                return;
+
+            arm9ActiveHoldLogged = true;
+            PS2_LOG("[PS2][OK] ARM9 active dynarec gates passed; live execution held in shadow mode because Run182/183 dispatch/helper overhead regressed PS2 performance.\n");
+        };
+#endif
 
         // If boot happened to land on a fully differential-safe block, the
         // initial gates may already be sufficient to enable live execution.
