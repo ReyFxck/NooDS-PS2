@@ -8053,6 +8053,13 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
             continue;
         }
 
+        Ps2ArmAlu::DecodedLongMultiply longMultiply;
+        if (Ps2ArmAlu::decodeLongMultiply(opcode, &longMultiply))
+        {
+            opcodes[count++] = opcode;
+            continue;
+        }
+
         Ps2ArmAlu::DecodedHalfwordTransfer transfer;
         if (Ps2ArmAlu::decodeHalfwordTransfer(opcode, &transfer))
         {
@@ -8135,6 +8142,14 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
         if (Ps2ArmAlu::decodeMultiply(opcodes[i], &multiply))
         {
             if (!applyArmMultiply(opcodes[i], &expected))
+                return -1;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedLongMultiply longMultiply;
+        if (Ps2ArmAlu::decodeLongMultiply(opcodes[i], &longMultiply))
+        {
+            if (!applyArmLongMultiply(opcodes[i], &expected))
                 return -1;
             continue;
         }
