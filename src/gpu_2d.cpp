@@ -1809,21 +1809,67 @@ void Gpu2D::drawObjects(int line, bool window)
             }
             else
             {
-                // Draw a line of the object
-                for (int j = 0; j < width; j++)
-                {
-                    int offset = x + j;
-                    if (offset < 0 || offset >= 256)
-                    {
-                        GPU2D_DETAIL_INC(objDetail, clipped, 1);
-                        continue;
-                    }
+                // Clip once and walk the bitmap row sequentially. A normal
+                // OBJ line is at most 128 bytes, so it almost always stays on
+                // one direct VRAM page and avoids a cache lookup per pixel.
+                int jStart = (x < 0) ? -x : 0;
+                int jEnd = width;
+                if (x + jEnd > 256)
+                    jEnd = 256 - x;
+                if (jStart < 0) jStart = 0;
+                if (jEnd > width) jEnd = width;
+                GPU2D_DETAIL_INC(objDetail, clipped,
+                    static_cast<uint64_t>(
+                        width - (jEnd > jStart ? jEnd - jStart : 0)));
 
-                    // Draw a pixel
-                    uint16_t pixel = readObject16(
-                        dataBase + (spriteY * bitmapWidth + j) * 2);
-                    if (pixel & BIT(15))
-                        putObjPixel(offset, pixel, priority);
+                if (jStart < jEnd)
+                {
+                    uint32_t address = dataBase +
+                        (spriteY * bitmapWidth + jStart) * 2;
+                    uint32_t directTag = 0xFFFFFFFFu;
+                    uint8_t *directPage = nullptr;
+
+                    for (int j = jStart; j < jEnd; j++, address += 2)
+                    {
+                        GPU2D_DETAIL_INC(objDetail, texels, 1);
+                        const uint32_t tag = address >> 12;
+                        if (tag != directTag)
+                        {
+                            directTag = tag;
+                            if (objectPageCache.lookup(address, directPage))
+                            {
+                                GPU2D_DETAIL_INC(objDetail, pageHits, 1);
+                            }
+                            else
+                            {
+                                directPage =
+                                    core->memory.getDirectReadPage(gba, address);
+                                if (directPage)
+                                {
+                                    GPU2D_DETAIL_INC(objDetail, pageMaps, 1);
+                                    objectPageCache.store(address, directPage);
+                                }
+                            }
+                        }
+
+                        uint16_t pixel;
+                        if (directPage &&
+                            (address & 0xFFFu) <= 0xFFEu)
+                        {
+                            pixel = U8TO16(directPage, address & 0xFFFu);
+                        }
+                        else
+                        {
+                            GPU2D_DETAIL_INC(objDetail, fallbackReads, 1);
+                            pixel =
+                                core->memory.read<uint16_t>(gba, address);
+                        }
+
+                        if (pixel & BIT(15))
+                            putObjPixel(x + j, pixel, priority);
+                        else
+                            GPU2D_DETAIL_INC(objDetail, transparent, 1);
+                    }
                 }
             }
 
