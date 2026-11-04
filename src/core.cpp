@@ -280,6 +280,102 @@ void Core::runNdsFrame()
                                 if (profileEnabled)
                                     runProfile.arm9BlockExecutions++;
 #endif
+
+                                // Stay inside this ARM9 scheduler slot while
+                                // there is still room before the next ARM7
+                                // execution/task deadline. This removes repeated
+                                // Core loop + backend dispatch overhead without
+                                // crossing any externally visible event.
+                                constexpr uint32_t MAX_CHAINED_BLOCKS = 8;
+                                uint32_t chainedBlocks = 1;
+                                uint32_t usedCycles =
+                                    static_cast<uint32_t>(arm9StepCycles);
+
+                                while (chainedBlocks < MAX_CHAINED_BLOCKS &&
+                                    usedCycles < cycleBudget)
+                                {
+                                    uint32_t nextPc =
+                                        CpuBackendAccess::nextInstructionAddress(
+                                            interpreter[0]);
+                                    size_t nextSlot = arm9BlockFilterSlot(nextPc);
+                                    if (arm9BlockHotPc[nextSlot] != nextPc)
+                                        break;
+
+#ifdef NOODS_PROFILE
+                                    if (profileEnabled)
+                                        runProfile.arm9BlockFilterHits++;
+#endif
+                                    uint32_t remaining = cycleBudget - usedCycles;
+                                    uint32_t nextMin = arm9BlockMinCycles[nextSlot];
+                                    if (!nextMin)
+                                        nextMin = 1;
+                                    if (remaining < nextMin)
+                                        break;
+
+                                    uint32_t nextInstructions = 0;
+                                    int nextCycles = arm9BlockRunner(
+                                        arm9BlockRunnerContext, interpreter[0],
+                                        remaining, &nextInstructions);
+
+                                    if (nextCycles > 0)
+                                    {
+                                        usedCycles +=
+                                            static_cast<uint32_t>(nextCycles);
+                                        arm9StepInstructions += nextInstructions
+                                            ? nextInstructions : 1;
+                                        arm9BlockHotFailures[nextSlot] = 0;
+                                        chainedBlocks++;
+#ifdef NOODS_PROFILE
+                                        if (profileEnabled)
+                                        {
+                                            runProfile.arm9BlockExecutions++;
+                                            runProfile.arm9BlockChainedExecutions++;
+                                        }
+#endif
+                                        continue;
+                                    }
+
+                                    if (nextCycles < 0)
+                                    {
+                                        uint32_t required =
+                                            static_cast<uint32_t>(-nextCycles);
+                                        if (required > 0xFFu)
+                                            required = 0xFFu;
+                                        if (required >
+                                            arm9BlockMinCycles[nextSlot])
+                                        {
+                                            arm9BlockMinCycles[nextSlot] =
+                                                static_cast<uint8_t>(required);
+                                        }
+#ifdef NOODS_PROFILE
+                                        if (profileEnabled)
+                                            runProfile.arm9BlockBudgetSkips++;
+#endif
+                                    }
+                                    else
+                                    {
+                                        uint8_t &failures =
+                                            arm9BlockHotFailures[nextSlot];
+                                        if (failures < 0xFFu)
+                                            failures++;
+                                        if (failures >= 8)
+                                        {
+                                            arm9BlockHotPc[nextSlot] = 0;
+                                            arm9BlockMinCycles[nextSlot] = 0;
+                                            failures = 0;
+                                            if (arm9BlockHotCount)
+                                                arm9BlockHotCount--;
+#ifdef NOODS_PROFILE
+                                            if (profileEnabled)
+                                                runProfile.arm9BlockFilterDrops++;
+#endif
+                                        }
+                                    }
+                                    break;
+                                }
+
+                                arm9StepCycles =
+                                    static_cast<int>(usedCycles);
                             }
                             else if (arm9StepCycles < 0)
                             {
