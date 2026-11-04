@@ -89,7 +89,8 @@ class Gpu3DRenderer
         static uint32_t interpolateEdge(uint32_t v1, uint32_t v2, uint32_t x1, uint32_t x, uint32_t x2, uint32_t w1, uint32_t w2);
         static uint32_t interpolateColor(uint32_t c1, uint32_t c2, uint32_t x1, uint32_t x, uint32_t x2);
 
-        uint32_t readTexture(_Polygon *polygon, int s, int t);
+        uint32_t readTexture(_Polygon *polygon, int s, int t,
+            uint8_t *basePalette);
         void drawPolygon(int line, int polygonIndex);
 };
 
