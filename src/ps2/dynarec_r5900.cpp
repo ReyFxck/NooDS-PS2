@@ -346,6 +346,8 @@ struct ArmAluState
     uint8_t *readCachePage;
     uint32_t cycleLimit;
     uint32_t guestExecuted;
+    uint32_t writeCacheTag;
+    uint8_t *writeCachePage;
     ArmMemoryWrite writes[16];
 };
 static_assert(offsetof(ArmAluState, cpsr) == 64,
@@ -362,6 +364,10 @@ static_assert(offsetof(ArmAluState, cycleLimit) == 96,
     "R5900 ARM-state cycle-limit ABI offset");
 static_assert(offsetof(ArmAluState, guestExecuted) == 100,
     "R5900 ARM-state guest-executed ABI offset");
+static_assert(offsetof(ArmAluState, writeCacheTag) == 104,
+    "R5900 ARM-state write-cache tag ABI offset");
+static_assert(offsetof(ArmAluState, writeCachePage) == 108,
+    "R5900 ARM-state write-cache page ABI offset");
 
 bool applyArmAlu(uint32_t opcode, ArmAluState *state)
 {
@@ -471,6 +477,24 @@ uint32_t refillArm9HalfwordReadCache(ArmAluState *state,
         (static_cast<uint32_t>(page[offset + 1]) << 8);
 }
 
+uint8_t *getArm9CachedWritePage(ArmAluState *state, uint32_t address)
+{
+    if (!state || !state->memory)
+        return nullptr;
+
+    uint32_t tag = (address >> 12) + 1u;
+    if (state->writeCacheTag == tag && state->writeCachePage)
+        return state->writeCachePage;
+
+    uint8_t *page = state->memory->getDirectWritePageCached(0, address);
+    if (!page)
+        return nullptr;
+
+    state->writeCacheTag = tag;
+    state->writeCachePage = page;
+    return page;
+}
+
 bool writeDirectArm9Halfword(void *context, uint32_t address, uint16_t value)
 {
     ArmAluState *state = static_cast<ArmAluState*>(context);
@@ -479,7 +503,7 @@ bool writeDirectArm9Halfword(void *context, uint32_t address, uint16_t value)
     if (!memory || offset == 0xFFFu || state->writeCount >= 16)
         return false;
 
-    uint8_t *page = memory->getDirectWritePageCached(0, address);
+    uint8_t *page = getArm9CachedWritePage(state, address);
     if (!page)
         return false;
 
@@ -623,7 +647,7 @@ bool writeDirectArm9Byte(void *context, uint32_t address, uint8_t value)
     Memory *memory = state ? state->memory : nullptr;
     if (!memory || state->writeCount >= 16)
         return false;
-    uint8_t *page = memory->getDirectWritePageCached(0, address);
+    uint8_t *page = getArm9CachedWritePage(state, address);
     if (!page)
         return false;
 
@@ -664,7 +688,7 @@ bool writeDirectArm9Word(void *context, uint32_t address, uint32_t value)
         state->writeCount >= 16)
         return false;
 
-    uint8_t *page = memory->getDirectWritePageCached(0, address);
+    uint8_t *page = getArm9CachedWritePage(state, address);
     if (!page)
         return false;
 
@@ -3638,6 +3662,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     // blocks skip even the first helper lookup after warm-up.
     state.readCacheTag = block->cachedReadTag;
     state.readCachePage = block->cachedReadPage;
+    state.writeCacheTag = block->cachedWriteTag;
+    state.writeCachePage = block->cachedWritePage;
     state.cycleLimit = cycleBudget;
     state.guestExecuted = 0;
 
@@ -3651,6 +3677,11 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     {
         block->cachedReadTag = state.readCacheTag;
         block->cachedReadPage = state.readCachePage;
+    }
+    if (state.writeCacheTag && state.writeCachePage)
+    {
+        block->cachedWriteTag = state.writeCacheTag;
+        block->cachedWritePage = state.writeCachePage;
     }
 
     uint32_t executedGuestInstructions = state.guestExecuted
