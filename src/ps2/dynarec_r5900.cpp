@@ -2309,23 +2309,10 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     synchronizeMemoryMap();
 
     uint32_t guestPc = CpuBackendAccess::nextInstructionAddress(cpu);
-    ActiveRejectKind rejected = findActiveReject(guestPc);
-    if (rejected != ACTIVE_REJECT_NONE)
-    {
-        if (rejected == ACTIVE_REJECT_WRITE)
-            profile.activeWriteFallbacks++;
-        else if (rejected == ACTIVE_REJECT_STATE)
-            profile.activeStateFallbacks++;
-        else
-            profile.activeVerifyFallbacks++;
-        return 0;
-    }
-
     constexpr uint32_t MIN_ACTIVE_GUEST_INSTRUCTIONS = 3;
 
-    // Do not even compile a hot candidate until this scheduler slot could
-    // execute the minimum useful block. This prevents tiny one-opcode cache
-    // entries from being created just because ARM7 is due in 1-2 cycles.
+    // Do not even touch the block cache when this ARM7/task slot is too short
+    // for the smallest useful active block.
     if (cycleBudget < MIN_ACTIVE_GUEST_INSTRUCTIONS)
     {
         profile.activeBudgetFallbacks++;
@@ -2333,6 +2320,25 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     }
 
     R5900CompiledBlock *block = findMutableBlock(guestPc, false);
+
+    // Once a block has passed every live-execution gate, successful hot-path
+    // dispatches no longer need the reject-table lookup or repeated
+    // writes/R15/differential checks. Map remaps clear the block cache, so the
+    // ready bit cannot outlive the code/memory mapping it validated against.
+    if (!block || !block->activeReady)
+    {
+        ActiveRejectKind rejected = findActiveReject(guestPc);
+        if (rejected != ACTIVE_REJECT_NONE)
+        {
+            if (rejected == ACTIVE_REJECT_WRITE)
+                profile.activeWriteFallbacks++;
+            else if (rejected == ACTIVE_REJECT_STATE)
+                profile.activeStateFallbacks++;
+            else
+                profile.activeVerifyFallbacks++;
+            return 0;
+        }
+    }
 
     if (!block || block->guestInstructions < MIN_ACTIVE_GUEST_INSTRUCTIONS)
     {
@@ -2378,40 +2384,45 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         return -static_cast<int>(block->guestInstructions);
     }
 
-    // The first active milestone is intentionally transactional/read-only.
-    if (block->writesMemory)
+    if (!block->activeReady)
     {
-        cacheActiveReject(guestPc, ACTIVE_REJECT_WRITE);
-        profile.activeWriteFallbacks++;
-        return 0;
-    }
-
-    // Generated blocks that explicitly read/write architectural R15 are kept
-    // out of live execution. Literal LDR has its own PC+8 helper.
-    if ((block->readMask | block->writeMask) & 0x8000u)
-    {
-        cacheActiveReject(guestPc, ACTIVE_REJECT_STATE);
-        profile.activeStateFallbacks++;
-        return 0;
-    }
-
-    if (!block->differentialVerified)
-    {
-        int differential = runArm9InterpreterDifferentialSelfTest(cpu);
-        if (differential <= 0)
+        // The first active milestone is intentionally transactional/read-only.
+        if (block->writesMemory)
         {
-            cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
-            profile.activeVerifyFallbacks++;
+            cacheActiveReject(guestPc, ACTIVE_REJECT_WRITE);
+            profile.activeWriteFallbacks++;
             return 0;
         }
 
-        block = findMutableBlock(guestPc, false);
-        if (!block || !block->differentialVerified)
+        // Generated blocks that explicitly read/write architectural R15 are
+        // kept out of live execution. Literal LDR has its own PC+8 helper.
+        if ((block->readMask | block->writeMask) & 0x8000u)
         {
-            cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
-            profile.activeVerifyFallbacks++;
+            cacheActiveReject(guestPc, ACTIVE_REJECT_STATE);
+            profile.activeStateFallbacks++;
             return 0;
         }
+
+        if (!block->differentialVerified)
+        {
+            int differential = runArm9InterpreterDifferentialSelfTest(cpu);
+            if (differential <= 0)
+            {
+                cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
+                profile.activeVerifyFallbacks++;
+                return 0;
+            }
+
+            block = findMutableBlock(guestPc, false);
+            if (!block || !block->differentialVerified)
+            {
+                cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
+                profile.activeVerifyFallbacks++;
+                return 0;
+            }
+        }
+
+        block->activeReady = true;
     }
 
     // Active blocks are read-only by policy, so do not zero the 16-entry

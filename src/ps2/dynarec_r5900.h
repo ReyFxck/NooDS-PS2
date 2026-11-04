@@ -91,6 +91,7 @@ struct R5900CompiledBlock
     bool writesMemory = false;
     bool thumb = false;
     bool differentialVerified = false;
+    bool activeReady = false;
 
     uint32_t *hostCode = nullptr;
     uint32_t hostWords = 0;
