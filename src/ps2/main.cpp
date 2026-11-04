@@ -1143,7 +1143,7 @@ int main(int argc, char **argv)
     PS2_LOG(" Instrumentation: disabled\n");
 #endif
 #if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
-    PS2_LOG(" Dynarec: ARM-ALU-v22 budgeted-readonly-selfloop-repeat (profile L2)\n");
+    PS2_LOG(" Dynarec: ARM-ALU-v23 register-cpsr-hotpath (profile L2)\n");
 #else
     PS2_LOG(" Dynarec: ARM-ALU-v10 shadow-gated\n");
 #endif

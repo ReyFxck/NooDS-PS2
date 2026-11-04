@@ -658,90 +658,93 @@ size_t emitArmCycleAdd(uint32_t amount, uint32_t *code,
     return words;
 }
 
-size_t emitArmCondition(uint8_t condition, uint32_t *code)
+size_t emitArmCondition(uint8_t condition, uint32_t *code,
+    bool registerCpsr = false)
 {
     if (!code || condition == 0xEu)
         return 0;
 
     size_t words = 0;
-    code[words++] = R5900::lw(R5900::R_T5, 64, R5900::R_A0);
+    int cpsrSource = registerCpsr ? R5900::R_V1 : R5900::R_T5;
+    if (!registerCpsr)
+        code[words++] = R5900::lw(cpsrSource, 64, R5900::R_A0);
     switch (condition & 0xFu)
     {
         case 0x0: // EQ: Z
-            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 30);
+            code[words++] = R5900::srl(R5900::R_T7, cpsrSource, 30);
             code[words++] = R5900::andi(R5900::R_T7, R5900::R_T7, 1);
             break;
         case 0x1: // NE: !Z
-            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 30);
+            code[words++] = R5900::srl(R5900::R_T7, cpsrSource, 30);
             code[words++] = R5900::andi(R5900::R_T7, R5900::R_T7, 1);
             code[words++] = R5900::xori(R5900::R_T7, R5900::R_T7, 1);
             break;
         case 0x2: // CS: C
-            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 29);
+            code[words++] = R5900::srl(R5900::R_T7, cpsrSource, 29);
             code[words++] = R5900::andi(R5900::R_T7, R5900::R_T7, 1);
             break;
         case 0x3: // CC: !C
-            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 29);
+            code[words++] = R5900::srl(R5900::R_T7, cpsrSource, 29);
             code[words++] = R5900::andi(R5900::R_T7, R5900::R_T7, 1);
             code[words++] = R5900::xori(R5900::R_T7, R5900::R_T7, 1);
             break;
         case 0x4: // MI: N
-            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 31);
+            code[words++] = R5900::srl(R5900::R_T7, cpsrSource, 31);
             break;
         case 0x5: // PL: !N
-            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 31);
+            code[words++] = R5900::srl(R5900::R_T7, cpsrSource, 31);
             code[words++] = R5900::xori(R5900::R_T7, R5900::R_T7, 1);
             break;
         case 0x6: // VS: V
-            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 28);
+            code[words++] = R5900::srl(R5900::R_T7, cpsrSource, 28);
             code[words++] = R5900::andi(R5900::R_T7, R5900::R_T7, 1);
             break;
         case 0x7: // VC: !V
-            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 28);
+            code[words++] = R5900::srl(R5900::R_T7, cpsrSource, 28);
             code[words++] = R5900::andi(R5900::R_T7, R5900::R_T7, 1);
             code[words++] = R5900::xori(R5900::R_T7, R5900::R_T7, 1);
             break;
         case 0x8: // HI: C && !Z
-            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 29);
+            code[words++] = R5900::srl(R5900::R_T7, cpsrSource, 29);
             code[words++] = R5900::andi(R5900::R_T7, R5900::R_T7, 1);
-            code[words++] = R5900::srl(R5900::R_T6, R5900::R_T5, 30);
+            code[words++] = R5900::srl(R5900::R_T6, cpsrSource, 30);
             code[words++] = R5900::andi(R5900::R_T6, R5900::R_T6, 1);
             code[words++] = R5900::xori(R5900::R_T6, R5900::R_T6, 1);
             code[words++] = R5900::and_(R5900::R_T7, R5900::R_T7, R5900::R_T6);
             break;
         case 0x9: // LS: !C || Z
-            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 29);
+            code[words++] = R5900::srl(R5900::R_T7, cpsrSource, 29);
             code[words++] = R5900::andi(R5900::R_T7, R5900::R_T7, 1);
             code[words++] = R5900::xori(R5900::R_T7, R5900::R_T7, 1);
-            code[words++] = R5900::srl(R5900::R_T6, R5900::R_T5, 30);
+            code[words++] = R5900::srl(R5900::R_T6, cpsrSource, 30);
             code[words++] = R5900::andi(R5900::R_T6, R5900::R_T6, 1);
             code[words++] = R5900::or_(R5900::R_T7, R5900::R_T7, R5900::R_T6);
             break;
         case 0xA: // GE: N == V
         case 0xB: // LT: N != V
-            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 31);
-            code[words++] = R5900::srl(R5900::R_T6, R5900::R_T5, 28);
+            code[words++] = R5900::srl(R5900::R_T7, cpsrSource, 31);
+            code[words++] = R5900::srl(R5900::R_T6, cpsrSource, 28);
             code[words++] = R5900::andi(R5900::R_T6, R5900::R_T6, 1);
             code[words++] = R5900::xor_(R5900::R_T7, R5900::R_T7, R5900::R_T6);
             if (condition == 0xAu)
                 code[words++] = R5900::xori(R5900::R_T7, R5900::R_T7, 1);
             break;
         case 0xC: // GT: !Z && N == V
-            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 30);
+            code[words++] = R5900::srl(R5900::R_T7, cpsrSource, 30);
             code[words++] = R5900::andi(R5900::R_T7, R5900::R_T7, 1);
             code[words++] = R5900::xori(R5900::R_T7, R5900::R_T7, 1);
-            code[words++] = R5900::srl(R5900::R_T6, R5900::R_T5, 31);
-            code[words++] = R5900::srl(R5900::R_T4, R5900::R_T5, 28);
+            code[words++] = R5900::srl(R5900::R_T6, cpsrSource, 31);
+            code[words++] = R5900::srl(R5900::R_T4, cpsrSource, 28);
             code[words++] = R5900::andi(R5900::R_T4, R5900::R_T4, 1);
             code[words++] = R5900::xor_(R5900::R_T6, R5900::R_T6, R5900::R_T4);
             code[words++] = R5900::xori(R5900::R_T6, R5900::R_T6, 1);
             code[words++] = R5900::and_(R5900::R_T7, R5900::R_T7, R5900::R_T6);
             break;
         case 0xD: // LE: Z || N != V
-            code[words++] = R5900::srl(R5900::R_T7, R5900::R_T5, 30);
+            code[words++] = R5900::srl(R5900::R_T7, cpsrSource, 30);
             code[words++] = R5900::andi(R5900::R_T7, R5900::R_T7, 1);
-            code[words++] = R5900::srl(R5900::R_T6, R5900::R_T5, 31);
-            code[words++] = R5900::srl(R5900::R_T4, R5900::R_T5, 28);
+            code[words++] = R5900::srl(R5900::R_T6, cpsrSource, 31);
+            code[words++] = R5900::srl(R5900::R_T4, cpsrSource, 28);
             code[words++] = R5900::andi(R5900::R_T4, R5900::R_T4, 1);
             code[words++] = R5900::xor_(R5900::R_T6, R5900::R_T6, R5900::R_T4);
             code[words++] = R5900::or_(R5900::R_T7, R5900::R_T7, R5900::R_T6);
@@ -755,7 +758,7 @@ size_t emitArmCondition(uint8_t condition, uint32_t *code)
 }
 
 size_t emitArmBranchInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
-    bool registerCycles = false)
+    bool registerCycles = false, bool registerCpsr = false)
 {
     if (!code)
         return 0;
@@ -778,7 +781,8 @@ size_t emitArmBranchInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
             static_cast<uint16_t>(fallthrough >> 16));
         code[words++] = R5900::ori(R5900::R_T2, R5900::R_T2,
             static_cast<uint16_t>(fallthrough));
-        words += emitArmCondition(decoded.condition, code + words);
+        words += emitArmCondition(decoded.condition, code + words,
+            registerCpsr);
 
         // Patch this after cycle emission: register-backed accounting is one
         // host instruction while the standalone memory-backed form is three.
@@ -812,28 +816,31 @@ size_t emitArmBranchInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
     return words;
 }
 
-size_t emitArmFlags(const Ps2ArmAlu::Decoded &decoded, uint32_t *code)
+size_t emitArmFlags(const Ps2ArmAlu::Decoded &decoded, uint32_t *code,
+    bool registerCpsr = false)
 {
     if (!code || !decoded.setFlags)
         return 0;
 
     size_t words = 0;
+    int cpsrReg = registerCpsr ? R5900::R_V1 : R5900::R_T5;
     bool arithmetic = decoded.operation == 2 || decoded.operation == 3 ||
         decoded.operation == 4 || decoded.operation == 10 ||
         decoded.operation == 11;
-    code[words++] = R5900::lw(R5900::R_T5, 64, R5900::R_A0);
+    if (!registerCpsr)
+        code[words++] = R5900::lw(cpsrReg, 64, R5900::R_A0);
     code[words++] = R5900::lui(R5900::R_T6,
         arithmetic ? 0x0FFFu : 0x3FFFu);
     code[words++] = R5900::ori(R5900::R_T6, R5900::R_T6, 0xFFFFu);
-    code[words++] = R5900::and_(R5900::R_T5, R5900::R_T5, R5900::R_T6);
+    code[words++] = R5900::and_(cpsrReg, cpsrReg, R5900::R_T6);
 
     // N and Z are common to every admitted S operation.
     code[words++] = R5900::srl(R5900::R_T6, R5900::R_T2, 31);
     code[words++] = R5900::sll(R5900::R_T6, R5900::R_T6, 31);
-    code[words++] = R5900::or_(R5900::R_T5, R5900::R_T5, R5900::R_T6);
+    code[words++] = R5900::or_(cpsrReg, cpsrReg, R5900::R_T6);
     code[words++] = R5900::sltiu(R5900::R_T6, R5900::R_T2, 1);
     code[words++] = R5900::sll(R5900::R_T6, R5900::R_T6, 30);
-    code[words++] = R5900::or_(R5900::R_T5, R5900::R_T5, R5900::R_T6);
+    code[words++] = R5900::or_(cpsrReg, cpsrReg, R5900::R_T6);
 
     if (arithmetic)
     {
@@ -879,10 +886,11 @@ size_t emitArmFlags(const Ps2ArmAlu::Decoded &decoded, uint32_t *code)
         code[words++] = R5900::srl(R5900::R_T4, R5900::R_T4, 31);
         code[words++] = R5900::sll(R5900::R_T3, R5900::R_T3, 29);
         code[words++] = R5900::sll(R5900::R_T4, R5900::R_T4, 28);
-        code[words++] = R5900::or_(R5900::R_T5, R5900::R_T5, R5900::R_T3);
-        code[words++] = R5900::or_(R5900::R_T5, R5900::R_T5, R5900::R_T4);
+        code[words++] = R5900::or_(cpsrReg, cpsrReg, R5900::R_T3);
+        code[words++] = R5900::or_(cpsrReg, cpsrReg, R5900::R_T4);
     }
-    code[words++] = R5900::sw(R5900::R_T5, 64, R5900::R_A0);
+    if (!registerCpsr)
+        code[words++] = R5900::sw(cpsrReg, 64, R5900::R_A0);
     return words;
 }
 
@@ -928,7 +936,7 @@ size_t emitArmAluHelperInstruction(uint32_t opcode, uint32_t *code)
 }
 
 size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
-    bool registerCycles = false)
+    bool registerCycles = false, bool registerCpsr = false)
 {
     if (!code)
         return 0;
@@ -939,6 +947,8 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
     if (logicalShiftNeedsHelper(decoded))
     {
         size_t words = 0;
+        if (registerCpsr)
+            code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
         if (registerCycles)
             code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
         size_t emitted = emitArmAluHelperInstruction(opcode, code + words);
@@ -947,6 +957,8 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
         words += emitted;
         if (registerCycles)
             code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
+        if (registerCpsr)
+            code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
         return words;
     }
 
@@ -956,7 +968,8 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
     size_t conditionBranch = static_cast<size_t>(-1);
     if (decoded.condition != 0xEu)
     {
-        words += emitArmCondition(decoded.condition, code + words);
+        words += emitArmCondition(decoded.condition, code + words,
+            registerCpsr);
         conditionBranch = words;
         code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
         code[words++] = R5900::nop();
@@ -1070,7 +1083,7 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
     if (decoded.writesResult)
         code[words++] = R5900::sw(R5900::R_T2,
             static_cast<int16_t>(decoded.rd * 4), R5900::R_A0);
-    words += emitArmFlags(decoded, code + words);
+    words += emitArmFlags(decoded, code + words, registerCpsr);
     if (conditionBranch != static_cast<size_t>(-1))
     {
         size_t distance = words - (conditionBranch + 1);
@@ -1245,56 +1258,97 @@ size_t emitArmBranchExchangeInstruction(uint32_t opcode, uint32_t *code)
 }
 
 size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
-    bool registerCycles = false)
+    bool registerCycles = false, bool registerCpsr = false)
 {
     Ps2ArmAlu::Decoded decoded;
     if (Ps2ArmAlu::decode(opcode, &decoded))
-        return emitArmAluInstruction(opcode, code, registerCycles);
+        return emitArmAluInstruction(opcode, code, registerCycles, registerCpsr);
 
-    // C++ transfer/BX helpers update state->cycles themselves. Keep t8 and the
-    // memory ABI coherent across those calls; t8 is caller-saved and may be
-    // clobbered by the helper, so reload it afterwards.
     size_t words = 0;
-    if (registerCycles)
-        code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
-
     size_t emitted = 0;
+    bool helperNeedsCpsr = false;
+    bool helperWritesCpsr = false;
+
     Ps2ArmAlu::DecodedHalfwordTransfer transfer;
     if (Ps2ArmAlu::decodeHalfwordTransfer(opcode, &transfer))
+    {
+        helperNeedsCpsr = transfer.condition != 0xEu;
+        if (registerCpsr && helperNeedsCpsr)
+            code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
+        if (registerCycles)
+            code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
         emitted = emitArmHalfwordTransferInstruction(opcode, code + words);
+    }
     else
     {
         Ps2ArmAlu::DecodedByteTransfer byteTransfer;
         if (Ps2ArmAlu::decodeByteTransfer(opcode, &byteTransfer))
+        {
+            helperNeedsCpsr = byteTransfer.condition != 0xEu;
+            if (registerCpsr && helperNeedsCpsr)
+                code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
+            if (registerCycles)
+                code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
             emitted = emitArmByteTransferInstruction(opcode, code + words);
+        }
         else
         {
             Ps2ArmAlu::DecodedLiteralLoad literalLoad;
             if (Ps2ArmAlu::decodeLiteralLoad(opcode, &literalLoad))
+            {
+                helperNeedsCpsr = literalLoad.condition != 0xEu;
+                if (registerCpsr && helperNeedsCpsr)
+                    code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
+                if (registerCycles)
+                    code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
                 emitted = emitArmLiteralLoadInstruction(opcode, pc, code + words);
+            }
             else
             {
                 Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
                 if (Ps2ArmAlu::decodeSingleTransfer(opcode, &singleTransfer))
+                {
+                    helperNeedsCpsr = singleTransfer.condition != 0xEu;
+                    if (registerCpsr && helperNeedsCpsr)
+                        code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
+                    if (registerCycles)
+                        code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
                     emitted = emitArmSingleTransferInstruction(opcode, code + words);
+                }
                 else
                 {
                     Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
                     if (Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &blockTransfer))
-                        emitted = emitArmSingleBlockTransferInstruction(opcode, code + words);
+                    {
+                        helperNeedsCpsr = blockTransfer.condition != 0xEu;
+                        if (registerCpsr && helperNeedsCpsr)
+                            code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
+                        if (registerCycles)
+                            code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
+                        emitted = emitArmSingleBlockTransferInstruction(opcode,
+                            code + words);
+                    }
                     else
                     {
                         Ps2ArmAlu::DecodedBranchExchange branchExchange;
-                        if (Ps2ArmAlu::decodeBranchExchange(opcode, &branchExchange))
-                            emitted = emitArmBranchExchangeInstruction(opcode, code + words);
+                        if (Ps2ArmAlu::decodeBranchExchange(opcode,
+                            &branchExchange))
+                        {
+                            helperNeedsCpsr = true;
+                            helperWritesCpsr = true;
+                            if (registerCpsr)
+                                code[words++] = R5900::sw(R5900::R_V1, 64,
+                                    R5900::R_A0);
+                            if (registerCycles)
+                                code[words++] = R5900::sw(R5900::R_T8, 84,
+                                    R5900::R_A0);
+                            emitted = emitArmBranchExchangeInstruction(opcode,
+                                code + words);
+                        }
                         else
                         {
-                            // Direct B does its own register-backed accounting;
-                            // undo the helper sync slot reserved above.
-                            if (registerCycles)
-                                words--;
                             return emitArmBranchInstruction(opcode, pc, code,
-                                registerCycles);
+                                registerCycles, registerCpsr);
                         }
                     }
                 }
@@ -1307,6 +1361,8 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
     words += emitted;
     if (registerCycles)
         code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
+    if (registerCpsr && helperWritesCpsr)
+        code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
     return words;
 }
 }
@@ -1345,26 +1401,48 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         return false;
 
     // Conditions plus exact NZCV generation are deliberately explicit for the
-    // correctness gate. A supported B may terminate the sequence. Keep exact
-    // cycle accounting in caller-saved t8 for the whole block, synchronizing
-    // only around C++ helpers and once at block exit.
-    const size_t maxWords = count * 68 + 4;
+    // correctness gate. Keep cycles in t8 and, when direct generated
+    // instructions consume/produce flags, keep CPSR in v1 too.
+    bool registerCpsr = false;
+    for (size_t i = 0; i < count; i++)
+    {
+        Ps2ArmAlu::Decoded decoded;
+        if (Ps2ArmAlu::decode(opcodes[i], &decoded))
+        {
+            if (!logicalShiftNeedsHelper(decoded) &&
+                (decoded.condition != 0xEu || decoded.setFlags))
+                registerCpsr = true;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedBranch branch;
+        if (Ps2ArmAlu::decodeBranch(opcodes[i], &branch) &&
+            branch.condition != 0xEu)
+            registerCpsr = true;
+    }
+
+    const size_t maxWords = count * 70 + 6;
     uint32_t *code = cache.reserveWords(maxWords);
     if (!code)
         return false;
 
     size_t words = 0;
+    if (registerCpsr)
+        code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
     code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
     for (size_t i = 0; i < count; i++)
     {
         size_t emitted = emitArmInstruction(opcodes[i],
-            guestPc + static_cast<uint32_t>(i * 4), code + words, true);
+            guestPc + static_cast<uint32_t>(i * 4), code + words, true,
+            registerCpsr);
         if (!emitted)
             return false;
         words += emitted;
     }
 
     code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
+    if (registerCpsr)
+        code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
     code[words++] = R5900::jr(R5900::R_RA);
     code[words++] = R5900::nop();
 
