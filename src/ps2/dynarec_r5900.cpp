@@ -4477,22 +4477,19 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             Ps2ArmAlu::DecodedByteTransfer byte;
             Ps2ArmAlu::DecodedSingleTransfer word;
             if (Ps2ArmAlu::decodeHalfwordTransfer(opcodes[i], &half) &&
-                half.condition == 0xEu && half.load && half.preIndex &&
-                !half.writeBack)
+                half.condition == 0xEu && half.load)
             {
                 producedGuestReg = half.rd;
                 producedCondition = half.condition;
             }
             else if (Ps2ArmAlu::decodeByteTransfer(opcodes[i], &byte) &&
-                byte.condition == 0xEu && byte.load &&
-                byte.preIndex && !byte.writeBack)
+                byte.condition == 0xEu && byte.load)
             {
                 producedGuestReg = byte.rd;
                 producedCondition = byte.condition;
             }
             else if (Ps2ArmAlu::decodeSingleTransfer(opcodes[i], &word) &&
-                word.condition == 0xEu && word.load &&
-                word.preIndex && !word.writeBack)
+                word.condition == 0xEu && word.load)
             {
                 producedGuestReg = word.rd;
                 producedCondition = word.condition;
