@@ -893,7 +893,8 @@ bool applyArmBranch(ArmAluState *state, uint32_t opcode, uint32_t pc)
     if (!Ps2ArmAlu::decodeBranch(opcode, &decoded))
         return false;
     bool taken = Ps2ArmAlu::conditionPassed(decoded.condition, state->cpsr);
-    if (!Ps2ArmAlu::executeBranch(opcode, pc, state->cpsr, &state->nextPc))
+    if (!Ps2ArmAlu::executeBranch(opcode, pc, state->cpsr,
+        &state->nextPc, state->r))
         return false;
     state->cycles += taken ? 3u : 1u;
     return true;
@@ -1078,6 +1079,7 @@ size_t emitArmEqNeBranchFromResult(uint32_t opcode, uint32_t pc,
 {
     Ps2ArmAlu::DecodedBranch decoded;
     if (!code || !Ps2ArmAlu::decodeBranch(opcode, &decoded) ||
+        decoded.link ||
         (decoded.condition != 0x0u && decoded.condition != 0x1u))
         return 0;
 
@@ -1157,8 +1159,18 @@ size_t emitArmBranchInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
     }
     else
     {
-        // Taken B costs three ARM9 cycles total.
+        // Taken B/BL costs three ARM9 cycles total.
         words += emitArmCycleAdd(2, code + words, registerCycles);
+    }
+
+    if (decoded.link)
+    {
+        uint32_t returnAddress = pc + 4u;
+        code[words++] = R5900::lui(R5900::R_T3,
+            static_cast<uint16_t>(returnAddress >> 16));
+        code[words++] = R5900::ori(R5900::R_T3, R5900::R_T3,
+            static_cast<uint16_t>(returnAddress));
+        code[words++] = R5900::sw(R5900::R_T3, 14 * 4, R5900::R_A0);
     }
 
     code[words++] = R5900::lui(R5900::R_T2,
@@ -3379,7 +3391,7 @@ bool armSequenceIsReadOnlySelfLoop(const uint32_t *opcodes, size_t count,
     }
 
     Ps2ArmAlu::DecodedBranch branch;
-    if (!Ps2ArmAlu::decodeBranch(opcodes[count - 1], &branch))
+    if (!Ps2ArmAlu::decodeBranch(opcodes[count - 1], &branch) || branch.link)
         return false;
 
     uint32_t branchPc = guestPc + static_cast<uint32_t>((count - 1) * 4);
@@ -3577,6 +3589,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             if (Ps2ArmAlu::decode(opcodes[i], &alu) &&
                 alu.condition == 0xEu && alu.setFlags &&
                 Ps2ArmAlu::decodeBranch(opcodes[i + 1], &branch) &&
+                !branch.link &&
                 (branch.condition == 0x0u || branch.condition == 0x1u))
             {
                 size_t fused = emitArmEqNeBranchFromResult(opcodes[i + 1],
@@ -3828,6 +3841,8 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         Ps2ArmAlu::DecodedBranch branch;
         if (!Ps2ArmAlu::decodeBranch(opcodes[i], &branch) || i + 1 != count)
             return false;
+        if (branch.link)
+            block.writeMask |= static_cast<uint16_t>(1u << 14);
         block.readsFlags |= branch.condition != 0xEu;
     }
 
@@ -4212,7 +4227,9 @@ bool DynarecR5900::runArmAluSelfTest()
     {
         { 0xBAFFFFFAu, 0x02066E90u, 0x80000013u }, // B.LT taken
         { 0xBAFFFFFAu, 0x02066E90u, 0x00000013u }, // B.LT not taken
-        { 0xEA000006u, 0x0206094Cu, 0xF0000013u }  // B.AL taken
+        { 0xEA000006u, 0x0206094Cu, 0xF0000013u }, // B.AL taken
+        { 0xEBFFFFFAu, 0x02066E90u, 0x00000013u }, // BL.AL taken + LR
+        { 0x0BFFFFFAu, 0x02066E90u, 0x00000013u }  // BL.EQ not taken
     };
 
     for (size_t i = 0; i < sizeof(branchTests) / sizeof(branchTests[0]); i++)
