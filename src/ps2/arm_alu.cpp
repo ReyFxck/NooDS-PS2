@@ -296,6 +296,30 @@ bool Ps2ArmAlu::decodeMultiply(uint32_t opcode, DecodedMultiply *decoded)
     return true;
 }
 
+bool Ps2ArmAlu::decodeLongMultiply(uint32_t opcode,
+    DecodedLongMultiply *decoded)
+{
+    if (!decoded || (opcode & 0x0F8000F0u) != 0x00800090u)
+        return false;
+
+    *decoded = DecodedLongMultiply();
+    decoded->condition = static_cast<uint8_t>(opcode >> 28);
+    decoded->signedMultiply = (opcode & BIT(22)) != 0;
+    decoded->accumulate = (opcode & BIT(21)) != 0;
+    decoded->setFlags = (opcode & BIT(20)) != 0;
+    decoded->rdHi = static_cast<uint8_t>((opcode >> 16) & 0xFu);
+    decoded->rdLo = static_cast<uint8_t>((opcode >> 12) & 0xFu);
+    decoded->rs = static_cast<uint8_t>((opcode >> 8) & 0xFu);
+    decoded->rm = static_cast<uint8_t>(opcode & 0xFu);
+
+    if (decoded->condition == 0xFu || decoded->rdHi == 15 ||
+        decoded->rdLo == 15 || decoded->rs == 15 || decoded->rm == 15 ||
+        decoded->rdHi == decoded->rdLo)
+        return false;
+
+    return true;
+}
+
 bool Ps2ArmAlu::decodeBranch(uint32_t opcode, DecodedBranch *decoded)
 {
     if (!decoded || (opcode & 0x0E000000u) != 0x0A000000u)
@@ -845,6 +869,58 @@ bool Ps2ArmAlu::executeMultiply(uint32_t opcode,
     return true;
 }
 
+bool Ps2ArmAlu::executeLongMultiply(uint32_t opcode,
+    uint32_t registers[16], uint32_t *cpsr)
+{
+    if (!registers)
+        return false;
+
+    DecodedLongMultiply decoded;
+    if (!decodeLongMultiply(opcode, &decoded))
+        return false;
+    if ((decoded.condition != 0xEu || decoded.setFlags) && !cpsr)
+        return false;
+    if (cpsr && !conditionPassed(decoded.condition, *cpsr))
+        return true;
+
+    uint64_t product = 0;
+    if (decoded.signedMultiply)
+    {
+        int64_t signedProduct =
+            static_cast<int64_t>(static_cast<int32_t>(registers[decoded.rm])) *
+            static_cast<int64_t>(static_cast<int32_t>(registers[decoded.rs]));
+        product = static_cast<uint64_t>(signedProduct);
+    }
+    else
+    {
+        product = static_cast<uint64_t>(registers[decoded.rm]) *
+            static_cast<uint64_t>(registers[decoded.rs]);
+    }
+
+    if (decoded.accumulate)
+    {
+        uint64_t accumulator =
+            (static_cast<uint64_t>(registers[decoded.rdHi]) << 32) |
+            registers[decoded.rdLo];
+        product += accumulator;
+    }
+
+    registers[decoded.rdLo] = static_cast<uint32_t>(product);
+    registers[decoded.rdHi] = static_cast<uint32_t>(product >> 32);
+
+    if (decoded.setFlags)
+    {
+        uint32_t high = registers[decoded.rdHi];
+        uint32_t flags = high & BIT(31);
+        // Match the current NooDS interpreter exactly: Z is derived from
+        // RdHi only for long multiply S variants.
+        if (!high)
+            flags |= BIT(30);
+        *cpsr = (*cpsr & 0x3FFFFFFFu) | flags;
+    }
+    return true;
+}
+
 bool Ps2ArmAlu::execute(uint32_t opcode, uint32_t registers[16], uint32_t *cpsr)
 {
     if (!registers)
@@ -1098,6 +1174,9 @@ Ps2ArmAlu::RejectReason Ps2ArmAlu::rejectionReason(uint32_t opcode)
         return REJECT_NONE;
     DecodedMultiply multiply;
     if (decodeMultiply(opcode, &multiply))
+        return REJECT_NONE;
+    DecodedLongMultiply longMultiply;
+    if (decodeLongMultiply(opcode, &longMultiply))
         return REJECT_NONE;
     DecodedBranch branch;
     if (decodeBranch(opcode, &branch))
