@@ -1113,7 +1113,7 @@ size_t emitArmBranchInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
 }
 
 size_t emitArmFlags(const Ps2ArmAlu::Decoded &decoded, uint32_t *code,
-    bool registerCpsr = false)
+    bool registerCpsr = false, bool logicalCarryValid = false)
 {
     if (!code || !decoded.setFlags)
         return 0;
@@ -1125,8 +1125,10 @@ size_t emitArmFlags(const Ps2ArmAlu::Decoded &decoded, uint32_t *code,
         decoded.operation == 11;
     if (!registerCpsr)
         code[words++] = R5900::lw(cpsrReg, 64, R5900::R_A0);
-    code[words++] = R5900::lui(R5900::R_T6,
-        arithmetic ? 0x0FFFu : 0x3FFFu);
+    uint16_t flagPreserveMaskHi = arithmetic
+        ? 0x0FFFu
+        : (logicalCarryValid ? 0x1FFFu : 0x3FFFu);
+    code[words++] = R5900::lui(R5900::R_T6, flagPreserveMaskHi);
     code[words++] = R5900::ori(R5900::R_T6, R5900::R_T6, 0xFFFFu);
     code[words++] = R5900::and_(cpsrReg, cpsrReg, R5900::R_T6);
 
@@ -1137,6 +1139,12 @@ size_t emitArmFlags(const Ps2ArmAlu::Decoded &decoded, uint32_t *code,
     code[words++] = R5900::sltiu(R5900::R_T6, R5900::R_T2, 1);
     code[words++] = R5900::sll(R5900::R_T6, R5900::R_T6, 30);
     code[words++] = R5900::or_(cpsrReg, cpsrReg, R5900::R_T6);
+
+    if (!arithmetic && logicalCarryValid)
+    {
+        code[words++] = R5900::sll(R5900::R_T4, R5900::R_T4, 29);
+        code[words++] = R5900::or_(cpsrReg, cpsrReg, R5900::R_T4);
+    }
 
     if (arithmetic)
     {
@@ -1200,10 +1208,10 @@ bool logicalShiftNeedsHelper(const Ps2ArmAlu::Decoded &decoded)
         decoded.operation == 14 || decoded.operation == 15;
     if (!logical)
         return false;
-    return decoded.immediate
-        ? decoded.immediateRotate != 0
-        : (decoded.registerShift || decoded.shiftType != 0 ||
-            decoded.shiftAmount != 0);
+    // Immediate operands and immediate shifts have a compile-time carry
+    // position and are emitted directly. Register shifts keep the helper until
+    // the amount==0/32/>32 carry rules are gated separately.
+    return !decoded.immediate && decoded.registerShift;
 }
 
 size_t emitArmAluHelperInstruction(uint32_t opcode, uint32_t *code)
@@ -1260,6 +1268,12 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
     }
 
     size_t words = 0;
+    bool logicalSetFlags = decoded.setFlags &&
+        (decoded.operation == 0 || decoded.operation == 1 ||
+         decoded.operation == 8 || decoded.operation == 9 ||
+         decoded.operation == 12 || decoded.operation == 13 ||
+         decoded.operation == 14 || decoded.operation == 15);
+    bool logicalCarryValid = false;
     words += emitArmCycleAdd(decoded.registerShift ? 2u : 1u,
         code + words, registerCycles);
     size_t conditionBranch = static_cast<size_t>(-1);
@@ -1288,6 +1302,12 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
 
     if (decoded.immediate)
     {
+        if (logicalSetFlags && decoded.immediateRotate)
+        {
+            code[words++] = R5900::addiu(R5900::R_T4, R5900::R_ZERO,
+                static_cast<int16_t>((decoded.immediateValue >> 31) & 1u));
+            logicalCarryValid = true;
+        }
         code[words++] = R5900::lui(R5900::R_T1,
             static_cast<uint16_t>(decoded.immediateValue >> 16));
         code[words++] = R5900::ori(R5900::R_T1, R5900::R_T1,
@@ -1305,6 +1325,46 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
         {
             code[words++] = R5900::lw(R5900::R_T1,
                 static_cast<int16_t>(decoded.rm * 4), R5900::R_A0);
+        }
+
+        if (!decoded.registerShift && logicalSetFlags)
+        {
+            uint8_t carryShift = 0;
+            bool hasCarry = false;
+            switch (decoded.shiftType)
+            {
+                case 0: // LSL #0 preserves C; LSL #1..31 exports bit 32-n.
+                    if (decoded.shiftAmount)
+                    {
+                        carryShift = static_cast<uint8_t>(
+                            32u - decoded.shiftAmount);
+                        hasCarry = true;
+                    }
+                    break;
+                case 1: // LSR #0 encodes LSR #32.
+                case 2: // ASR #0 encodes ASR #32.
+                    carryShift = decoded.shiftAmount
+                        ? static_cast<uint8_t>(decoded.shiftAmount - 1u)
+                        : 31u;
+                    hasCarry = true;
+                    break;
+                case 3: // RRX (#0) is rejected by decode(); ROR #n exports n-1.
+                    carryShift = static_cast<uint8_t>(
+                        decoded.shiftAmount - 1u);
+                    hasCarry = true;
+                    break;
+                default:
+                    break;
+            }
+
+            if (hasCarry)
+            {
+                code[words++] = R5900::srl(R5900::R_T4, R5900::R_T1,
+                    carryShift);
+                code[words++] = R5900::andi(R5900::R_T4,
+                    R5900::R_T4, 1u);
+                logicalCarryValid = true;
+            }
         }
 
         if (decoded.registerShift)
@@ -1409,7 +1469,8 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
     if (decoded.writesResult && !suppressResultStore)
         code[words++] = R5900::sw(R5900::R_T2,
             static_cast<int16_t>(decoded.rd * 4), R5900::R_A0);
-    words += emitArmFlags(decoded, code + words, registerCpsr);
+    words += emitArmFlags(decoded, code + words, registerCpsr,
+        logicalCarryValid);
     if (conditionBranch != static_cast<size_t>(-1))
     {
         size_t distance = words - (conditionBranch + 1);
