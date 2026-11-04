@@ -62,11 +62,17 @@ Gpu3DRenderer::~Gpu3DRenderer()
 
 uint32_t Gpu3DRenderer::rgba5ToRgba6(uint32_t color)
 {
-    // Convert an RGBA5 value to an RGBA6 value (the way the 3D engine does it)
-    uint8_t r = ((color >>  0) & 0x1F) * 2; if (r > 0) r++;
-    uint8_t g = ((color >>  5) & 0x1F) * 2; if (g > 0) g++;
-    uint8_t b = ((color >> 10) & 0x1F) * 2; if (b > 0) b++;
-    uint8_t a = ((color >> 15) & 0x1F) * 2; if (a > 0) a++;
+    // DS 3D expands each non-zero 5-bit component to (value * 2 + 1).
+    // Express that directly so the R5900 hot texel path has no per-channel
+    // conditional branches.
+    uint32_t r = (color >>  0) & 0x1Fu;
+    uint32_t g = (color >>  5) & 0x1Fu;
+    uint32_t b = (color >> 10) & 0x1Fu;
+    uint32_t a = (color >> 15) & 0x1Fu;
+    r = (r << 1) + (r != 0);
+    g = (g << 1) + (g != 0);
+    b = (b << 1) + (b != 0);
+    a = (a << 1) + (a != 0);
     return (a << 18) | (b << 12) | (g << 6) | r;
 }
 
