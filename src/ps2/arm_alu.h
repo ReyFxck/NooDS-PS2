@@ -90,6 +90,7 @@ namespace Ps2ArmAlu
     struct DecodedBranch
     {
         uint8_t condition = 0xE;
+        bool link = false;
         int32_t offset = 0;
     };
 
@@ -217,7 +218,7 @@ namespace Ps2ArmAlu
         uint32_t *cpsr, void *context, ReadWord read,
         WriteWord write = nullptr);
     bool executeBranch(uint32_t opcode, uint32_t pc, uint32_t cpsr,
-        uint32_t *nextPc);
+        uint32_t *nextPc, uint32_t registers[16] = nullptr);
     bool executeBranchExchange(uint32_t opcode, uint32_t registers[16],
         uint32_t *cpsr, uint32_t *nextPc);
     bool execute(uint32_t opcode, uint32_t registers[16],

@@ -298,12 +298,11 @@ bool Ps2ArmAlu::decodeMultiply(uint32_t opcode, DecodedMultiply *decoded)
 
 bool Ps2ArmAlu::decodeBranch(uint32_t opcode, DecodedBranch *decoded)
 {
-    if (!decoded || (opcode & 0x0E000000u) != 0x0A000000u ||
-        (opcode & BIT(24))) // BL writes LR and needs a wider block ABI.
+    if (!decoded || (opcode & 0x0E000000u) != 0x0A000000u)
         return false;
 
     uint8_t condition = static_cast<uint8_t>(opcode >> 28);
-    if (condition == 0xFu) // ARMv5 BLX immediate, not a normal B condition.
+    if (condition == 0xFu) // ARMv5 BLX immediate, not a normal B/BL condition.
         return false;
 
     int32_t offset = static_cast<int32_t>(opcode & 0x00FFFFFFu);
@@ -312,6 +311,7 @@ bool Ps2ArmAlu::decodeBranch(uint32_t opcode, DecodedBranch *decoded)
     offset *= 4;
 
     decoded->condition = condition;
+    decoded->link = (opcode & BIT(24)) != 0;
     decoded->offset = offset;
     return true;
 }
@@ -681,7 +681,7 @@ bool Ps2ArmAlu::executeSingleBlockTransfer(uint32_t opcode,
 }
 
 bool Ps2ArmAlu::executeBranch(uint32_t opcode, uint32_t pc, uint32_t cpsr,
-    uint32_t *nextPc)
+    uint32_t *nextPc, uint32_t registers[16])
 {
     if (!nextPc)
         return false;
@@ -690,7 +690,16 @@ bool Ps2ArmAlu::executeBranch(uint32_t opcode, uint32_t pc, uint32_t cpsr,
     if (!decodeBranch(opcode, &decoded))
         return false;
 
-    *nextPc = conditionPassed(decoded.condition, cpsr)
+    bool taken = conditionPassed(decoded.condition, cpsr);
+    if (taken && decoded.link)
+    {
+        if (!registers)
+            return false;
+        // NooDS Interpreter::bl stores the architectural return address.
+        registers[14] = pc + 4u;
+    }
+
+    *nextPc = taken
         ? pc + 8u + static_cast<uint32_t>(decoded.offset)
         : pc + 4u;
     return true;

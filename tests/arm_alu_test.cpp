@@ -327,7 +327,7 @@ int main()
 
     Ps2ArmAlu::DecodedBranch branch;
     assert(Ps2ArmAlu::decodeBranch(0xBAFFFFFAu, &branch));
-    assert(branch.condition == 0xB && branch.offset == -24);
+    assert(branch.condition == 0xB && !branch.link && branch.offset == -24);
     uint32_t nextPc = 0;
     assert(Ps2ArmAlu::executeBranch(0xBAFFFFFAu, 0x02066E90u,
         0x80000013u, &nextPc));
@@ -338,10 +338,23 @@ int main()
     assert(Ps2ArmAlu::executeBranch(0xEA000006u, 0x0206094Cu,
         0x00000013u, &nextPc));
     assert(nextPc == 0x0206096Cu); // unconditional forward branch
-    assert(!Ps2ArmAlu::decodeBranch(0xEBFFFFFAu, &branch)); // BL not admitted
+
+    uint32_t branchRegs[16] = {};
+    branchRegs[14] = 0xDEADBEEFu;
+    assert(Ps2ArmAlu::decodeBranch(0xEBFFFFFAu, &branch));
+    assert(branch.link && branch.offset == -24);
+    assert(Ps2ArmAlu::executeBranch(0xEBFFFFFAu, 0x02066E90u,
+        0x00000013u, &nextPc, branchRegs));
+    assert(nextPc == 0x02066E80u && branchRegs[14] == 0x02066E94u);
+
+    branchRegs[14] = 0x12345678u;
+    assert(Ps2ArmAlu::executeBranch(0x0BFFFFFAu, 0x02066E90u,
+        0x00000013u, &nextPc, branchRegs)); // BL.EQ fails
+    assert(nextPc == 0x02066E94u && branchRegs[14] == 0x12345678u);
+
     assert(!Ps2ArmAlu::decodeBranch(0xFAFFFFFAu, &branch)); // BLX immediate
     assert(Ps2ArmAlu::rejectionReason(0xBAFFFFFAu) == Ps2ArmAlu::REJECT_NONE);
-    assert(Ps2ArmAlu::rejectionReason(0xEBFFFFFAu) == Ps2ArmAlu::REJECT_BRANCH);
+    assert(Ps2ArmAlu::rejectionReason(0xEBFFFFFAu) == Ps2ArmAlu::REJECT_NONE);
 
     Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
     assert(Ps2ArmAlu::decodeSingleBlockTransfer(0xB8B00004u, &blockTransfer));
