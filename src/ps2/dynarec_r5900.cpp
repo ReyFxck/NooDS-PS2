@@ -397,6 +397,28 @@ bool readDirectArm9Halfword(void *context, uint32_t address, uint16_t *value)
     return true;
 }
 
+uint32_t refillArm9ByteReadCache(ArmAluState *state,
+    uint32_t address)
+{
+    if (!state || !state->memory)
+    {
+        if (state)
+            state->memoryFault = 1;
+        return 0;
+    }
+
+    uint8_t *page = state->memory->getDirectReadPageCached(0, address);
+    if (!page)
+    {
+        state->memoryFault = 1;
+        return 0;
+    }
+
+    state->readCacheTag = (address >> 12) + 1u;
+    state->readCachePage = page;
+    return page[address & 0xFFFu];
+}
+
 uint32_t refillArm9WordReadCache(ArmAluState *state,
     uint32_t address)
 {
@@ -1327,6 +1349,103 @@ size_t emitArmHalfwordTransferInstruction(uint32_t opcode, uint32_t *code)
     return words;
 }
 
+size_t emitArmByteLoadCachedInstruction(uint32_t opcode,
+    uint32_t *code, bool registerCycles, bool registerCpsr)
+{
+    Ps2ArmAlu::DecodedByteTransfer decoded;
+    if (!code || !Ps2ArmAlu::decodeByteTransfer(opcode, &decoded) ||
+        !decoded.load || decoded.registerOffset || !decoded.preIndex ||
+        decoded.writeBack)
+        return 0;
+
+    size_t words = 0;
+    words += emitArmCycleAdd(1, code + words, registerCycles);
+
+    size_t conditionBranch = static_cast<size_t>(-1);
+    if (decoded.condition != 0xEu)
+    {
+        words += emitArmCondition(decoded.condition, code + words,
+            registerCpsr);
+        conditionBranch = words;
+        code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+    }
+
+    code[words++] = R5900::lw(R5900::R_T0,
+        static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+    int32_t delta = decoded.addOffset
+        ? static_cast<int32_t>(decoded.immediateOffset)
+        : -static_cast<int32_t>(decoded.immediateOffset);
+    if (delta)
+        code[words++] = R5900::addiu(R5900::R_T0, R5900::R_T0,
+            static_cast<int16_t>(delta));
+
+    code[words++] = R5900::andi(R5900::R_T4, R5900::R_T0, 0x0FFFu);
+    code[words++] = R5900::srl(R5900::R_T1, R5900::R_T0, 12);
+    code[words++] = R5900::addiu(R5900::R_T1, R5900::R_T1, 1);
+    code[words++] = R5900::lw(R5900::R_T2, 88, R5900::R_A0);
+    size_t missBranch = words;
+    code[words++] = R5900::bne(R5900::R_T1, R5900::R_T2, 0);
+    code[words++] = R5900::nop();
+
+    code[words++] = R5900::lw(R5900::R_T3, 92, R5900::R_A0);
+    code[words++] = R5900::addu(R5900::R_T3, R5900::R_T3, R5900::R_T4);
+    code[words++] = R5900::lbu(R5900::R_T2, 0, R5900::R_T3);
+    code[words++] = R5900::sw(R5900::R_T2,
+        static_cast<int16_t>(decoded.rd * 4), R5900::R_A0);
+    size_t hitDoneBranch = words;
+    code[words++] = R5900::beq(R5900::R_ZERO, R5900::R_ZERO, 0);
+    code[words++] = R5900::nop();
+
+    size_t slowPath = words;
+    if (registerCpsr)
+        code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
+    if (registerCycles)
+        code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
+
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, -32);
+    code[words++] = R5900::sw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::sw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::or_(R5900::R_A1, R5900::R_T0, R5900::R_ZERO);
+    uintptr_t helper = reinterpret_cast<uintptr_t>(&refillArm9ByteReadCache);
+    code[words++] = R5900::lui(R5900::R_T9,
+        static_cast<uint16_t>(helper >> 16));
+    code[words++] = R5900::ori(R5900::R_T9, R5900::R_T9,
+        static_cast<uint16_t>(helper));
+    code[words++] = R5900::jalr(R5900::R_RA, R5900::R_T9);
+    code[words++] = R5900::nop();
+    code[words++] = R5900::lw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
+    code[words++] = R5900::sw(R5900::R_V0,
+        static_cast<int16_t>(decoded.rd * 4), R5900::R_A0);
+    if (registerCycles)
+        code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
+    if (registerCpsr)
+        code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
+
+    size_t done = words;
+    size_t missDistance = slowPath - (missBranch + 1);
+    size_t doneDistance = done - (hitDoneBranch + 1);
+    if (missDistance > 0x7FFFu || doneDistance > 0x7FFFu)
+        return 0;
+    code[missBranch] = R5900::bne(R5900::R_T1, R5900::R_T2,
+        static_cast<int16_t>(missDistance));
+    code[hitDoneBranch] = R5900::beq(R5900::R_ZERO, R5900::R_ZERO,
+        static_cast<int16_t>(doneDistance));
+
+    if (conditionBranch != static_cast<size_t>(-1))
+    {
+        size_t distance = done - (conditionBranch + 1);
+        if (distance > 0x7FFFu)
+            return 0;
+        code[conditionBranch] = R5900::beq(R5900::R_T7,
+            R5900::R_ZERO, static_cast<int16_t>(distance));
+    }
+
+    return words;
+}
+
 size_t emitArmByteTransferInstruction(uint32_t opcode, uint32_t *code)
 {
     Ps2ArmAlu::DecodedByteTransfer decoded;
@@ -1711,6 +1830,11 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
         Ps2ArmAlu::DecodedByteTransfer byteTransfer;
         if (Ps2ArmAlu::decodeByteTransfer(opcode, &byteTransfer))
         {
+            if (byteTransfer.load && !byteTransfer.registerOffset &&
+                byteTransfer.preIndex && !byteTransfer.writeBack)
+                return emitArmByteLoadCachedInstruction(opcode, code,
+                    registerCycles, registerCpsr);
+
             helperNeedsCpsr = byteTransfer.condition != 0xEu;
             if (registerCpsr && helperNeedsCpsr)
                 code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
