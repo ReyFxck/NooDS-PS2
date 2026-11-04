@@ -1388,7 +1388,7 @@ int main(int argc, char **argv)
             arm7ShadowReady = arm7ShadowDynarec->runProbe(&arm7Probe);
             if (arm7ShadowReady)
             {
-                PS2_LOG("[PS2][OK] ARM7 R5900 shadow backend ready: probe=%08lX cache=%u bytes (ALU/branch only, execution disabled).\n",
+                PS2_LOG("[PS2][OK] ARM7 R5900 backend ready: probe=%08lX cache=%u bytes (ALU/branch only).\n",
                     static_cast<unsigned long>(arm7Probe),
                     static_cast<unsigned int>(
                         arm7ShadowDynarec->codeCacheCapacity()));
@@ -1399,6 +1399,25 @@ int main(int argc, char **argv)
             PS2_LOG("[PS2][WARN] ARM7 R5900 shadow backend unavailable; ARM7 remains interpreter-only.\n");
             delete arm7ShadowDynarec;
             arm7ShadowDynarec = nullptr;
+        }
+
+        if (arm7ShadowReady)
+        {
+            // Arm the callback immediately, but not unchecked execution. Core
+            // only calls it for sampled-hot ARM PCs, and the backend requires
+            // a per-block portable shadow + exact Interpreter differential
+            // before setting activeReady and committing any live state.
+            core->setArm7BlockRunner(arm7ShadowDynarec,
+                [](void *context, Interpreter &cpu,
+                    uint32_t cycleBudget,
+                    uint32_t *guestInstructions) -> int
+                {
+                    return static_cast<DynarecR5900*>(context)
+                        ->runArm7ActiveAluBranchBlock(cpu, cycleBudget,
+                            guestInstructions);
+                });
+            arm7ActiveExecutorEnabled = true;
+            PS2_LOG("[PS2][OK] ARM7 guarded ALU/branch dynarec armed: every hot block must pass shadow+differential before live commit.\n");
         }
 
         bool arm9ActiveExecutorEnabled = false;
@@ -1546,17 +1565,7 @@ int main(int argc, char **argv)
             if (differential > 0)
             {
                 arm7ShadowGatePassed = true;
-                core->setArm7BlockRunner(arm7ShadowDynarec,
-                    [](void *context, Interpreter &cpu,
-                        uint32_t cycleBudget,
-                        uint32_t *guestInstructions) -> int
-                    {
-                        return static_cast<DynarecR5900*>(context)
-                            ->runArm7ActiveAluBranchBlock(cpu, cycleBudget,
-                                guestInstructions);
-                    });
-                arm7ActiveExecutorEnabled = true;
-                PS2_LOG("[PS2][OK] ARM7 ALU/branch shadow+differential gate passed: pc=%08lX instructions=%lu shadowHash=%08lX diffHash=%08lX; selective ALU/branch executor armed.\n",
+                PS2_LOG("[PS2][OK] ARM7 frame-boundary shadow+differential sample passed: pc=%08lX instructions=%lu shadowHash=%08lX diffHash=%08lX.\n",
                     static_cast<unsigned long>(blockPc),
                     static_cast<unsigned long>(blockInstructions),
                     static_cast<unsigned long>(blockHash),
