@@ -4051,6 +4051,42 @@ bool DynarecR5900::runArmAluSelfTest()
     if (regWordRestored != regWordBefore)
         return false;
 
+    // Gate post-index register STRB: store uses the old base, then Rn updates.
+    const uint32_t postByteBase = byteAddress + 8u;
+    uint8_t postByteBefore = bytePage[postByteBase & 0xFFFu];
+    uint32_t *postByteCode = cache.reserveWords(96);
+    if (!postByteCode)
+        return false;
+    size_t postByteWords = emitArmRegisterStoreFastInstruction(
+        0xE6C01002u, postByteCode, false, false); // STRB r1,[r0],r2
+    if (!postByteWords)
+        return false;
+    postByteCode[postByteWords++] = R5900::jr(R5900::R_RA);
+    postByteCode[postByteWords++] = R5900::nop();
+    cache.commitWords(postByteWords);
+    cache.syncExecutable(postByteCode, postByteCode + postByteWords);
+    {
+        ArmAluState postByteState = {};
+        postByteState.r[0] = postByteBase;
+        postByteState.r[1] = 0xC3u;
+        postByteState.r[2] = 4u;
+        postByteState.memory = memory;
+        postByteState.writeCacheTag = (postByteBase >> 12) + 1u;
+        postByteState.writeCachePage = bytePage;
+        ArmMemoryWriteGuard postByteWrites(&postByteState);
+        typedef void (*ArmPostByteStoreFunction)(ArmAluState *);
+        ArmPostByteStoreFunction postByteFunction =
+            reinterpret_cast<ArmPostByteStoreFunction>(postByteCode);
+        postByteFunction(&postByteState);
+        if (postByteState.memoryFault || postByteState.writeCount != 1 ||
+            postByteState.cycles != 1u ||
+            postByteState.r[0] != postByteBase + 4u ||
+            bytePage[postByteBase & 0xFFFu] != 0xC3u)
+            return false;
+    }
+    if (bytePage[postByteBase & 0xFFFu] != postByteBefore)
+        return false;
+
     // Gate LDR literal with an explicit guest PC+8 base.
     const uint32_t literalPc = 0x02000000u;
     uint8_t *literalPage = memory->getDirectReadPage(0, literalPc + 8u);
