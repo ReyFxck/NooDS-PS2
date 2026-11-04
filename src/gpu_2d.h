@@ -63,6 +63,70 @@ struct Gpu2DExtendedCounters
     uint64_t transparent = 0;
     uint64_t writes = 0;
 };
+
+struct Gpu2DTextDetailCounters
+{
+    uint64_t calls = 0;
+    uint64_t mode4 = 0;
+    uint64_t mode8 = 0;
+    uint64_t threeD = 0;
+    uint64_t windowed = 0;
+    uint64_t tiles = 0;
+    uint64_t hFlipTiles = 0;
+    uint64_t vFlipTiles = 0;
+    uint64_t tilePageHits = 0;
+    uint64_t tilePageMaps = 0;
+    uint64_t tileFallbackReads = 0;
+    uint64_t indexPageHits = 0;
+    uint64_t indexPageMaps = 0;
+    uint64_t indexFallbackReads = 0;
+    uint64_t pixelsVisited = 0;
+    uint64_t transparent = 0;
+    uint64_t clipped = 0;
+    uint64_t paletteReads = 0;
+    uint64_t writes = 0;
+};
+
+struct Gpu2DObjDetailCounters
+{
+    uint64_t calls = 0;
+    uint64_t windowCalls = 0;
+    uint64_t spritesScanned = 0;
+    uint64_t spritesDisabled = 0;
+    uint64_t spritesOutsideY = 0;
+    uint64_t spritesVisible = 0;
+    uint64_t affineSprites = 0;
+    uint64_t bitmapSprites = 0;
+    uint64_t bpp8Sprites = 0;
+    uint64_t bpp4Sprites = 0;
+    uint64_t pageHits = 0;
+    uint64_t pageMaps = 0;
+    uint64_t fallbackReads = 0;
+    uint64_t texels = 0;
+    uint64_t transparent = 0;
+    uint64_t clipped = 0;
+    uint64_t objectWindowWrites = 0;
+    uint64_t pixelWrites = 0;
+};
+
+struct Gpu2DComposeDetailCounters
+{
+    uint64_t calls = 0;
+    uint64_t noBlendCalls = 0;
+    uint64_t blendedCalls = 0;
+    uint64_t windowedCalls = 0;
+    uint64_t pixels = 0;
+    uint64_t rgbConversions = 0;
+    uint64_t threeDPixels = 0;
+    uint64_t semiTransparentPixels = 0;
+    uint64_t special3DAlpha = 0;
+    uint64_t alphaBlend = 0;
+    uint64_t brightUp = 0;
+    uint64_t brightDown = 0;
+    uint64_t windowChecks = 0;
+    uint64_t windowRejects = 0;
+    uint64_t directWrites = 0;
+};
 #endif
 
 struct Gpu2DRunProfile
@@ -79,6 +143,16 @@ struct Gpu2DRunProfile
     uint64_t extendedModeSamples[GPU2D_EXTENDED_MODE_COUNT] = {};
     uint32_t extendedModeSampleState[GPU2D_EXTENDED_MODE_COUNT] = {};
     Gpu2DExtendedCounters extendedCounters[GPU2D_EXTENDED_MODE_COUNT] = {};
+
+    uint64_t textDetailSamples = 0;
+    uint64_t objDetailSamples = 0;
+    uint64_t composeDetailSamples = 0;
+    uint32_t textDetailSampleState = 0;
+    uint32_t objDetailSampleState = 0;
+    uint32_t composeDetailSampleState = 0;
+    Gpu2DTextDetailCounters textDetail;
+    Gpu2DObjDetailCounters objDetail;
+    Gpu2DComposeDetailCounters composeDetail;
 #endif
 };
 #endif
