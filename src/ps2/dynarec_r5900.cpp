@@ -2565,6 +2565,27 @@ uint32_t maxArmInstructionCycles(uint32_t opcode)
     return 1u;
 }
 
+uint32_t minArmInstructionCycles(uint32_t opcode)
+{
+    Ps2ArmAlu::Decoded decoded;
+    if (Ps2ArmAlu::decode(opcode, &decoded))
+        return decoded.registerShift ? 2u : 1u;
+
+    Ps2ArmAlu::DecodedSingleBlockTransfer blockTransfer;
+    if (Ps2ArmAlu::decodeSingleBlockTransfer(opcode, &blockTransfer))
+        return blockTransfer.condition == 0xEu ? 2u : 1u;
+
+    Ps2ArmAlu::DecodedBranch branch;
+    if (Ps2ArmAlu::decodeBranch(opcode, &branch))
+        return branch.condition == 0xEu ? 3u : 1u;
+
+    Ps2ArmAlu::DecodedBranchExchange branchExchange;
+    if (Ps2ArmAlu::decodeBranchExchange(opcode, &branchExchange))
+        return branchExchange.condition == 0xEu ? 3u : 1u;
+
+    return 1u;
+}
+
 bool armSequenceIsReadOnlySelfLoop(const uint32_t *opcodes, size_t count,
     uint32_t guestPc)
 {
@@ -2599,9 +2620,13 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     if (!opcodes || !count || !entry || !hostWords)
         return false;
 
+    uint32_t sequenceMinCycles = 0;
     uint32_t sequenceMaxCycles = 0;
     for (size_t i = 0; i < count; i++)
+    {
+        sequenceMinCycles += minArmInstructionCycles(opcodes[i]);
         sequenceMaxCycles += maxArmInstructionCycles(opcodes[i]);
+    }
     bool internalSelfLoop = sequenceMaxCycles &&
         armSequenceIsReadOnlySelfLoop(opcodes, count, guestPc);
 
@@ -2767,6 +2792,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     block.guestEndPc = guestPc + static_cast<uint32_t>(count * 4);
     block.mapGeneration = mappedGeneration;
     block.guestInstructions = static_cast<uint32_t>(count);
+    block.minCycles = sequenceMinCycles;
     // Conservative per-iteration upper bound, shared with the generated
     // scheduler-budget loop guard.
     block.cycles = sequenceMaxCycles;
@@ -3925,12 +3951,17 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         }
     }
 
-    // Every guest instruction costs at least one ARM cycle. Avoid executing
-    // generated code when the cached block cannot possibly fit this slot.
-    if (block->guestInstructions > cycleBudget)
+    // Skip generated execution when even the block's exact minimum timing
+    // cannot fit before the next ARM7/task deadline. The Core learns this
+    // value from the negative return and avoids subsequent backend calls in
+    // equally short slots.
+    uint32_t minimumCycles = block->minCycles
+        ? block->minCycles
+        : block->guestInstructions;
+    if (minimumCycles > cycleBudget)
     {
         profile.activeBudgetFallbacks++;
-        return -static_cast<int>(block->guestInstructions);
+        return -static_cast<int>(minimumCycles);
     }
 
     if (!block->activeReady)
@@ -4083,14 +4114,20 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         return 0;
     }
 
-    // Build one sparse commit list for the union of registers written by all
-    // blocks in the internal chain.
-    uint8_t commitRegs[15] = {};
-    uint8_t commitRegCount = 0;
-    for (uint8_t reg = 0; reg < 15; reg++)
+    // The common single-block case reuses its compile-time sparse write list.
+    // Only multi-block internal chains need to synthesize the union list.
+    uint8_t unionCommitRegs[15] = {};
+    const uint8_t *commitRegs = block->writeRegs;
+    uint8_t commitRegCount = block->writeRegCount;
+    if (executedBlocks > 1)
     {
-        if (unionWriteMask & static_cast<uint16_t>(1u << reg))
-            commitRegs[commitRegCount++] = reg;
+        commitRegCount = 0;
+        for (uint8_t reg = 0; reg < 15; reg++)
+        {
+            if (unionWriteMask & static_cast<uint16_t>(1u << reg))
+                unionCommitRegs[commitRegCount++] = reg;
+        }
+        commitRegs = unionCommitRegs;
     }
 
     bool committed = false;
