@@ -412,99 +412,140 @@ void Gpu2D::drawScanline(int line)
         }
         else if (displayMode == 1)
         {
+            // Compose directly into the final scanline. The old path rewrote
+            // layers[0] and then memcpy'd all 256 pixels to framebuffer even
+            // though no later stage consumes the composed layer buffer.
+            directLayerOutput = true;
+            uint32_t *output = &framebuffer[line * 256];
             const uint8_t mode = (bldCnt >> 6) & 0x3;
             const uint8_t eva = std::min((bldAlpha >> 0) & 0x1F, 16);
             const uint8_t evb = std::min((bldAlpha >> 8) & 0x1F, 16);
+            const bool noWindows = (dispCnt & 0x0000E000u) == 0;
+
             for (int i = 0; i < 256; i++)
             {
+                uint32_t pixel = layers[0][i];
+                bool forceAlpha = false;
 
-        // Check if blending can/should be performed
-        if (layers[0][i] & BIT(26)) // 3D pixel
-        {
-            if (bldCnt & BIT(8 + blendBits[1][i])) // Below pixel is blendable
-            {
-                // Override the default blending rules and apply special alpha blending
-                uint32_t blend = rgb5ToRgb6(layers[1][i]);
-                uint8_t eva = ((layers[0][i] >> 18) & 0x3F) + 1;
-                uint8_t evb = 64 - eva;
-                uint8_t r = std::min<uint32_t>(((layers[0][i] >>  0) & 0x3F) * eva / 64 + ((blend >>  0) & 0x3F) * evb / 64, 63);
-                uint8_t g = std::min<uint32_t>(((layers[0][i] >>  6) & 0x3F) * eva / 64 + ((blend >>  6) & 0x3F) * evb / 64, 63);
-                uint8_t b = std::min<uint32_t>(((layers[0][i] >> 12) & 0x3F) * eva / 64 + ((blend >> 12) & 0x3F) * evb / 64, 63);
-                layers[0][i] = (b << 12) | (g << 6) | r;
-                continue;
-            }
-            else if (mode < 2 || !(bldCnt & BIT(blendBits[0][i])))
-            {
-                // Do nothing unless brightness blending is possible as a fallback
-                continue;
-            }
-        }
-        else
-        {
-            // Convert the pixel to 18-bit since it isn't an 18-bit 3D pixel
-            layers[0][i] = rgb5ToRgb6(layers[0][i]);
+                // Check if blending can/should be performed
+                if (pixel & BIT(26)) // 3D pixel
+                {
+                    if (bldCnt & BIT(8 + blendBits[1][i]))
+                    {
+                        // 3D alpha blending overrides the normal rules and,
+                        // matching the original path, occurs before window
+                        // effect masking.
+                        uint32_t blend = rgb5ToRgb6(layers[1][i]);
+                        uint8_t alphaA = ((pixel >> 18) & 0x3F) + 1;
+                        uint8_t alphaB = 64 - alphaA;
+                        uint8_t r = std::min<uint32_t>(
+                            ((pixel >> 0) & 0x3F) * alphaA / 64 +
+                            ((blend >> 0) & 0x3F) * alphaB / 64, 63);
+                        uint8_t g = std::min<uint32_t>(
+                            ((pixel >> 6) & 0x3F) * alphaA / 64 +
+                            ((blend >> 6) & 0x3F) * alphaB / 64, 63);
+                        uint8_t b = std::min<uint32_t>(
+                            ((pixel >> 12) & 0x3F) * alphaA / 64 +
+                            ((blend >> 12) & 0x3F) * alphaB / 64, 63);
+                        output[i] = (b << 12) | (g << 6) | r;
+                        continue;
+                    }
+                    if (mode < 2 || !(bldCnt & BIT(blendBits[0][i])))
+                    {
+                        output[i] = pixel;
+                        continue;
+                    }
+                }
+                else
+                {
+                    // Convert the pixel to 18-bit since it isn't a 3D pixel.
+                    pixel = rgb5ToRgb6(pixel);
 
-            if (layers[0][i] & BIT(25)) // Semi-transparent pixel
-            {
-                // Force alpha blending if possible, otherwise allow brightness blending or do nothing
-                if (bldCnt & BIT(8 + blendBits[1][i])) // Below pixel is blendable
-                    goto alpha;
-                else if (mode < 2 || !(bldCnt & BIT(blendBits[0][i])))
-                    continue;
-            }
-            else if (mode == 0 || !(bldCnt & BIT(blendBits[0][i])) || (mode == 1 && !(bldCnt & BIT(8 + blendBits[1][i]))))
-            {
-                // Do nothing if blending is disabled or not possible
-                continue;
-            }
-        }
+                    if (pixel & BIT(25)) // Semi-transparent object pixel
+                    {
+                        if (bldCnt & BIT(8 + blendBits[1][i]))
+                            forceAlpha = true;
+                        else if (mode < 2 ||
+                            !(bldCnt & BIT(blendBits[0][i])))
+                        {
+                            output[i] = pixel;
+                            continue;
+                        }
+                    }
+                    else if (mode == 0 ||
+                        !(bldCnt & BIT(blendBits[0][i])) ||
+                        (mode == 1 &&
+                            !(bldCnt & BIT(8 + blendBits[1][i]))))
+                    {
+                        output[i] = pixel;
+                        continue;
+                    }
+                }
 
-        // Skip blending if the pixel is in the bounds of a window that has it disabled
-        if (dispCnt & 0x0000E000) // Windows enabled
-        {
-            uint8_t enabled;
-            if ((dispCnt & BIT(13)) && i >= winX1[0] && i < winX2[0] && line >= winY1[0] && line < winY2[0])
-                enabled = winIn >> 0; // Window 0
-            else if ((dispCnt & BIT(14)) && i >= winX1[1] && i < winX2[1] && line >= winY1[1] && line < winY2[1])
-                enabled = winIn >> 8; // Window 1
-            else if ((dispCnt & BIT(15)) && (framebuffer[line * 256 + i] & BIT(24)))
-                enabled = winOut >> 8; // Object window
-            else
-                enabled = winOut >> 0; // Outside of windows
-            if (!(enabled & BIT(5))) continue;
-        }
+                // Skip blending if a window disables color effects. Avoid the
+                // entire decision tree on the common no-window path.
+                if (!noWindows)
+                {
+                    uint8_t enabled;
+                    if ((dispCnt & BIT(13)) &&
+                        i >= winX1[0] && i < winX2[0] &&
+                        line >= winY1[0] && line < winY2[0])
+                        enabled = winIn >> 0;
+                    else if ((dispCnt & BIT(14)) &&
+                        i >= winX1[1] && i < winX2[1] &&
+                        line >= winY1[1] && line < winY2[1])
+                        enabled = winIn >> 8;
+                    else if ((dispCnt & BIT(15)) &&
+                        (output[i] & BIT(24)))
+                        enabled = winOut >> 8;
+                    else
+                        enabled = winOut >> 0;
 
-        // Apply blending, using 18-bit colors in DS mode
-            switch (mode)
-            {
-            case 1: // Alpha blending
-            alpha:
-            {
-                uint32_t blend = (layers[1][i] & BIT(26)) ? layers[1][i] : rgb5ToRgb6(layers[1][i]);
-                uint8_t r = std::min<uint32_t>(((layers[0][i] >>  0) & 0x3F) * eva / 16 + ((blend >>  0) & 0x3F) * evb / 16, 63);
-                uint8_t g = std::min<uint32_t>(((layers[0][i] >>  6) & 0x3F) * eva / 16 + ((blend >>  6) & 0x3F) * evb / 16, 63);
-                uint8_t b = std::min<uint32_t>(((layers[0][i] >> 12) & 0x3F) * eva / 16 + ((blend >> 12) & 0x3F) * evb / 16, 63);
-                layers[0][i] = (b << 12) | (g << 6) | r;
-                continue;
-            }
+                    if (!(enabled & BIT(5)))
+                    {
+                        output[i] = pixel;
+                        continue;
+                    }
+                }
 
-            case 2: // Brightness increase
-            {
-                uint8_t r = (layers[0][i] >>  0) & 0x3F; r += (63 - r) * bldY / 16;
-                uint8_t g = (layers[0][i] >>  6) & 0x3F; g += (63 - g) * bldY / 16;
-                uint8_t b = (layers[0][i] >> 12) & 0x3F; b += (63 - b) * bldY / 16;
-                layers[0][i] = (b << 12) | (g << 6) | r;
-                continue;
-            }
+                // Apply blending, using 18-bit colors in DS mode.
+                if (forceAlpha || mode == 1)
+                {
+                    uint32_t blend = (layers[1][i] & BIT(26))
+                        ? layers[1][i] : rgb5ToRgb6(layers[1][i]);
+                    uint8_t r = std::min<uint32_t>(
+                        ((pixel >> 0) & 0x3F) * eva / 16 +
+                        ((blend >> 0) & 0x3F) * evb / 16, 63);
+                    uint8_t g = std::min<uint32_t>(
+                        ((pixel >> 6) & 0x3F) * eva / 16 +
+                        ((blend >> 6) & 0x3F) * evb / 16, 63);
+                    uint8_t b = std::min<uint32_t>(
+                        ((pixel >> 12) & 0x3F) * eva / 16 +
+                        ((blend >> 12) & 0x3F) * evb / 16, 63);
+                    pixel = (b << 12) | (g << 6) | r;
+                }
+                else if (mode == 2)
+                {
+                    uint8_t r = (pixel >> 0) & 0x3F;
+                    uint8_t g = (pixel >> 6) & 0x3F;
+                    uint8_t b = (pixel >> 12) & 0x3F;
+                    r += (63 - r) * bldY / 16;
+                    g += (63 - g) * bldY / 16;
+                    b += (63 - b) * bldY / 16;
+                    pixel = (b << 12) | (g << 6) | r;
+                }
+                else if (mode == 3)
+                {
+                    uint8_t r = (pixel >> 0) & 0x3F;
+                    uint8_t g = (pixel >> 6) & 0x3F;
+                    uint8_t b = (pixel >> 12) & 0x3F;
+                    r -= r * bldY / 16;
+                    g -= g * bldY / 16;
+                    b -= b * bldY / 16;
+                    pixel = (b << 12) | (g << 6) | r;
+                }
 
-            case 3: // Brightness decrease
-            {
-                uint8_t r = (layers[0][i] >>  0) & 0x3F; r -= r * bldY / 16;
-                uint8_t g = (layers[0][i] >>  6) & 0x3F; g -= g * bldY / 16;
-                uint8_t b = (layers[0][i] >> 12) & 0x3F; b -= b * bldY / 16;
-                layers[0][i] = (b << 12) | (g << 6) | r;
-                continue;
-            }
+                output[i] = pixel;
             }
         }
         }
