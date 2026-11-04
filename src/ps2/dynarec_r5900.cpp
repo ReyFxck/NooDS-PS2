@@ -5511,8 +5511,13 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
                 DYNAREC_PROFILE(profile.activeBudgetFallbacks++);
             else
                 DYNAREC_PROFILE(profile.activeStateFallbacks++);
+            // A conditional path can cost more than the block's static
+            // minimum (for example a taken LDM/STM or branch). Do not teach
+            // Core that this one observed path is the permanent minimum for
+            // the hot PC; doing so starves later cheap condition-failed paths.
+            // The negative return contract carries the compile-time minimum.
             return blockCycles > remainingBudget
-                ? -static_cast<int>(totalCycles + blockCycles)
+                ? -static_cast<int>(minimumCycles)
                 : 0;
         }
 
