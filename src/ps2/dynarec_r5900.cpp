@@ -1940,18 +1940,26 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
         }
     }
 
-    // Odd/cross-page halfwords stay on the helper path so generated LHU can
-    // never trigger an EE alignment exception or read beyond the cached page.
-    code[words++] = R5900::andi(R5900::R_T4, R5900::R_T0, 1);
-    size_t oddBranch = words;
-    code[words++] = R5900::bne(R5900::R_T4, R5900::R_ZERO, 0);
-    code[words++] = R5900::nop();
+    // Halfword loads need aligned host LH/LHU and two bytes inside the page.
+    // LDRSB is byte-sized, so neither restriction applies.
+    size_t oddBranch = static_cast<size_t>(-1);
+    size_t crossBranch = static_cast<size_t>(-1);
+    if (!decoded.byteLoad)
+    {
+        code[words++] = R5900::andi(R5900::R_T4, R5900::R_T0, 1);
+        oddBranch = words;
+        code[words++] = R5900::bne(R5900::R_T4, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+    }
 
     code[words++] = R5900::andi(R5900::R_T4, R5900::R_T0, 0x0FFFu);
-    code[words++] = R5900::xori(R5900::R_T5, R5900::R_T4, 0x0FFFu);
-    size_t crossBranch = words;
-    code[words++] = R5900::beq(R5900::R_T5, R5900::R_ZERO, 0);
-    code[words++] = R5900::nop();
+    if (!decoded.byteLoad)
+    {
+        code[words++] = R5900::xori(R5900::R_T5, R5900::R_T4, 0x0FFFu);
+        crossBranch = words;
+        code[words++] = R5900::beq(R5900::R_T5, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+    }
 
     // Compare the one-page JIT-local cache tag.
     code[words++] = R5900::srl(R5900::R_T1, R5900::R_T0, 12);
@@ -1961,10 +1969,19 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
     code[words++] = R5900::bne(R5900::R_T1, R5900::R_T2, 0);
     code[words++] = R5900::nop();
 
-    // Cache hit: page + offset -> unsigned halfword.
+    // Cache hit: use EE sign-extending loads directly for LDRSB/LDRSH.
     code[words++] = R5900::lw(R5900::R_T3, 92, R5900::R_A0);
     code[words++] = R5900::addu(R5900::R_T3, R5900::R_T3, R5900::R_T4);
-    code[words++] = R5900::lhu(R5900::R_T2, 0, R5900::R_T3);
+    if (decoded.signedLoad)
+    {
+        code[words++] = decoded.byteLoad
+            ? R5900::lb(R5900::R_T2, 0, R5900::R_T3)
+            : R5900::lh(R5900::R_T2, 0, R5900::R_T3);
+    }
+    else
+    {
+        code[words++] = R5900::lhu(R5900::R_T2, 0, R5900::R_T3);
+    }
     if (!suppressResultStore)
         code[words++] = R5900::sw(R5900::R_T2,
             static_cast<int16_t>(decoded.rd * 4), R5900::R_A0);
@@ -2021,8 +2038,9 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
             code[words++] = R5900::sw(R5900::R_T9, 16, R5900::R_SP);
     }
     code[words++] = R5900::or_(R5900::R_A1, R5900::R_T0, R5900::R_ZERO);
-    uintptr_t helper =
-        reinterpret_cast<uintptr_t>(&refillArm9HalfwordReadCache);
+    uintptr_t helper = decoded.byteLoad
+        ? reinterpret_cast<uintptr_t>(&refillArm9ByteReadCache)
+        : reinterpret_cast<uintptr_t>(&refillArm9HalfwordReadCache);
     code[words++] = R5900::lui(R5900::R_T9,
         static_cast<uint16_t>(helper >> 16));
     code[words++] = R5900::ori(R5900::R_T9, R5900::R_T9,
@@ -2038,6 +2056,12 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
     }
     code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
     code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
+    if (decoded.signedLoad)
+    {
+        uint8_t shift = decoded.byteLoad ? 24u : 16u;
+        code[words++] = R5900::sll(R5900::R_V0, R5900::R_V0, shift);
+        code[words++] = R5900::sra(R5900::R_V0, R5900::R_V0, shift);
+    }
     if (!suppressResultStore)
         code[words++] = R5900::sw(R5900::R_V0,
             static_cast<int16_t>(decoded.rd * 4), R5900::R_A0);
@@ -2080,24 +2104,31 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
 
     size_t done = words;
 
-    auto patch = [&](size_t branch, size_t target, bool equal)
+    auto patchBeq = [&](size_t branch, int rs, int rt, size_t target)
     {
+        if (branch == static_cast<size_t>(-1))
+            return true;
         size_t distance = target - (branch + 1);
         if (distance > 0x7FFFu)
             return false;
-        code[branch] = equal
-            ? R5900::beq((branch == hitDoneBranch) ? R5900::R_ZERO : R5900::R_T5,
-                R5900::R_ZERO, static_cast<int16_t>(distance))
-            : R5900::bne((branch == oddBranch) ? R5900::R_T4 : R5900::R_T1,
-                (branch == missBranch) ? R5900::R_T2 : R5900::R_ZERO,
-                static_cast<int16_t>(distance));
+        code[branch] = R5900::beq(rs, rt, static_cast<int16_t>(distance));
+        return true;
+    };
+    auto patchBne = [&](size_t branch, int rs, int rt, size_t target)
+    {
+        if (branch == static_cast<size_t>(-1))
+            return true;
+        size_t distance = target - (branch + 1);
+        if (distance > 0x7FFFu)
+            return false;
+        code[branch] = R5900::bne(rs, rt, static_cast<int16_t>(distance));
         return true;
     };
 
-    if (!patch(oddBranch, slowPath, false) ||
-        !patch(crossBranch, slowPath, true) ||
-        !patch(missBranch, slowPath, false) ||
-        !patch(hitDoneBranch, done, true))
+    if (!patchBne(oddBranch, R5900::R_T4, R5900::R_ZERO, slowPath) ||
+        !patchBeq(crossBranch, R5900::R_T5, R5900::R_ZERO, slowPath) ||
+        !patchBne(missBranch, R5900::R_T1, R5900::R_T2, slowPath) ||
+        !patchBeq(hitDoneBranch, R5900::R_ZERO, R5900::R_ZERO, done))
         return 0;
 
     if (conditionBranch != static_cast<size_t>(-1))
