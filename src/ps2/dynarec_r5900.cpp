@@ -1317,6 +1317,61 @@ size_t emitArmByteTransferInstruction(uint32_t opcode, uint32_t *code)
     return words;
 }
 
+size_t emitArmLiteralLoadDirectInstruction(uint32_t opcode, uint32_t pc,
+    uint32_t *code, Memory *memory, bool registerCycles, bool registerCpsr)
+{
+    Ps2ArmAlu::DecodedLiteralLoad decoded;
+    if (!code || !memory || !Ps2ArmAlu::decodeLiteralLoad(opcode, &decoded))
+        return 0;
+
+    uint32_t base = pc + 8u;
+    uint32_t address = decoded.addOffset
+        ? base + decoded.immediateOffset
+        : base - decoded.immediateOffset;
+    if ((address & 3u) || (address & 0xFFFu) > 0xFFCu)
+        return 0;
+
+    uint8_t *page = memory->getDirectReadPage(0, address);
+    if (!page)
+        return 0;
+
+    uintptr_t hostAddress = reinterpret_cast<uintptr_t>(
+        page + (address & 0xFFFu));
+    if (hostAddress > 0xFFFFFFFFu)
+        return 0;
+
+    size_t words = 0;
+    words += emitArmCycleAdd(1, code + words, registerCycles);
+
+    size_t conditionBranch = static_cast<size_t>(-1);
+    if (decoded.condition != 0xEu)
+    {
+        words += emitArmCondition(decoded.condition, code + words,
+            registerCpsr);
+        conditionBranch = words;
+        code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+    }
+
+    code[words++] = R5900::lui(R5900::R_T0,
+        static_cast<uint16_t>(hostAddress >> 16));
+    code[words++] = R5900::ori(R5900::R_T0, R5900::R_T0,
+        static_cast<uint16_t>(hostAddress));
+    code[words++] = R5900::lw(R5900::R_T1, 0, R5900::R_T0);
+    code[words++] = R5900::sw(R5900::R_T1,
+        static_cast<int16_t>(decoded.rd * 4), R5900::R_A0);
+
+    if (conditionBranch != static_cast<size_t>(-1))
+    {
+        size_t distance = words - (conditionBranch + 1);
+        if (distance > 0x7FFFu)
+            return 0;
+        code[conditionBranch] = R5900::beq(R5900::R_T7,
+            R5900::R_ZERO, static_cast<int16_t>(distance));
+    }
+    return words;
+}
+
 size_t emitArmLiteralLoadInstruction(uint32_t opcode, uint32_t pc,
     uint32_t *code)
 {
@@ -1426,7 +1481,8 @@ size_t emitArmBranchExchangeInstruction(uint32_t opcode, uint32_t *code)
 }
 
 size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
-    bool registerCycles = false, bool registerCpsr = false)
+    bool registerCycles = false, bool registerCpsr = false,
+    Memory *directMemory = nullptr)
 {
     Ps2ArmAlu::Decoded decoded;
     if (Ps2ArmAlu::decode(opcode, &decoded))
@@ -1468,6 +1524,14 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
             Ps2ArmAlu::DecodedLiteralLoad literalLoad;
             if (Ps2ArmAlu::decodeLiteralLoad(opcode, &literalLoad))
             {
+                if (directMemory)
+                {
+                    size_t direct = emitArmLiteralLoadDirectInstruction(opcode,
+                        pc, code, directMemory, registerCycles, registerCpsr);
+                    if (direct)
+                        return direct;
+                }
+
                 helperNeedsCpsr = literalLoad.condition != 0xEu;
                 if (registerCpsr && helperNeedsCpsr)
                     code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
@@ -1606,7 +1670,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     {
         size_t emitted = emitArmInstruction(opcodes[i],
             guestPc + static_cast<uint32_t>(i * 4), code + words, true,
-            registerCpsr);
+            registerCpsr, memory);
         if (!emitted)
             return false;
         words += emitted;
