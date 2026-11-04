@@ -2398,14 +2398,14 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         }
     }
 
+    // Keep the live-state handoff deliberately conservative while the
+    // persistent hot-block scheduler is being validated. Run187 proved that
+    // blocks can now execute tens of thousands of times per profile window;
+    // copying the complete bank removes read-mask inference from the
+    // correctness experiment without changing scheduler timing.
     ArmAluState state = {};
-    uint16_t liveMask = static_cast<uint16_t>(
-        (block->readMask | block->writeMask) & 0x7FFFu);
-    for (int i = 0; i < 15; i++)
-    {
-        if (liveMask & static_cast<uint16_t>(1u << i))
-            state.r[i] = CpuBackendAccess::readReg(cpu, i);
-    }
+    for (int i = 0; i < 16; i++)
+        state.r[i] = CpuBackendAccess::readReg(cpu, i);
     state.cpsr = CpuBackendAccess::readCpsr(cpu);
     state.nextPc = block->guestEndPc;
     state.memory = memory;
@@ -2435,8 +2435,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         return -static_cast<int>(state.cycles);
     }
 
-    if (!CpuBackendAccess::commitBlockState(cpu, state.r, block->writeMask,
-        state.cpsr, state.nextPc))
+    if (!CpuBackendAccess::commitBlockState(cpu, state.r, state.cpsr,
+        state.nextPc))
     {
         profile.activeStateFallbacks++;
         return 0;
