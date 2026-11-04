@@ -414,8 +414,9 @@ bool DynarecR5900::isDirectArmHalfwordAccess(uint32_t opcode,
     uint32_t address) const
 {
     Ps2ArmAlu::DecodedHalfwordTransfer transfer;
-    if (!memory || !Ps2ArmAlu::decodeHalfwordTransfer(opcode, &transfer) ||
-        (address & 0xFFFu) == 0xFFFu)
+    if (!memory || !Ps2ArmAlu::decodeHalfwordTransfer(opcode, &transfer))
+        return false;
+    if (!transfer.byteLoad && (address & 0xFFFu) == 0xFFFu)
         return false;
 
     return transfer.load
