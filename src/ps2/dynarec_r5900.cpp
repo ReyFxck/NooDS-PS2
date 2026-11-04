@@ -915,12 +915,57 @@ bool applyArmHalfwordTransfer(ArmAluState *state, uint32_t opcode)
         return false;
     bool passed = Ps2ArmAlu::conditionPassed(decoded.condition, state->cpsr);
 
+    if (!passed)
+    {
+        state->cycles += 1u;
+        return true;
+    }
+
+    if (decoded.signedLoad)
+    {
+        uint32_t base = state->r[decoded.rn];
+        uint32_t offset = decoded.immediate
+            ? decoded.immediateOffset : state->r[decoded.rm];
+        uint32_t adjusted =
+            decoded.addOffset ? base + offset : base - offset;
+        uint32_t address = decoded.preIndex ? adjusted : base;
+
+        if (decoded.byteLoad)
+        {
+            uint8_t *page = getArm9CachedReadPage(state, address);
+            if (!page)
+            {
+                state->memoryFault = 1;
+                return false;
+            }
+            state->r[decoded.rd] = static_cast<uint32_t>(
+                static_cast<int32_t>(static_cast<int8_t>(
+                    page[address & 0xFFFu])));
+        }
+        else
+        {
+            uint16_t value = 0;
+            if (!readDirectArm9Halfword(state, address, &value))
+            {
+                state->memoryFault = 1;
+                return false;
+            }
+            int32_t signedValue = static_cast<int16_t>(value);
+            if (state->cpuId && (address & 1u))
+                signedValue >>= 8;
+            state->r[decoded.rd] = static_cast<uint32_t>(signedValue);
+        }
+
+        if (decoded.writeBack)
+            state->r[decoded.rn] = adjusted;
+        state->cycles += state->cpuId ? 3u : 1u;
+        return true;
+    }
+
     if (Ps2ArmAlu::executeHalfwordTransfer(opcode, state->r, &state->cpsr,
         state, readDirectArm9Halfword, writeDirectArm9Halfword))
     {
-        if (!passed)
-            state->cycles += 1u;
-        else if (state->cpuId)
+        if (state->cpuId)
             state->cycles += decoded.load ? 3u : 2u;
         else
             state->cycles += 1u;
