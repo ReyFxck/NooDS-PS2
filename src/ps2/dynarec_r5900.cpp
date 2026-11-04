@@ -7,8 +7,15 @@
 #include <algorithm>
 #include <cstring>
 
+#ifdef NOODS_PROFILE
+#define DYNAREC_PROFILE(statement) do { statement; } while (0)
+#else
+#define DYNAREC_PROFILE(statement) do { } while (0)
+#endif
+
 namespace
 {
+#ifdef NOODS_PROFILE
 void recordFallback(R5900DynarecProfile &profile, uint32_t pc, uint32_t opcode)
 {
     for (size_t i = 0; i < 16; i++)
@@ -32,6 +39,7 @@ void recordFallback(R5900DynarecProfile &profile, uint32_t pc, uint32_t opcode)
     for (size_t i = 0; i < 16; i++)
         profile.topFallback[i].count--;
 }
+#endif
 }
 
 DynarecR5900::DynarecR5900(Memory *memory): memory(memory)
@@ -101,7 +109,7 @@ bool DynarecR5900::synchronizeMemoryMap()
 
     reset();
     mappedGeneration = generation;
-    profile.mapInvalidations++;
+    DYNAREC_PROFILE(profile.mapInvalidations++);
     return true;
 }
 
@@ -168,12 +176,15 @@ bool DynarecR5900::analyzeArmBlock(uint32_t pc, R5900BlockAnalysis *analysis,
     *analysis = R5900BlockAnalysis();
     analysis->startPc = pc;
     maxInstructions = std::min(maxInstructions, R5900_ANALYSIS_MAX_INSTRUCTIONS);
+#ifdef NOODS_PROFILE
     profile.compileAttempts++;
-
+    // This lookup is telemetry-only. Do not pay a linear blocks[] scan in
+    // RELEASE/DEBUG merely to classify the analysis as a hit or miss.
     if (findBlock(pc, false))
         profile.lookupHits++;
     else
         profile.lookupMisses++;
+#endif
 
     for (size_t i = 0; i < maxInstructions; i++)
     {
@@ -231,6 +242,7 @@ bool DynarecR5900::analyzeArmBlock(uint32_t pc, R5900BlockAnalysis *analysis,
     analysis->endPc = analysis->instructionCount
         ? analysis->instructions[analysis->instructionCount - 1].pc + 4u
         : pc;
+#ifdef NOODS_PROFILE
     profile.guestInstructions += analysis->instructionCount;
     profile.supportedInstructions += analysis->supportedInstructions;
     profile.largestBlock = std::max(profile.largestBlock,
@@ -254,6 +266,7 @@ bool DynarecR5900::analyzeArmBlock(uint32_t pc, R5900BlockAnalysis *analysis,
         }
         profile.rejectReason[reason]++;
     }
+#endif
 
     return analysis->instructionCount != 0;
 }
@@ -4914,11 +4927,11 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     if (guestInstructions)
         *guestInstructions = 0;
 
-    profile.activeAttempts++;
+    DYNAREC_PROFILE(profile.activeAttempts++);
     if (!cycleBudget || !CpuBackendAccess::isArm9(cpu) ||
         CpuBackendAccess::isThumb(cpu))
     {
-        profile.activeStateFallbacks++;
+        DYNAREC_PROFILE(profile.activeStateFallbacks++);
         return 0;
     }
 
@@ -4931,7 +4944,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     // for the smallest useful active block.
     if (cycleBudget < MIN_ACTIVE_GUEST_INSTRUCTIONS)
     {
-        profile.activeBudgetFallbacks++;
+        DYNAREC_PROFILE(profile.activeBudgetFallbacks++);
         return -static_cast<int>(MIN_ACTIVE_GUEST_INSTRUCTIONS);
     }
 
@@ -4947,11 +4960,11 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         if (rejected != ACTIVE_REJECT_NONE)
         {
             if (rejected == ACTIVE_REJECT_WRITE)
-                profile.activeWriteFallbacks++;
+                DYNAREC_PROFILE(profile.activeWriteFallbacks++);
             else if (rejected == ACTIVE_REJECT_STATE)
-                profile.activeStateFallbacks++;
+                DYNAREC_PROFILE(profile.activeStateFallbacks++);
             else
-                profile.activeVerifyFallbacks++;
+                DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
             return 0;
         }
     }
@@ -4964,11 +4977,11 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         if (blocks.size() >= 2048)
         {
             cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
-            profile.activeVerifyFallbacks++;
+            DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
             return 0;
         }
 
-        profile.activeCompileMisses++;
+        DYNAREC_PROFILE(profile.activeCompileMisses++);
 
         // Compilation length is intentionally independent from cycleBudget.
         // Active hot blocks may extend to 24 instructions while the code cache
@@ -4981,7 +4994,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         if (shadow <= 0)
         {
             cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
-            profile.activeVerifyFallbacks++;
+            DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
             return 0;
         }
 
@@ -4990,7 +5003,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
             block->guestInstructions < MIN_ACTIVE_GUEST_INSTRUCTIONS)
         {
             cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
-            profile.activeVerifyFallbacks++;
+            DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
             return 0;
         }
     }
@@ -5004,7 +5017,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         : block->guestInstructions;
     if (minimumCycles > cycleBudget)
     {
-        profile.activeBudgetFallbacks++;
+        DYNAREC_PROFILE(profile.activeBudgetFallbacks++);
         return -static_cast<int>(minimumCycles);
     }
 
@@ -5018,7 +5031,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         if ((block->readMask | block->writeMask) & 0x8000u)
         {
             cacheActiveReject(guestPc, ACTIVE_REJECT_STATE);
-            profile.activeStateFallbacks++;
+            DYNAREC_PROFILE(profile.activeStateFallbacks++);
             return 0;
         }
 
@@ -5028,7 +5041,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
             if (differential <= 0)
             {
                 cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
-                profile.activeVerifyFallbacks++;
+                DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
                 return 0;
             }
 
@@ -5036,7 +5049,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
             if (!block || !block->differentialVerified)
             {
                 cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
-                profile.activeVerifyFallbacks++;
+                DYNAREC_PROFILE(profile.activeVerifyFallbacks++);
                 return 0;
             }
         }
@@ -5123,9 +5136,9 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
             !blockCycles || blockCycles > remainingBudget)
         {
             if (blockCycles > remainingBudget)
-                profile.activeBudgetFallbacks++;
+                DYNAREC_PROFILE(profile.activeBudgetFallbacks++);
             else
-                profile.activeStateFallbacks++;
+                DYNAREC_PROFILE(profile.activeStateFallbacks++);
             return blockCycles > remainingBudget
                 ? -static_cast<int>(totalCycles + blockCycles)
                 : 0;
@@ -5190,12 +5203,12 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
             buildingUnionCommit = true;
         }
         current = next;
-        profile.activeInternalChainBlocks++;
+        DYNAREC_PROFILE(profile.activeInternalChainBlocks++);
     }
 
     if (!totalCycles)
     {
-        profile.activeStateFallbacks++;
+        DYNAREC_PROFILE(profile.activeStateFallbacks++);
         return 0;
     }
 
@@ -5230,7 +5243,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
             state.nextPc, pipelineBlock->entryOpcode0,
             pipelineBlock->entryOpcode1);
         if (committed)
-            profile.activePipelineReuses++;
+            DYNAREC_PROFILE(profile.activePipelineReuses++);
     }
     else
     {
@@ -5240,15 +5253,15 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
 
     if (!committed)
     {
-        profile.activeStateFallbacks++;
+        DYNAREC_PROFILE(profile.activeStateFallbacks++);
         return 0;
     }
 
     liveWrites.dismiss();
 
-    profile.activeExecutions += executedBlocks;
-    profile.activeGuestInstructions += executedGuestInstructions;
-    profile.activeCycles += totalCycles;
+    DYNAREC_PROFILE(profile.activeExecutions += executedBlocks);
+    DYNAREC_PROFILE(profile.activeGuestInstructions += executedGuestInstructions);
+    DYNAREC_PROFILE(profile.activeCycles += totalCycles);
     if (guestInstructions)
         *guestInstructions = executedGuestInstructions;
 
