@@ -5467,6 +5467,126 @@ bool DynarecR5900::runArmAluSelfTest()
     if (arm7ByteWritePage[arm7ByteOffset] != arm7BeforeByte)
         return false;
 
+    const uint32_t arm7HalfAddress = (loadAddress + 10u) & ~1u;
+    uint8_t *arm7HalfReadPage =
+        memory->getDirectReadPage(1, arm7HalfAddress);
+    uint8_t *arm7HalfWritePage =
+        memory->getDirectWritePage(1, arm7HalfAddress);
+    if (!arm7HalfReadPage || !arm7HalfWritePage)
+        return false;
+    uint32_t arm7HalfOffset = arm7HalfAddress & 0xFFFu;
+    if (arm7HalfOffset > 0xFFEu)
+        return false;
+    uint16_t arm7ExpectedHalf =
+        static_cast<uint16_t>(arm7HalfReadPage[arm7HalfOffset]) |
+        (static_cast<uint16_t>(arm7HalfReadPage[arm7HalfOffset + 1]) << 8);
+    uint16_t arm7BeforeHalf =
+        static_cast<uint16_t>(arm7HalfWritePage[arm7HalfOffset]) |
+        (static_cast<uint16_t>(arm7HalfWritePage[arm7HalfOffset + 1]) << 8);
+
+    uint32_t *arm7HalfLoadCode = cache.reserveWords(128);
+    if (!arm7HalfLoadCode)
+        return false;
+    size_t arm7HalfLoadWords = emitArmHalfwordLoadCachedInstruction(
+        0x01D010B0u, arm7HalfLoadCode, false, false, false, 1);
+        // LDRH.EQ r1,[r0]
+    if (!arm7HalfLoadWords)
+        return false;
+    arm7HalfLoadCode[arm7HalfLoadWords++] = R5900::jr(R5900::R_RA);
+    arm7HalfLoadCode[arm7HalfLoadWords++] = R5900::nop();
+    cache.commitWords(arm7HalfLoadWords);
+    cache.syncExecutable(arm7HalfLoadCode,
+        arm7HalfLoadCode + arm7HalfLoadWords);
+
+    ArmLoadFunction arm7HalfLoadFunction =
+        reinterpret_cast<ArmLoadFunction>(arm7HalfLoadCode);
+    {
+        ArmAluState notTaken = {};
+        notTaken.r[0] = arm7HalfAddress;
+        notTaken.r[1] = 0xCAFEBABEu;
+        notTaken.cpsr = 0x00000013u;
+        notTaken.memory = memory;
+        notTaken.cpuId = 1;
+        notTaken.readCacheTag = (arm7HalfAddress >> 12) + 1u;
+        notTaken.readCachePage = arm7HalfReadPage;
+        arm7HalfLoadFunction(&notTaken);
+        if (notTaken.memoryFault ||
+            notTaken.r[1] != 0xCAFEBABEu ||
+            notTaken.cycles != 1u)
+            return false;
+    }
+    {
+        ArmAluState taken = {};
+        taken.r[0] = arm7HalfAddress;
+        taken.r[1] = 0xCAFEBABEu;
+        taken.cpsr = 0x40000013u;
+        taken.memory = memory;
+        taken.cpuId = 1;
+        taken.readCacheTag = (arm7HalfAddress >> 12) + 1u;
+        taken.readCachePage = arm7HalfReadPage;
+        arm7HalfLoadFunction(&taken);
+        if (taken.memoryFault ||
+            taken.r[1] != arm7ExpectedHalf ||
+            taken.cycles != 3u)
+            return false;
+    }
+
+    uint32_t *arm7HalfStoreCode = cache.reserveWords(160);
+    if (!arm7HalfStoreCode)
+        return false;
+    size_t arm7HalfStoreWords = emitArmImmediateStoreFastInstruction(
+        0x01C010B0u, arm7HalfStoreCode, false, false, 1);
+        // STRH.EQ r1,[r0]
+    if (!arm7HalfStoreWords)
+        return false;
+    arm7HalfStoreCode[arm7HalfStoreWords++] = R5900::jr(R5900::R_RA);
+    arm7HalfStoreCode[arm7HalfStoreWords++] = R5900::nop();
+    cache.commitWords(arm7HalfStoreWords);
+    cache.syncExecutable(arm7HalfStoreCode,
+        arm7HalfStoreCode + arm7HalfStoreWords);
+
+    ArmLoadFunction arm7HalfStoreFunction =
+        reinterpret_cast<ArmLoadFunction>(arm7HalfStoreCode);
+    {
+        ArmAluState notTaken = {};
+        notTaken.r[0] = arm7HalfAddress;
+        notTaken.r[1] = 0xA55Au;
+        notTaken.cpsr = 0x00000013u;
+        notTaken.memory = memory;
+        notTaken.cpuId = 1;
+        notTaken.writeCacheTag = (arm7HalfAddress >> 12) + 1u;
+        notTaken.writeCachePage = arm7HalfWritePage;
+        arm7HalfStoreFunction(&notTaken);
+        if (notTaken.memoryFault || notTaken.writeCount != 0 ||
+            notTaken.cycles != 1u)
+            return false;
+    }
+    {
+        ArmAluState taken = {};
+        taken.r[0] = arm7HalfAddress;
+        taken.r[1] = 0xA55Au;
+        taken.cpsr = 0x40000013u;
+        taken.memory = memory;
+        taken.cpuId = 1;
+        taken.writeCacheTag = (arm7HalfAddress >> 12) + 1u;
+        taken.writeCachePage = arm7HalfWritePage;
+        ArmMemoryWriteGuard writes(&taken);
+        arm7HalfStoreFunction(&taken);
+        uint16_t stored =
+            static_cast<uint16_t>(arm7HalfWritePage[arm7HalfOffset]) |
+            (static_cast<uint16_t>(
+                arm7HalfWritePage[arm7HalfOffset + 1]) << 8);
+        if (taken.memoryFault || taken.writeCount != 1 ||
+            taken.cycles != 2u || stored != 0xA55Au)
+            return false;
+    }
+    uint16_t arm7HalfRestored =
+        static_cast<uint16_t>(arm7HalfWritePage[arm7HalfOffset]) |
+        (static_cast<uint16_t>(
+            arm7HalfWritePage[arm7HalfOffset + 1]) << 8);
+    if (arm7HalfRestored != arm7BeforeHalf)
+        return false;
+
     return true;
 }
 
