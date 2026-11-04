@@ -499,13 +499,19 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
         t = polygon->sizeT - 1;
     }
 
+    // Coordinates are guaranteed non-negative after the clamp/wrap logic
+    // above. Keep them unsigned so power-of-two texture addressing maps
+    // directly to shifts/masks on the R5900 instead of signed / and % paths.
+    const uint32_t us = static_cast<uint32_t>(s);
+    const uint32_t ut = static_cast<uint32_t>(t);
+
     // Decode a texel
     switch (polygon->textureFmt)
     {
         case 1: // A3I5 translucent
         {
             // Get the 8-bit palette index
-            uint32_t address = polygon->textureAddr + (t * polygon->sizeS + s);
+            uint32_t address = polygon->textureAddr + (ut * polygon->sizeS + us);
             uint8_t *data = getTexture(address);
             if (!data) return 0;
             uint8_t index = *data;
@@ -523,10 +529,10 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
         case 2: // 4-color palette
         {
             // Get the 2-bit palette index
-            uint32_t address = polygon->textureAddr + (t * polygon->sizeS + s) / 4;
+            uint32_t address = polygon->textureAddr + ((ut * polygon->sizeS + us) >> 2);
             uint8_t *data = getTexture(address);
             if (!data) return 0;
-            uint8_t index = (*data >> ((s % 4) * 2)) & 0x03;
+            uint8_t index = (*data >> ((us & 3u) << 1)) & 0x03;
 
             // Return a transparent pixel if enabled
             if (polygon->transparent0 && index == 0)
@@ -543,10 +549,10 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
         case 3: // 16-color palette
         {
             // Get the 4-bit palette index
-            uint32_t address = polygon->textureAddr + (t * polygon->sizeS + s) / 2;
+            uint32_t address = polygon->textureAddr + ((ut * polygon->sizeS + us) >> 1);
             uint8_t *data = getTexture(address);
             if (!data) return 0;
-            uint8_t index = (*data >> ((s % 2) * 4)) & 0x0F;
+            uint8_t index = (*data >> ((us & 1u) << 2)) & 0x0F;
 
             // Return a transparent pixel if enabled
             if (polygon->transparent0 && index == 0)
@@ -583,14 +589,14 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
         case 5: // 4x4 compressed
         {
             // Get the 2-bit palette index
-            int tile = (t / 4) * (polygon->sizeS / 4) + (s / 4);
-            uint32_t address = polygon->textureAddr + (tile * 4 + t % 4);
+            uint32_t tile = (ut >> 2) * (static_cast<uint32_t>(polygon->sizeS) >> 2) + (us >> 2);
+            uint32_t address = polygon->textureAddr + (tile * 4 + (ut & 3u));
             uint8_t *data = getTexture(address);
             if (!data) return 0;
-            uint8_t index = (*data >> ((s % 4) * 2)) & 0x03;
+            uint8_t index = (*data >> ((us & 3u) << 1)) & 0x03;
 
             // Get the palette, using the base for the tile stored in slot 1
-            address = 0x20000 + (polygon->textureAddr % 0x20000) / 2 + ((polygon->textureAddr / 0x20000 == 2) ? 0x10000 : 0);
+            address = 0x20000 + ((polygon->textureAddr & 0x1FFFFu) >> 1) + (((polygon->textureAddr >> 17) == 2) ? 0x10000 : 0);
             uint16_t palBase = U8TO16(getTexture(address), tile * 2);
             uint8_t *palette = getPalette(polygon->paletteAddr + (palBase & 0x3FFF) * 4);
             if (!palette) return 0;
@@ -684,7 +690,7 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
             if (!data) return 0;
 
             // Return the direct color
-            uint16_t color = U8TO16(data, (t * polygon->sizeS + s) * 2);
+            uint16_t color = U8TO16(data, (ut * polygon->sizeS + us) * 2);
             uint8_t alpha = (color & BIT(15)) ? 0x1F : 0;
             return rgba5ToRgba6((alpha << 15) | color);
         }
