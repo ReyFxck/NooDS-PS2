@@ -3922,6 +3922,8 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             {
                 block.readMask |= static_cast<uint16_t>(1u << transfer.rd);
                 block.writesMemory = true;
+                if (block.maxMemoryWrites != 0xFFu)
+                    block.maxMemoryWrites++;
             }
             if (transfer.writeBack)
                 block.writeMask |= static_cast<uint16_t>(1u << transfer.rn);
@@ -3941,6 +3943,8 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             {
                 block.readMask |= static_cast<uint16_t>(1u << byteTransfer.rd);
                 block.writesMemory = true;
+                if (block.maxMemoryWrites != 0xFFu)
+                    block.maxMemoryWrites++;
             }
             if (byteTransfer.writeBack)
                 block.writeMask |= static_cast<uint16_t>(1u << byteTransfer.rn);
@@ -3968,6 +3972,8 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             {
                 block.readMask |= static_cast<uint16_t>(1u << singleTransfer.rd);
                 block.writesMemory = true;
+                if (block.maxMemoryWrites != 0xFFu)
+                    block.maxMemoryWrites++;
             }
             if (singleTransfer.writeBack)
                 block.writeMask |= static_cast<uint16_t>(1u << singleTransfer.rn);
@@ -3986,6 +3992,10 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             {
                 block.readMask |= multiBlockTransfer.registerMask;
                 block.writesMemory = true;
+                uint32_t maxWrites = static_cast<uint32_t>(
+                    block.maxMemoryWrites) + multiBlockTransfer.count;
+                block.maxMemoryWrites = static_cast<uint8_t>(
+                    std::min<uint32_t>(maxWrites, 0xFFu));
             }
             if (multiBlockTransfer.writeBack)
                 block.writeMask |= static_cast<uint16_t>(
@@ -4004,6 +4014,8 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             {
                 block.readMask |= static_cast<uint16_t>(1u << blockTransfer.reg);
                 block.writesMemory = true;
+                if (block.maxMemoryWrites != 0xFFu)
+                    block.maxMemoryWrites++;
             }
             if (blockTransfer.writeBack)
                 block.writeMask |= static_cast<uint16_t>(1u << blockTransfer.rn);

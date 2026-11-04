@@ -94,6 +94,7 @@ struct R5900CompiledBlock
     uint16_t inputMask = 0;
     uint8_t inputRegCount = 0;
     uint8_t writeRegCount = 0;
+    uint8_t maxMemoryWrites = 0;
     uint8_t inputRegs[15] = {};
     uint8_t writeRegs[15] = {};
     bool readsFlags = false;
