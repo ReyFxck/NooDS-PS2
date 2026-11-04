@@ -958,10 +958,21 @@ bool applyArmByteTransfer(ArmAluState *state, uint32_t opcode)
 {
     if (!state || !state->memory)
         return false;
+
+    Ps2ArmAlu::DecodedByteTransfer decoded;
+    if (!Ps2ArmAlu::decodeByteTransfer(opcode, &decoded))
+        return false;
+    bool passed = Ps2ArmAlu::conditionPassed(decoded.condition, state->cpsr);
+
     if (Ps2ArmAlu::executeByteTransfer(opcode, state->r, &state->cpsr,
         state, readDirectArm9Byte, writeDirectArm9Byte))
     {
-        state->cycles++;
+        if (!passed)
+            state->cycles += 1u;
+        else if (state->cpuId)
+            state->cycles += decoded.load ? 3u : 2u;
+        else
+            state->cycles += 1u;
         return true;
     }
     state->memoryFault = 1;
@@ -2322,7 +2333,7 @@ size_t emitArmImmediateStoreFastInstruction(uint32_t opcode,
 
     // ARM7 direct word stores cost 2 cycles versus 1 on ARM9. Byte/halfword
     // forms are not part of the guarded ARM7 subset yet.
-    if (targetCpuId && sizeCode == 2)
+    if (targetCpuId && sizeCode <= 2)
         words += emitArmCycleAdd(1, code + words, registerCycles);
 
     // Compute the ARM effective address in t0. Post-index writeback is
@@ -2581,7 +2592,7 @@ size_t emitArmRegisterOffsetAddress(uint8_t rn, uint8_t rm,
 
 size_t emitArmByteLoadCachedInstruction(uint32_t opcode,
     uint32_t *code, bool registerCycles, bool registerCpsr,
-    bool suppressResultStore = false)
+    bool suppressResultStore = false, uint8_t targetCpuId = 0)
 {
     Ps2ArmAlu::DecodedByteTransfer decoded;
     if (!code || !Ps2ArmAlu::decodeByteTransfer(opcode, &decoded) ||
@@ -2600,6 +2611,9 @@ size_t emitArmByteLoadCachedInstruction(uint32_t opcode,
         code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
         code[words++] = R5900::nop();
     }
+
+    if (targetCpuId)
+        words += emitArmCycleAdd(2, code + words, registerCycles);
 
     if (decoded.registerOffset)
     {
@@ -3447,10 +3461,11 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
             if (byteTransfer.load && byteTransfer.preIndex &&
                 !byteTransfer.writeBack)
                 return emitArmByteLoadCachedInstruction(opcode, code,
-                    registerCycles, registerCpsr, suppressResultStore);
+                    registerCycles, registerCpsr, suppressResultStore,
+                    targetCpuId);
             if (!byteTransfer.load && !byteTransfer.registerOffset)
                 return emitArmImmediateStoreFastInstruction(opcode, code,
-                    registerCycles, registerCpsr);
+                    registerCycles, registerCpsr, targetCpuId);
             if (!byteTransfer.load && byteTransfer.registerOffset)
                 return emitArmRegisterStoreFastInstruction(opcode, code,
                     registerCycles, registerCpsr);
@@ -3592,6 +3607,11 @@ uint32_t maxArmInstructionCycles(uint32_t opcode, uint8_t targetCpuId = 0)
         targetCpuId)
         return singleTransfer.load ? 3u : 2u;
 
+    Ps2ArmAlu::DecodedByteTransfer byteTransfer;
+    if (Ps2ArmAlu::decodeByteTransfer(opcode, &byteTransfer) &&
+        targetCpuId)
+        return byteTransfer.load ? 3u : 2u;
+
     Ps2ArmAlu::DecodedMultiBlockTransfer multiBlockTransfer;
     if (Ps2ArmAlu::decodeMultiBlockTransfer(opcode, &multiBlockTransfer))
         return multiBlockTransfer.count;
@@ -3627,6 +3647,15 @@ uint32_t minArmInstructionCycles(uint32_t opcode, uint8_t targetCpuId = 0)
         if (singleTransfer.condition != 0xEu)
             return 1u;
         return singleTransfer.load ? 3u : 2u;
+    }
+
+    Ps2ArmAlu::DecodedByteTransfer byteTransfer;
+    if (Ps2ArmAlu::decodeByteTransfer(opcode, &byteTransfer) &&
+        targetCpuId)
+    {
+        if (byteTransfer.condition != 0xEu)
+            return 1u;
+        return byteTransfer.load ? 3u : 2u;
     }
 
     Ps2ArmAlu::DecodedMultiBlockTransfer multiBlockTransfer;
@@ -5746,6 +5775,15 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
             continue;
         }
 
+        Ps2ArmAlu::DecodedByteTransfer byteTransfer;
+        if (Ps2ArmAlu::decodeByteTransfer(opcode, &byteTransfer) &&
+            !byteTransfer.registerOffset && byteTransfer.preIndex &&
+            !byteTransfer.writeBack)
+        {
+            opcodes[count++] = opcode;
+            continue;
+        }
+
         Ps2ArmAlu::DecodedBranchExchange branchExchange;
         if (Ps2ArmAlu::decodeBranchExchange(opcode, &branchExchange))
         {
@@ -5797,6 +5835,17 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
                 singleTransfer.writeBack)
                 return 0;
             if (!applyArmSingleTransfer(&expected, opcodes[i]))
+                return 0;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedByteTransfer byteTransfer;
+        if (Ps2ArmAlu::decodeByteTransfer(opcodes[i], &byteTransfer))
+        {
+            if (byteTransfer.registerOffset || !byteTransfer.preIndex ||
+                byteTransfer.writeBack)
+                return 0;
+            if (!applyArmByteTransfer(&expected, opcodes[i]))
                 return 0;
             continue;
         }
