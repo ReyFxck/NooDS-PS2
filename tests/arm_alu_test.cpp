@@ -487,6 +487,25 @@ int main()
     assert(!Ps2ArmAlu::decodeHalfwordTransfer(0xE1F110B4u, &transfer));
     assert(!Ps2ArmAlu::decodeHalfwordTransfer(0xE1D1F0B4u, &transfer));
 
+    // Signed extra loads share the halfword encoding family. LDRSB/LDRSH are
+    // load-only; the corresponding S=1 store encodings remain outside the
+    // admitted subset (doubleword/reserved forms).
+    assert(Ps2ArmAlu::decodeHalfwordTransfer(0xE1D120D0u, &transfer));
+    assert(transfer.load && transfer.signedLoad && transfer.byteLoad &&
+        transfer.immediate && transfer.rn == 1 && transfer.rd == 2);
+    assert(Ps2ArmAlu::decodeHalfwordTransfer(0xE1D120F0u, &transfer));
+    assert(transfer.load && transfer.signedLoad && !transfer.byteLoad &&
+        transfer.immediate && transfer.rn == 1 && transfer.rd == 2);
+    assert(Ps2ArmAlu::decodeHalfwordTransfer(0xE19120D3u, &transfer));
+    assert(transfer.load && transfer.signedLoad && transfer.byteLoad &&
+        !transfer.immediate && transfer.rm == 3);
+    assert(!Ps2ArmAlu::decodeHalfwordTransfer(0xE1C120D0u, &transfer));
+    assert(!Ps2ArmAlu::decodeHalfwordTransfer(0xE1C120F0u, &transfer));
+    assert(Ps2ArmAlu::rejectionReason(0xE1D120D0u) ==
+        Ps2ArmAlu::REJECT_NONE);
+    assert(Ps2ArmAlu::rejectionReason(0xE1D120F0u) ==
+        Ps2ArmAlu::REJECT_NONE);
+
     HalfwordMemory halfwordMemory = {};
     halfwordMemory.bytes[0x44] = 0xCD;
     halfwordMemory.bytes[0x45] = 0xAB;
