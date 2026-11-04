@@ -5240,6 +5240,118 @@ bool DynarecR5900::runArmAluSelfTest()
         blockLoadState.r[0] != 0x02000004u)
         return false;
 
+    // Gate the same safe one-register IA subset with ARM7-native timing:
+    // LDMIA=3 cycles, STMIA=2 cycles, including +4 writeback.
+    const uint32_t arm7BlockLoadAddress = 0x02000000u;
+    const uint32_t arm7BlockStoreAddress = 0x02000020u;
+    uint8_t *arm7BlockLoadPage =
+        memory->getDirectReadPage(1, arm7BlockLoadAddress);
+    uint8_t *arm7BlockStorePage =
+        memory->getDirectWritePage(1, arm7BlockStoreAddress);
+    if (!arm7BlockLoadPage || !arm7BlockStorePage)
+        return false;
+
+    uint32_t arm7BlockExpected =
+        static_cast<uint32_t>(arm7BlockLoadPage[0]) |
+        (static_cast<uint32_t>(arm7BlockLoadPage[1]) << 8) |
+        (static_cast<uint32_t>(arm7BlockLoadPage[2]) << 16) |
+        (static_cast<uint32_t>(arm7BlockLoadPage[3]) << 24);
+
+    uint32_t *arm7BlockLoadCode = cache.reserveWords(160);
+    if (!arm7BlockLoadCode)
+        return false;
+    size_t arm7BlockLoadWords = emitArmSingleBlockTransferFastInstruction(
+        0xE8B00002u, arm7BlockLoadCode, false, false,
+        -1, 0xEu, false, 1); // LDMIA r0!,{r1}
+    if (!arm7BlockLoadWords)
+        return false;
+    arm7BlockLoadCode[arm7BlockLoadWords++] = R5900::jr(R5900::R_RA);
+    arm7BlockLoadCode[arm7BlockLoadWords++] = R5900::nop();
+    cache.commitWords(arm7BlockLoadWords);
+    cache.syncExecutable(arm7BlockLoadCode,
+        arm7BlockLoadCode + arm7BlockLoadWords);
+
+    ArmBlockTransferFunction arm7BlockLoadFunction =
+        reinterpret_cast<ArmBlockTransferFunction>(arm7BlockLoadCode);
+    {
+        ArmAluState state = {};
+        state.r[0] = arm7BlockLoadAddress;
+        state.r[1] = 0xFFFFFFFFu;
+        state.memory = memory;
+        state.cpuId = 1;
+        state.readCacheTag = (arm7BlockLoadAddress >> 12) + 1u;
+        state.readCachePage = arm7BlockLoadPage;
+        arm7BlockLoadFunction(&state);
+        if (state.memoryFault || state.cycles != 3u ||
+            state.r[0] != arm7BlockLoadAddress + 4u ||
+            state.r[1] != arm7BlockExpected)
+            return false;
+    }
+
+    uint32_t arm7BlockStoreOffset = arm7BlockStoreAddress & 0xFFFu;
+    uint32_t arm7BlockStoreBefore =
+        static_cast<uint32_t>(arm7BlockStorePage[arm7BlockStoreOffset]) |
+        (static_cast<uint32_t>(
+            arm7BlockStorePage[arm7BlockStoreOffset + 1]) << 8) |
+        (static_cast<uint32_t>(
+            arm7BlockStorePage[arm7BlockStoreOffset + 2]) << 16) |
+        (static_cast<uint32_t>(
+            arm7BlockStorePage[arm7BlockStoreOffset + 3]) << 24);
+
+    uint32_t *arm7BlockStoreCode = cache.reserveWords(192);
+    if (!arm7BlockStoreCode)
+        return false;
+    size_t arm7BlockStoreWords = emitArmSingleBlockTransferFastInstruction(
+        0xE8A00002u, arm7BlockStoreCode, false, false,
+        -1, 0xEu, false, 1); // STMIA r0!,{r1}
+    if (!arm7BlockStoreWords)
+        return false;
+    arm7BlockStoreCode[arm7BlockStoreWords++] = R5900::jr(R5900::R_RA);
+    arm7BlockStoreCode[arm7BlockStoreWords++] = R5900::nop();
+    cache.commitWords(arm7BlockStoreWords);
+    cache.syncExecutable(arm7BlockStoreCode,
+        arm7BlockStoreCode + arm7BlockStoreWords);
+
+    ArmBlockTransferFunction arm7BlockStoreFunction =
+        reinterpret_cast<ArmBlockTransferFunction>(arm7BlockStoreCode);
+    {
+        ArmAluState state = {};
+        state.r[0] = arm7BlockStoreAddress;
+        state.r[1] = 0x2468ACE0u;
+        state.memory = memory;
+        state.cpuId = 1;
+        state.writeCacheTag = (arm7BlockStoreAddress >> 12) + 1u;
+        state.writeCachePage = arm7BlockStorePage;
+        ArmMemoryWriteGuard writes(&state);
+        arm7BlockStoreFunction(&state);
+
+        uint32_t stored =
+            static_cast<uint32_t>(
+                arm7BlockStorePage[arm7BlockStoreOffset]) |
+            (static_cast<uint32_t>(
+                arm7BlockStorePage[arm7BlockStoreOffset + 1]) << 8) |
+            (static_cast<uint32_t>(
+                arm7BlockStorePage[arm7BlockStoreOffset + 2]) << 16) |
+            (static_cast<uint32_t>(
+                arm7BlockStorePage[arm7BlockStoreOffset + 3]) << 24);
+        if (state.memoryFault || state.writeCount != 1 ||
+            state.cycles != 2u ||
+            state.r[0] != arm7BlockStoreAddress + 4u ||
+            stored != 0x2468ACE0u)
+            return false;
+    }
+
+    uint32_t arm7BlockStoreRestored =
+        static_cast<uint32_t>(arm7BlockStorePage[arm7BlockStoreOffset]) |
+        (static_cast<uint32_t>(
+            arm7BlockStorePage[arm7BlockStoreOffset + 1]) << 8) |
+        (static_cast<uint32_t>(
+            arm7BlockStorePage[arm7BlockStoreOffset + 2]) << 16) |
+        (static_cast<uint32_t>(
+            arm7BlockStorePage[arm7BlockStoreOffset + 3]) << 24);
+    if (arm7BlockStoreRestored != arm7BlockStoreBefore)
+        return false;
+
     // Gate the real hot copy-loop pair seen in PROFILE logs:
     //   LDMIA.LT r0!,{r2}
     //   STMIA.LT r1!,{r2}
