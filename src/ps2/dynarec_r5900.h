@@ -114,7 +114,7 @@ struct R5900CompiledBlock
 class DynarecR5900
 {
     public:
-        explicit DynarecR5900(Memory *memory);
+        explicit DynarecR5900(Memory *memory, uint8_t targetCpuId = 0);
 
         bool init(size_t cacheBytes = 2 * 1024 * 1024);
         void shutdown();
@@ -207,6 +207,7 @@ class DynarecR5900
         };
 
         Memory *memory;
+        uint8_t targetCpuId = 0;
         R5900CodeCache cache;
         std::vector<R5900CompiledBlock> blocks;
 

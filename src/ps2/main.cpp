@@ -1376,7 +1376,7 @@ int main(int argc, char **argv)
             PS2_LOG("[PS2][WARN] R5900 dynarec infrastructure unavailable; interpreter remains active.\n");
 
         DynarecR5900 *arm7ShadowDynarec =
-            new (std::nothrow) DynarecR5900(&core->memory);
+            new (std::nothrow) DynarecR5900(&core->memory, 1);
         bool arm7ShadowReady = false;
         bool arm7ShadowGatePassed = false;
         bool arm7ActiveExecutorEnabled = false;

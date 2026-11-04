@@ -42,7 +42,8 @@ void recordFallback(R5900DynarecProfile &profile, uint32_t pc, uint32_t opcode)
 #endif
 }
 
-DynarecR5900::DynarecR5900(Memory *memory): memory(memory)
+DynarecR5900::DynarecR5900(Memory *memory, uint8_t targetCpuId):
+    memory(memory), targetCpuId(targetCpuId ? 1u : 0u)
 {
 }
 
@@ -869,10 +870,21 @@ bool applyArmSingleTransfer(ArmAluState *state, uint32_t opcode)
 {
     if (!state || !state->memory)
         return false;
+
+    Ps2ArmAlu::DecodedSingleTransfer decoded;
+    if (!Ps2ArmAlu::decodeSingleTransfer(opcode, &decoded))
+        return false;
+    bool passed = Ps2ArmAlu::conditionPassed(decoded.condition, state->cpsr);
+
     if (Ps2ArmAlu::executeSingleTransfer(opcode, state->r, &state->cpsr,
         state, readDirectArm9Word, writeDirectArm9Word))
     {
-        state->cycles++;
+        if (!passed)
+            state->cycles += 1u;
+        else if (state->cpuId)
+            state->cycles += decoded.load ? 3u : 2u;
+        else
+            state->cycles += 1u;
         return true;
     }
 
@@ -2668,7 +2680,7 @@ size_t emitArmLiteralLoadInstruction(uint32_t opcode, uint32_t pc,
 
 size_t emitArmWordLoadCachedInstruction(uint32_t opcode,
     uint32_t *code, bool registerCycles, bool registerCpsr,
-    bool suppressResultStore = false)
+    bool suppressResultStore = false, uint8_t targetCpuId = 0)
 {
     Ps2ArmAlu::DecodedSingleTransfer decoded;
     if (!code || !Ps2ArmAlu::decodeSingleTransfer(opcode, &decoded) ||
@@ -2687,6 +2699,11 @@ size_t emitArmWordLoadCachedInstruction(uint32_t opcode,
         code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
         code[words++] = R5900::nop();
     }
+
+    // NooDS models a normal ARM7 word load as 3 cycles versus 1 on ARM9.
+    // These two extra cycles are on the taken path only.
+    if (targetCpuId)
+        words += emitArmCycleAdd(2, code + words, registerCycles);
 
     if (decoded.registerOffset)
     {
@@ -3255,7 +3272,7 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
     bool registerCycles = false, bool registerCpsr = false,
     Memory *directMemory = nullptr, int forwardedGuestReg = -1,
     bool suppressResultStore = false, uint8_t forwardedCondition = 0xEu,
-    bool reuseCondition = false)
+    bool reuseCondition = false, uint8_t targetCpuId = 0)
 {
     Ps2ArmAlu::Decoded decoded;
     if (Ps2ArmAlu::decode(opcode, &decoded))
@@ -3352,7 +3369,8 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
                     if (singleTransfer.load && singleTransfer.preIndex &&
                         !singleTransfer.writeBack)
                         return emitArmWordLoadCachedInstruction(opcode, code,
-                            registerCycles, registerCpsr, suppressResultStore);
+                            registerCycles, registerCpsr, suppressResultStore,
+                            targetCpuId);
                     if (!singleTransfer.load && !singleTransfer.registerOffset)
                         return emitArmImmediateStoreFastInstruction(opcode, code,
                             registerCycles, registerCpsr);
@@ -3437,7 +3455,7 @@ bool DynarecR5900::emitArmAluBlock(uint32_t opcode, uint32_t **entry, uint8_t *r
     return true;
 }
 
-uint32_t maxArmInstructionCycles(uint32_t opcode)
+uint32_t maxArmInstructionCycles(uint32_t opcode, uint8_t targetCpuId = 0)
 {
     Ps2ArmAlu::Decoded decoded;
     if (Ps2ArmAlu::decode(opcode, &decoded))
@@ -3446,6 +3464,11 @@ uint32_t maxArmInstructionCycles(uint32_t opcode)
     Ps2ArmAlu::DecodedMultiply multiply;
     if (Ps2ArmAlu::decodeMultiply(opcode, &multiply))
         return multiply.setFlags ? 4u : 2u;
+
+    Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
+    if (Ps2ArmAlu::decodeSingleTransfer(opcode, &singleTransfer) &&
+        targetCpuId)
+        return singleTransfer.load ? 3u : 2u;
 
     Ps2ArmAlu::DecodedMultiBlockTransfer multiBlockTransfer;
     if (Ps2ArmAlu::decodeMultiBlockTransfer(opcode, &multiBlockTransfer))
@@ -3464,7 +3487,7 @@ uint32_t maxArmInstructionCycles(uint32_t opcode)
     return 1u;
 }
 
-uint32_t minArmInstructionCycles(uint32_t opcode)
+uint32_t minArmInstructionCycles(uint32_t opcode, uint8_t targetCpuId = 0)
 {
     Ps2ArmAlu::Decoded decoded;
     if (Ps2ArmAlu::decode(opcode, &decoded))
@@ -3474,6 +3497,15 @@ uint32_t minArmInstructionCycles(uint32_t opcode)
     if (Ps2ArmAlu::decodeMultiply(opcode, &multiply))
         return multiply.condition == 0xEu
             ? (multiply.setFlags ? 4u : 2u) : 1u;
+
+    Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
+    if (Ps2ArmAlu::decodeSingleTransfer(opcode, &singleTransfer) &&
+        targetCpuId)
+    {
+        if (singleTransfer.condition != 0xEu)
+            return 1u;
+        return singleTransfer.load ? 3u : 2u;
+    }
 
     Ps2ArmAlu::DecodedMultiBlockTransfer multiBlockTransfer;
     if (Ps2ArmAlu::decodeMultiBlockTransfer(opcode, &multiBlockTransfer))
@@ -3535,8 +3567,8 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     uint32_t sequenceMaxCycles = 0;
     for (size_t i = 0; i < count; i++)
     {
-        sequenceMinCycles += minArmInstructionCycles(opcodes[i]);
-        sequenceMaxCycles += maxArmInstructionCycles(opcodes[i]);
+        sequenceMinCycles += minArmInstructionCycles(opcodes[i], targetCpuId);
+        sequenceMaxCycles += maxArmInstructionCycles(opcodes[i], targetCpuId);
     }
     bool internalSelfLoop = sequenceMaxCycles &&
         armSequenceIsReadOnlySelfLoop(opcodes, count, guestPc);
@@ -3732,7 +3764,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         size_t emitted = emitArmInstruction(opcodes[i],
             guestPc + static_cast<uint32_t>(i * 4), code + words, true,
             registerCpsr, memory, forwardedGuestReg, suppressCurrentStore,
-            forwardedCondition, reuseCurrentCondition);
+            forwardedCondition, reuseCurrentCondition, targetCpuId);
         if (!emitted)
             return false;
         words += emitted;
@@ -5462,6 +5494,15 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
             continue;
         }
 
+        Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
+        if (Ps2ArmAlu::decodeSingleTransfer(opcode, &singleTransfer) &&
+            singleTransfer.load && !singleTransfer.registerOffset &&
+            singleTransfer.preIndex && !singleTransfer.writeBack)
+        {
+            opcodes[count++] = opcode;
+            continue;
+        }
+
         Ps2ArmAlu::DecodedBranchExchange branchExchange;
         if (Ps2ArmAlu::decodeBranchExchange(opcode, &branchExchange))
         {
@@ -5505,6 +5546,17 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
             continue;
         }
 
+        Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
+        if (Ps2ArmAlu::decodeSingleTransfer(opcodes[i], &singleTransfer))
+        {
+            if (!singleTransfer.load || singleTransfer.registerOffset ||
+                !singleTransfer.preIndex || singleTransfer.writeBack)
+                return 0;
+            if (!applyArmSingleTransfer(&expected, opcodes[i]))
+                return 0;
+            continue;
+        }
+
         Ps2ArmAlu::DecodedBranchExchange branchExchange;
         if (Ps2ArmAlu::decodeBranchExchange(opcodes[i], &branchExchange))
         {
@@ -5526,7 +5578,6 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
     R5900CompiledBlock *compiled = findMutableBlock(guestPc, false);
     if (!compiled)
         return -1;
-    compiled->arm7TimingSafe = true;
 
     ArmAluState actual = source;
     typedef void (*Arm7ShadowFunction)(ArmAluState *);
@@ -5560,6 +5611,8 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
     hash *= 16777619u;
     hash ^= hostWords;
     hash *= 16777619u;
+
+    compiled->arm7TimingSafe = true;
 
     if (guestPcOut)
         *guestPcOut = guestPc;
@@ -5770,8 +5823,8 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
     state.memoryFault = 0;
     state.writeCount = 0;
     state.cycles = 0;
-    state.readCacheTag = 0;
-    state.readCachePage = nullptr;
+    state.readCacheTag = block->cachedReadTag;
+    state.readCachePage = block->cachedReadPage;
     state.writeCacheTag = 0;
     state.writeCachePage = nullptr;
     state.cycleLimit = cycleBudget;
@@ -5782,6 +5835,12 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
     Arm7ActiveFunction function =
         reinterpret_cast<Arm7ActiveFunction>(block->hostCode);
     function(&state);
+
+    if (state.readCacheTag && state.readCachePage)
+    {
+        block->cachedReadTag = state.readCacheTag;
+        block->cachedReadPage = state.readCachePage;
+    }
 
     if (state.memoryFault || state.writeCount ||
         ((state.cpsr ^ liveCpsr) & 0x1Fu) ||
