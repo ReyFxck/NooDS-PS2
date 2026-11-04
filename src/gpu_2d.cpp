@@ -1605,6 +1605,51 @@ void Gpu2D::drawObjects(int line, bool window)
         return core->memory.read<uint16_t>(gba, address);
     };
 
+    auto readObject32 = [&](uint32_t address) -> uint32_t
+    {
+        uint8_t *page = nullptr;
+        const uint32_t offset = address & 0xFFFu;
+        if (offset <= 0xFFCu && objectPageCache.lookup(address, page))
+        {
+            GPU2D_DETAIL_INC(objDetail, pageHits, 1);
+            return U8TO32(page, offset);
+        }
+        if (offset <= 0xFFCu &&
+            (page = core->memory.getDirectReadPage(gba, address)))
+        {
+            GPU2D_DETAIL_INC(objDetail, pageMaps, 1);
+            objectPageCache.store(address, page);
+            return U8TO32(page, offset);
+        }
+        GPU2D_DETAIL_INC(objDetail, fallbackReads, 1);
+        return core->memory.read<uint32_t>(gba, address);
+    };
+
+    auto readObject64 = [&](uint32_t address) -> uint64_t
+    {
+        uint8_t *page = nullptr;
+        const uint32_t offset = address & 0xFFFu;
+        if (offset <= 0xFF8u && objectPageCache.lookup(address, page))
+        {
+            GPU2D_DETAIL_INC(objDetail, pageHits, 1);
+            return static_cast<uint64_t>(U8TO32(page, offset)) |
+                (static_cast<uint64_t>(U8TO32(page, offset + 4)) << 32);
+        }
+        if (offset <= 0xFF8u &&
+            (page = core->memory.getDirectReadPage(gba, address)))
+        {
+            GPU2D_DETAIL_INC(objDetail, pageMaps, 1);
+            objectPageCache.store(address, page);
+            return static_cast<uint64_t>(U8TO32(page, offset)) |
+                (static_cast<uint64_t>(U8TO32(page, offset + 4)) << 32);
+        }
+        GPU2D_DETAIL_INC(objDetail, fallbackReads, 2);
+        return static_cast<uint64_t>(
+            core->memory.read<uint32_t>(gba, address)) |
+            (static_cast<uint64_t>(
+                core->memory.read<uint32_t>(gba, address + 4)) << 32);
+    };
+
     // Loop through and draw the 128 sprites in OAM
     for (int i = 0; i < 128; i++)
     {
@@ -1952,30 +1997,47 @@ void Gpu2D::drawObjects(int line, bool window)
                 static_cast<uint64_t>(width - (jEnd > jStart ? (jEnd - jStart) : 0)));
             if (jStart >= jEnd) continue;
 
-            // Draw the visible line of the object.
-            for (int j = jStart; j < jEnd; j++)
+            // Draw one 8-pixel tile row at a time. Normal OBJ rows are
+            // contiguous in VRAM, so one 64-bit fetch replaces eight page-cache
+            // lookups/byte reads while preserving logical texel order for flip.
+            for (int tileJ = jStart & ~7; tileJ < jEnd; tileJ += 8)
             {
-                int offset = hFlip ? (x + width - j - 1) : (x + j);
+                const uint64_t packed = readObject64(
+                    tileBase + (tileJ >> 3) * 64);
+                const int localStart =
+                    (jStart > tileJ) ? (jStart - tileJ) : 0;
+                const int localEnd =
+                    (jEnd < tileJ + 8) ? (jEnd - tileJ) : 8;
+                GPU2D_DETAIL_INC(objDetail, texels,
+                    static_cast<uint64_t>(localEnd - localStart));
 
-                // Get the palette index for the current pixel
-                uint8_t index = readObject8(
-                    tileBase + (j >> 3) * 64 + (j & 7));
-
-                if (index && type == 2) // Object window
+                for (int local = localStart; local < localEnd; local++)
                 {
-                    // Mark object window pixels with an extra bit, and don't draw anything
-                    GPU2D_DETAIL_INC(objDetail, objectWindowWrites, 1);
-                    frameLine[offset] |= BIT(24);
-                }
-                else
-                {
-                    // Draw a pixel, marking semi-transparent pixels with an extra bit
-                    if (index)
-                        putObjPixel(offset, ((type == 1) << 25) | BIT(15) | U8TO16(pal, index * 2), priority);
+                    const int j = tileJ + local;
+                    const int offset =
+                        hFlip ? (x + width - j - 1) : (x + j);
+                    const uint8_t index =
+                        static_cast<uint8_t>(packed >> (local * 8));
 
-                    // Update the priority even if the pixel is transparent
-                    // This is a quirky behavior of the GBA, but it seems to have been fixed on the DS
-                    if (gba && priority < priorities[0][offset] && blendBits[0][offset] == 4)
+                    if (!index)
+                    {
+                        GPU2D_DETAIL_INC(objDetail, transparent, 1);
+                    }
+                    else if (type == 2) // Object window
+                    {
+                        GPU2D_DETAIL_INC(objDetail, objectWindowWrites, 1);
+                        frameLine[offset] |= BIT(24);
+                    }
+                    else
+                    {
+                        putObjPixel(offset,
+                            ((type == 1) << 25) | BIT(15) |
+                            U8TO16(pal, index * 2), priority);
+                    }
+
+                    // Preserve the GBA transparent-OBJ priority quirk.
+                    if (gba && priority < priorities[0][offset] &&
+                        blendBits[0][offset] == 4)
                         priorities[0][offset] = priority;
                 }
             }
@@ -2015,31 +2077,45 @@ void Gpu2D::drawObjects(int line, bool window)
                 static_cast<uint64_t>(width - (jEnd > jStart ? (jEnd - jStart) : 0)));
             if (jStart >= jEnd) continue;
 
-            // Draw the visible line of the object.
-            for (int j = jStart; j < jEnd; j++)
+            // Four bytes encode one 8-pixel 4bpp tile row. Fetch them
+            // together instead of repeating the same byte/page lookup twice.
+            for (int tileJ = jStart & ~7; tileJ < jEnd; tileJ += 8)
             {
-                int offset = hFlip ? (x + width - j - 1) : (x + j);
+                const uint32_t packed = readObject32(
+                    tileBase + (tileJ >> 3) * 32);
+                const int localStart =
+                    (jStart > tileJ) ? (jStart - tileJ) : 0;
+                const int localEnd =
+                    (jEnd < tileJ + 8) ? (jEnd - tileJ) : 8;
+                GPU2D_DETAIL_INC(objDetail, texels,
+                    static_cast<uint64_t>(localEnd - localStart));
 
-                // Get the palette index for the current pixel
-                uint8_t index = readObject8(
-                    tileBase + (j >> 3) * 32 + ((j & 7) >> 1));
-                index = (j & 1) ? ((index & 0xF0) >> 4) : (index & 0x0F);
-
-                if (index && type == 2) // Object window
+                for (int local = localStart; local < localEnd; local++)
                 {
-                    // Mark object window pixels with an extra bit, and don't draw anything
-                    GPU2D_DETAIL_INC(objDetail, objectWindowWrites, 1);
-                    frameLine[offset] |= BIT(24);
-                }
-                else
-                {
-                    // Draw a pixel, marking semi-transparent pixels with an extra bit
-                    if (index)
-                        putObjPixel(offset, ((type == 1) << 25) | BIT(15) | U8TO16(pal, index * 2), priority);
+                    const int j = tileJ + local;
+                    const int offset =
+                        hFlip ? (x + width - j - 1) : (x + j);
+                    const uint8_t index =
+                        static_cast<uint8_t>((packed >> (local * 4)) & 0xFu);
 
-                    // Update the priority even if the pixel is transparent
-                    // This is a quirky behavior of the GBA, but it seems to have been fixed on the DS
-                    if (gba && priority < priorities[0][offset] && blendBits[0][offset] == 4)
+                    if (!index)
+                    {
+                        GPU2D_DETAIL_INC(objDetail, transparent, 1);
+                    }
+                    else if (type == 2) // Object window
+                    {
+                        GPU2D_DETAIL_INC(objDetail, objectWindowWrites, 1);
+                        frameLine[offset] |= BIT(24);
+                    }
+                    else
+                    {
+                        putObjPixel(offset,
+                            ((type == 1) << 25) | BIT(15) |
+                            U8TO16(pal, index * 2), priority);
+                    }
+
+                    if (gba && priority < priorities[0][offset] &&
+                        blendBits[0][offset] == 4)
                         priorities[0][offset] = priority;
                 }
             }
