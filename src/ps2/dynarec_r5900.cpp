@@ -1917,6 +1917,8 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
     code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, -32);
     code[words++] = R5900::sw(R5900::R_RA, 28, R5900::R_SP);
     code[words++] = R5900::sw(R5900::R_A0, 24, R5900::R_SP);
+    if (decoded.writeBack)
+        code[words++] = R5900::sw(R5900::R_T0, 20, R5900::R_SP);
     code[words++] = R5900::or_(R5900::R_A1, R5900::R_T0, R5900::R_ZERO);
     uintptr_t helper =
         reinterpret_cast<uintptr_t>(&refillArm9HalfwordReadCache);
@@ -1927,6 +1929,8 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
     code[words++] = R5900::jalr(R5900::R_RA, R5900::R_T9);
     code[words++] = R5900::nop();
     code[words++] = R5900::lw(R5900::R_A0, 24, R5900::R_SP);
+    if (decoded.writeBack)
+        code[words++] = R5900::lw(R5900::R_T0, 20, R5900::R_SP);
     code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
     code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
     if (!suppressResultStore)
@@ -2756,6 +2760,8 @@ size_t emitArmByteLoadCachedInstruction(uint32_t opcode,
     code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, -32);
     code[words++] = R5900::sw(R5900::R_RA, 28, R5900::R_SP);
     code[words++] = R5900::sw(R5900::R_A0, 24, R5900::R_SP);
+    if (decoded.writeBack)
+        code[words++] = R5900::sw(R5900::R_T0, 20, R5900::R_SP);
     code[words++] = R5900::or_(R5900::R_A1, R5900::R_T0, R5900::R_ZERO);
     uintptr_t helper = reinterpret_cast<uintptr_t>(&refillArm9ByteReadCache);
     code[words++] = R5900::lui(R5900::R_T9,
@@ -2765,6 +2771,8 @@ size_t emitArmByteLoadCachedInstruction(uint32_t opcode,
     code[words++] = R5900::jalr(R5900::R_RA, R5900::R_T9);
     code[words++] = R5900::nop();
     code[words++] = R5900::lw(R5900::R_A0, 24, R5900::R_SP);
+    if (decoded.writeBack)
+        code[words++] = R5900::lw(R5900::R_T0, 20, R5900::R_SP);
     code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
     code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
     if (!suppressResultStore)
@@ -2998,6 +3006,8 @@ size_t emitArmWordLoadCachedInstruction(uint32_t opcode,
     code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, -32);
     code[words++] = R5900::sw(R5900::R_RA, 28, R5900::R_SP);
     code[words++] = R5900::sw(R5900::R_A0, 24, R5900::R_SP);
+    if (decoded.writeBack)
+        code[words++] = R5900::sw(R5900::R_T0, 20, R5900::R_SP);
     code[words++] = R5900::or_(R5900::R_A1, R5900::R_T0, R5900::R_ZERO);
     uintptr_t helper = reinterpret_cast<uintptr_t>(&refillArm9WordReadCache);
     code[words++] = R5900::lui(R5900::R_T9,
@@ -3007,6 +3017,8 @@ size_t emitArmWordLoadCachedInstruction(uint32_t opcode,
     code[words++] = R5900::jalr(R5900::R_RA, R5900::R_T9);
     code[words++] = R5900::nop();
     code[words++] = R5900::lw(R5900::R_A0, 24, R5900::R_SP);
+    if (decoded.writeBack)
+        code[words++] = R5900::lw(R5900::R_T0, 20, R5900::R_SP);
     code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
     code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
     if (!suppressResultStore)
