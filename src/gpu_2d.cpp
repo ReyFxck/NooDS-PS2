@@ -379,11 +379,23 @@ void Gpu2D::drawScanline(int line)
 #ifdef NOODS_PROFILE
         ProfileScope profile(this, GPU2D_PROFILE_COMPOSE);
 #endif
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+        Gpu2DComposeDetailCounters *composeDetail = nullptr;
+        if (profileEnabled &&
+            profileSample64(runProfile.composeDetailSampleState,
+                0x720u + static_cast<uint32_t>(engine)))
+        {
+            composeDetail = &runProfile.composeDetail;
+            runProfile.composeDetailSamples++;
+            composeDetail->calls++;
+        }
+#endif
         // With blending disabled and normal layer output selected, conversion
         // can go straight to the framebuffer. This avoids writing converted
         // pixels back to layers[0] only to memcpy them immediately afterwards.
         if (bldCnt == 0)
         {
+            GPU2D_DETAIL_INC(composeDetail, noBlendCalls, 1);
             if (displayMode == 1)
             {
                 directLayerOutput = true;
@@ -392,6 +404,8 @@ void Gpu2D::drawScanline(int line)
                     (static_cast<uint64_t>(BIT(26)) << 32);
                 uint32_t *output = &framebuffer[line * 256];
 
+                GPU2D_DETAIL_INC(composeDetail, pixels, 256);
+                GPU2D_DETAIL_INC(composeDetail, directWrites, 256);
                 for (int i = 0; i < 256; i += 2)
                 {
                     uint64_t pair;
@@ -399,16 +413,27 @@ void Gpu2D::drawScanline(int line)
 
                     if ((pair & threeDMask) == 0)
                     {
+                        GPU2D_DETAIL_INC(composeDetail, rgbConversions, 2);
                         pair = gpu2dRgb5PairToRgb6(pair);
                     }
                     else
                     {
                         uint32_t low = static_cast<uint32_t>(pair);
                         uint32_t high = static_cast<uint32_t>(pair >> 32);
-                        if (!(low & BIT(26)))
+                        if (low & BIT(26))
+                            GPU2D_DETAIL_INC(composeDetail, threeDPixels, 1);
+                        else
+                        {
+                            GPU2D_DETAIL_INC(composeDetail, rgbConversions, 1);
                             low = gpu2dRgb5ToRgb6(low);
-                        if (!(high & BIT(26)))
+                        }
+                        if (high & BIT(26))
+                            GPU2D_DETAIL_INC(composeDetail, threeDPixels, 1);
+                        else
+                        {
+                            GPU2D_DETAIL_INC(composeDetail, rgbConversions, 1);
                             high = gpu2dRgb5ToRgb6(high);
+                        }
                         pair = static_cast<uint64_t>(low) |
                             (static_cast<uint64_t>(high) << 32);
                     }
@@ -419,6 +444,7 @@ void Gpu2D::drawScanline(int line)
         }
         else if (displayMode == 1)
         {
+            GPU2D_DETAIL_INC(composeDetail, blendedCalls, 1);
             // Compose directly into the final scanline. The old path rewrote
             // layers[0] and then memcpy'd all 256 pixels to framebuffer even
             // though no later stage consumes the composed layer buffer.
@@ -428,6 +454,9 @@ void Gpu2D::drawScanline(int line)
             const uint8_t eva = std::min((bldAlpha >> 0) & 0x1F, 16);
             const uint8_t evb = std::min((bldAlpha >> 8) & 0x1F, 16);
             const bool noWindows = (dispCnt & 0x0000E000u) == 0;
+            GPU2D_DETAIL_INC(composeDetail, windowedCalls,
+                noWindows ? 0 : 1);
+            GPU2D_DETAIL_INC(composeDetail, pixels, 256);
 
             for (int i = 0; i < 256; i++)
             {
@@ -437,8 +466,10 @@ void Gpu2D::drawScanline(int line)
                 // Check if blending can/should be performed
                 if (pixel & BIT(26)) // 3D pixel
                 {
+                    GPU2D_DETAIL_INC(composeDetail, threeDPixels, 1);
                     if (bldCnt & BIT(8 + blendBits[1][i]))
                     {
+                        GPU2D_DETAIL_INC(composeDetail, special3DAlpha, 1);
                         // 3D alpha blending overrides the normal rules and,
                         // matching the original path, occurs before window
                         // effect masking.
@@ -455,6 +486,7 @@ void Gpu2D::drawScanline(int line)
                             ((pixel >> 12) & 0x3F) * alphaA / 64 +
                             ((blend >> 12) & 0x3F) * alphaB / 64, 63);
                         output[i] = (b << 12) | (g << 6) | r;
+                        GPU2D_DETAIL_INC(composeDetail, directWrites, 1);
                         continue;
                     }
                     if (mode < 2 || !(bldCnt & BIT(blendBits[0][i])))
@@ -466,10 +498,13 @@ void Gpu2D::drawScanline(int line)
                 else
                 {
                     // Convert the pixel to 18-bit since it isn't a 3D pixel.
+                    GPU2D_DETAIL_INC(composeDetail, rgbConversions, 1);
                     pixel = rgb5ToRgb6(pixel);
 
                     if (pixel & BIT(25)) // Semi-transparent object pixel
                     {
+                        GPU2D_DETAIL_INC(composeDetail,
+                            semiTransparentPixels, 1);
                         if (bldCnt & BIT(8 + blendBits[1][i]))
                             forceAlpha = true;
                         else if (mode < 2 ||
@@ -493,6 +528,7 @@ void Gpu2D::drawScanline(int line)
                 // entire decision tree on the common no-window path.
                 if (!noWindows)
                 {
+                    GPU2D_DETAIL_INC(composeDetail, windowChecks, 1);
                     uint8_t enabled;
                     if ((dispCnt & BIT(13)) &&
                         i >= winX1[0] && i < winX2[0] &&
@@ -510,6 +546,8 @@ void Gpu2D::drawScanline(int line)
 
                     if (!(enabled & BIT(5)))
                     {
+                        GPU2D_DETAIL_INC(composeDetail, windowRejects, 1);
+                        GPU2D_DETAIL_INC(composeDetail, directWrites, 1);
                         output[i] = pixel;
                         continue;
                     }
@@ -518,6 +556,7 @@ void Gpu2D::drawScanline(int line)
                 // Apply blending, using 18-bit colors in DS mode.
                 if (forceAlpha || mode == 1)
                 {
+                    GPU2D_DETAIL_INC(composeDetail, alphaBlend, 1);
                     uint32_t blend = (layers[1][i] & BIT(26))
                         ? layers[1][i] : rgb5ToRgb6(layers[1][i]);
                     uint8_t r = std::min<uint32_t>(
@@ -533,6 +572,7 @@ void Gpu2D::drawScanline(int line)
                 }
                 else if (mode == 2)
                 {
+                    GPU2D_DETAIL_INC(composeDetail, brightUp, 1);
                     uint8_t r = (pixel >> 0) & 0x3F;
                     uint8_t g = (pixel >> 6) & 0x3F;
                     uint8_t b = (pixel >> 12) & 0x3F;
@@ -543,6 +583,7 @@ void Gpu2D::drawScanline(int line)
                 }
                 else if (mode == 3)
                 {
+                    GPU2D_DETAIL_INC(composeDetail, brightDown, 1);
                     uint8_t r = (pixel >> 0) & 0x3F;
                     uint8_t g = (pixel >> 6) & 0x3F;
                     uint8_t b = (pixel >> 12) & 0x3F;
@@ -552,6 +593,7 @@ void Gpu2D::drawScanline(int line)
                     pixel = (b << 12) | (g << 6) | r;
                 }
 
+                GPU2D_DETAIL_INC(composeDetail, directWrites, 1);
                 output[i] = pixel;
             }
         }
