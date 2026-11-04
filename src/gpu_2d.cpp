@@ -692,14 +692,29 @@ void Gpu2D::drawText(int bg, int line)
     ProfileScope profile(this, GPU2D_PROFILE_TEXT);
 #endif
 
-    // If 3D is enabled, override BG0 in text mode
+    // If 3D is enabled, override BG0 in text mode. The normal text path
+    // already bypasses per-pixel window checks when no windows are active;
+    // do the same here because 3D BG0 can cover all 256 pixels of every line.
     if (!core->isGbaMode() && bg == 0 && (dispCnt & BIT(3)))
     {
         uint32_t *data = core->gpu3DRenderer.getLine(line);
-        for (int i = 0; i < 256; i++)
+        const bool noWindows = (dispCnt & 0x0000E000u) == 0;
+        const int8_t bgPriority = bgCnt[0] & 0x3;
+        if (noWindows)
         {
-            if (data[i] & 0xFC0000)
-                drawBgPixel(bg, line, i, data[i]);
+            for (int i = 0; i < 256; i++)
+            {
+                if (data[i] & 0xFC0000)
+                    drawBgPixelNoWindow(0, i, data[i], bgPriority);
+            }
+        }
+        else
+        {
+            for (int i = 0; i < 256; i++)
+            {
+                if (data[i] & 0xFC0000)
+                    drawBgPixel(0, line, i, data[i]);
+            }
         }
         return;
     }
