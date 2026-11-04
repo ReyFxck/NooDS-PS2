@@ -589,6 +589,36 @@ class ArmMemoryWriteGuard
 bool writeDirectArm9Byte(void *context, uint32_t address, uint8_t value);
 bool writeDirectArm9Word(void *context, uint32_t address, uint32_t value);
 
+bool applyArmHalfwordRegisterStoreFast(ArmAluState *state,
+    uint32_t packed)
+{
+    if (!state || !state->memory)
+        return false;
+
+    uint8_t rn = static_cast<uint8_t>(packed & 0xFu);
+    uint8_t rd = static_cast<uint8_t>((packed >> 4) & 0xFu);
+    uint8_t rm = static_cast<uint8_t>((packed >> 8) & 0xFu);
+    bool addOffset = (packed & BIT(12)) != 0;
+    bool preIndex = (packed & BIT(13)) != 0;
+    bool writeBack = (packed & BIT(14)) != 0;
+
+    uint32_t base = state->r[rn];
+    uint32_t offset = state->r[rm];
+    uint32_t adjusted = addOffset ? base + offset : base - offset;
+    uint32_t address = preIndex ? adjusted : base;
+
+    if (!writeDirectArm9Halfword(state, address,
+        static_cast<uint16_t>(state->r[rd])))
+    {
+        state->memoryFault = 1;
+        return false;
+    }
+
+    if (writeBack)
+        state->r[rn] = adjusted;
+    return true;
+}
+
 bool applyArmImmediateStoreFast(ArmAluState *state, uint32_t packed)
 {
     if (!state || !state->memory)
@@ -1533,6 +1563,159 @@ size_t emitArmHalfwordLoadCachedInstruction(uint32_t opcode,
     return words;
 }
 
+size_t emitArmHalfwordRegisterStoreFastInstruction(uint32_t opcode,
+    uint32_t *code, bool registerCycles, bool registerCpsr)
+{
+    Ps2ArmAlu::DecodedHalfwordTransfer decoded;
+    if (!code || !Ps2ArmAlu::decodeHalfwordTransfer(opcode, &decoded) ||
+        decoded.load || decoded.immediate)
+        return 0;
+
+    uint32_t packed = static_cast<uint32_t>(decoded.rn) |
+        (static_cast<uint32_t>(decoded.rd) << 4) |
+        (static_cast<uint32_t>(decoded.rm) << 8) |
+        (decoded.addOffset ? BIT(12) : 0u) |
+        (decoded.preIndex ? BIT(13) : 0u) |
+        (decoded.writeBack ? BIT(14) : 0u);
+
+    size_t words = 0;
+    words += emitArmCycleAdd(1, code + words, registerCycles);
+
+    size_t conditionBranch = static_cast<size_t>(-1);
+    if (decoded.condition != 0xEu)
+    {
+        words += emitArmCondition(decoded.condition, code + words,
+            registerCpsr);
+        conditionBranch = words;
+        code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
+        code[words++] = R5900::nop();
+    }
+
+    // t0 = original base, t1 = register offset, t2 = adjusted base.
+    code[words++] = R5900::lw(R5900::R_T0,
+        static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+    code[words++] = R5900::lw(R5900::R_T1,
+        static_cast<int16_t>(decoded.rm * 4), R5900::R_A0);
+    code[words++] = decoded.addOffset
+        ? R5900::addu(R5900::R_T2, R5900::R_T0, R5900::R_T1)
+        : R5900::subu(R5900::R_T2, R5900::R_T0, R5900::R_T1);
+    if (decoded.preIndex)
+        code[words++] = R5900::or_(R5900::R_T0,
+            R5900::R_T2, R5900::R_ZERO);
+
+    // SH needs an aligned host address; odd guest addresses retain the exact
+    // bytewise helper behavior.
+    code[words++] = R5900::andi(R5900::R_T4, R5900::R_T0, 1);
+    size_t oddBranch = words;
+    code[words++] = R5900::bne(R5900::R_T4, R5900::R_ZERO, 0);
+    code[words++] = R5900::nop();
+
+    code[words++] = R5900::srl(R5900::R_T4, R5900::R_T0, 12);
+    code[words++] = R5900::addiu(R5900::R_T4, R5900::R_T4, 1);
+    code[words++] = R5900::lw(R5900::R_T5, 104, R5900::R_A0);
+    size_t missBranch = words;
+    code[words++] = R5900::bne(R5900::R_T4, R5900::R_T5, 0);
+    code[words++] = R5900::nop();
+    code[words++] = R5900::lw(R5900::R_T3, 108, R5900::R_A0);
+    size_t nullBranch = words;
+    code[words++] = R5900::beq(R5900::R_T3, R5900::R_ZERO, 0);
+    code[words++] = R5900::nop();
+
+    code[words++] = R5900::lw(R5900::R_T5, 80, R5900::R_A0);
+    code[words++] = R5900::sltiu(R5900::R_T6, R5900::R_T5, 16);
+    size_t journalFullBranch = words;
+    code[words++] = R5900::beq(R5900::R_T6, R5900::R_ZERO, 0);
+    code[words++] = R5900::nop();
+
+    code[words++] = R5900::andi(R5900::R_T4, R5900::R_T0, 0x0FFFu);
+    code[words++] = R5900::addu(R5900::R_T3, R5900::R_T3, R5900::R_T4);
+    code[words++] = R5900::lw(R5900::R_T1,
+        static_cast<int16_t>(decoded.rd * 4), R5900::R_A0);
+
+    // Journal address/before/after/size (16-byte entry at state+112).
+    code[words++] = R5900::sll(R5900::R_T6, R5900::R_T5, 4);
+    code[words++] = R5900::addiu(R5900::R_T7, R5900::R_A0, 112);
+    code[words++] = R5900::addu(R5900::R_T7, R5900::R_T7, R5900::R_T6);
+    code[words++] = R5900::lhu(R5900::R_T6, 0, R5900::R_T3);
+    code[words++] = R5900::sw(R5900::R_T0, 0, R5900::R_T7);
+    code[words++] = R5900::sw(R5900::R_T6, 4, R5900::R_T7);
+    code[words++] = R5900::sw(R5900::R_T1, 8, R5900::R_T7);
+    code[words++] = R5900::addiu(R5900::R_T6, R5900::R_ZERO, 2);
+    code[words++] = R5900::sw(R5900::R_T6, 12, R5900::R_T7);
+    code[words++] = R5900::sh(R5900::R_T1, 0, R5900::R_T3);
+    code[words++] = R5900::addiu(R5900::R_T5, R5900::R_T5, 1);
+    code[words++] = R5900::sw(R5900::R_T5, 80, R5900::R_A0);
+
+    if (decoded.writeBack)
+        code[words++] = R5900::sw(R5900::R_T2,
+            static_cast<int16_t>(decoded.rn * 4), R5900::R_A0);
+
+    size_t fastDoneBranch = words;
+    code[words++] = R5900::beq(R5900::R_ZERO, R5900::R_ZERO, 0);
+    code[words++] = R5900::nop();
+
+    size_t slowPath = words;
+    if (registerCpsr)
+        code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
+    if (registerCycles)
+        code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
+
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, -32);
+    code[words++] = R5900::sw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::sw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lui(R5900::R_A1,
+        static_cast<uint16_t>(packed >> 16));
+    code[words++] = R5900::ori(R5900::R_A1, R5900::R_A1,
+        static_cast<uint16_t>(packed));
+    uintptr_t helper =
+        reinterpret_cast<uintptr_t>(&applyArmHalfwordRegisterStoreFast);
+    code[words++] = R5900::lui(R5900::R_T9,
+        static_cast<uint16_t>(helper >> 16));
+    code[words++] = R5900::ori(R5900::R_T9, R5900::R_T9,
+        static_cast<uint16_t>(helper));
+    code[words++] = R5900::jalr(R5900::R_RA, R5900::R_T9);
+    code[words++] = R5900::nop();
+    code[words++] = R5900::lw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
+
+    if (registerCycles)
+        code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
+    if (registerCpsr)
+        code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
+
+    size_t done = words;
+    auto patchBne = [&](size_t branch, int rs, int rt, size_t target)
+    {
+        size_t distance = target - (branch + 1);
+        if (distance > 0x7FFFu)
+            return false;
+        code[branch] = R5900::bne(rs, rt, static_cast<int16_t>(distance));
+        return true;
+    };
+    auto patchBeq = [&](size_t branch, int rs, int rt, size_t target)
+    {
+        size_t distance = target - (branch + 1);
+        if (distance > 0x7FFFu)
+            return false;
+        code[branch] = R5900::beq(rs, rt, static_cast<int16_t>(distance));
+        return true;
+    };
+
+    if (!patchBne(oddBranch, R5900::R_T4, R5900::R_ZERO, slowPath) ||
+        !patchBne(missBranch, R5900::R_T4, R5900::R_T5, slowPath) ||
+        !patchBeq(nullBranch, R5900::R_T3, R5900::R_ZERO, slowPath) ||
+        !patchBeq(journalFullBranch, R5900::R_T6, R5900::R_ZERO, slowPath) ||
+        !patchBeq(fastDoneBranch, R5900::R_ZERO, R5900::R_ZERO, done))
+        return 0;
+
+    if (conditionBranch != static_cast<size_t>(-1) &&
+        !patchBeq(conditionBranch, R5900::R_T7, R5900::R_ZERO, done))
+        return 0;
+
+    return words;
+}
+
 size_t emitArmImmediateStoreFastInstruction(uint32_t opcode,
     uint32_t *code, bool registerCycles, bool registerCpsr)
 {
@@ -2468,6 +2651,9 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
                 registerCycles, registerCpsr, suppressResultStore);
         if (!transfer.load && transfer.immediate)
             return emitArmImmediateStoreFastInstruction(opcode, code,
+                registerCycles, registerCpsr);
+        if (!transfer.load && !transfer.immediate)
+            return emitArmHalfwordRegisterStoreFastInstruction(opcode, code,
                 registerCycles, registerCpsr);
 
         helperNeedsCpsr = transfer.condition != 0xEu;
