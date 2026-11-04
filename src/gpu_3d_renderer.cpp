@@ -569,7 +569,7 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
         case 4: // 256-color palette
         {
             // Get the 8-bit palette index
-            uint32_t address = polygon->textureAddr + (t * polygon->sizeS + s);
+            uint32_t address = polygon->textureAddr + (ut * polygon->sizeS + us);
             uint8_t *data = getTexture(address);
             if (!data) return 0;
             uint8_t index = *data;
@@ -668,7 +668,7 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
         case 6: // A5I3 translucent
         {
             // Get the 8-bit palette index
-            uint32_t address = polygon->textureAddr + (t * polygon->sizeS + s);
+            uint32_t address = polygon->textureAddr + (ut * polygon->sizeS + us);
             uint8_t *data = getTexture(address);
             if (!data) return 0;
             uint8_t index = *data;
