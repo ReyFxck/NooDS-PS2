@@ -2949,6 +2949,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     // correctness gate. Keep cycles in t8 and, when direct generated
     // instructions consume/produce flags, keep CPSR in v1 too.
     bool registerCpsr = false;
+    bool writesRegisterCpsr = false;
     for (size_t i = 0; i < count; i++)
     {
         Ps2ArmAlu::Decoded decoded;
@@ -2957,6 +2958,8 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             if (!logicalShiftNeedsHelper(decoded) &&
                 (decoded.condition != 0xEu || decoded.setFlags))
                 registerCpsr = true;
+            if (!logicalShiftNeedsHelper(decoded) && decoded.setFlags)
+                writesRegisterCpsr = true;
             continue;
         }
 
@@ -2970,7 +2973,10 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
 
         Ps2ArmAlu::DecodedBranchExchange branchExchange;
         if (Ps2ArmAlu::decodeBranchExchange(opcodes[i], &branchExchange))
+        {
             registerCpsr = true;
+            writesRegisterCpsr = true;
+        }
     }
 
     const size_t maxWords = count * 70 + (internalSelfLoop ? 40 : 6);
@@ -3151,7 +3157,9 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
 
     size_t epilogue = words;
     code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
-    if (registerCpsr)
+    // Conditional/flag-reading blocks may keep CPSR in v1 without changing
+    // it. Only write it back when this sequence can actually modify NZCV/T.
+    if (writesRegisterCpsr)
         code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
     code[words++] = R5900::jr(R5900::R_RA);
     code[words++] = R5900::nop();
