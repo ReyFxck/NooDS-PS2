@@ -994,10 +994,19 @@ bool applyArmLiteralLoad(ArmAluState *state, uint32_t opcode, uint32_t pc)
 {
     if (!state || !state->memory)
         return false;
+
+    Ps2ArmAlu::DecodedLiteralLoad decoded;
+    if (!Ps2ArmAlu::decodeLiteralLoad(opcode, &decoded))
+        return false;
+    bool passed = Ps2ArmAlu::conditionPassed(decoded.condition, state->cpsr);
+
     if (Ps2ArmAlu::executeLiteralLoad(opcode, pc, state->r, &state->cpsr,
         state, readDirectArm9Word))
     {
-        state->cycles++;
+        if (!passed)
+            state->cycles += 1u;
+        else
+            state->cycles += state->cpuId ? 3u : 1u;
         return true;
     }
     state->memoryFault = 1;
@@ -2745,7 +2754,7 @@ size_t emitArmByteTransferInstruction(uint32_t opcode, uint32_t *code)
 
 size_t emitArmLiteralLoadDirectInstruction(uint32_t opcode, uint32_t pc,
     uint32_t *code, Memory *memory, bool registerCycles, bool registerCpsr,
-    bool suppressResultStore = false)
+    bool suppressResultStore = false, uint8_t targetCpuId = 0)
 {
     Ps2ArmAlu::DecodedLiteralLoad decoded;
     if (!code || !memory || !Ps2ArmAlu::decodeLiteralLoad(opcode, &decoded))
@@ -2758,7 +2767,8 @@ size_t emitArmLiteralLoadDirectInstruction(uint32_t opcode, uint32_t pc,
     if ((address & 3u) || (address & 0xFFFu) > 0xFFCu)
         return 0;
 
-    uint8_t *page = memory->getDirectReadPage(0, address);
+    uint8_t *page =
+        memory->getDirectReadPage(targetCpuId != 0, address);
     if (!page)
         return 0;
 
@@ -2779,6 +2789,9 @@ size_t emitArmLiteralLoadDirectInstruction(uint32_t opcode, uint32_t pc,
         code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
         code[words++] = R5900::nop();
     }
+
+    if (targetCpuId)
+        words += emitArmCycleAdd(2, code + words, registerCycles);
 
     code[words++] = R5900::lui(R5900::R_T0,
         static_cast<uint16_t>(hostAddress >> 16));
@@ -3501,7 +3514,7 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
                 {
                     size_t direct = emitArmLiteralLoadDirectInstruction(opcode,
                         pc, code, directMemory, registerCycles, registerCpsr,
-                        suppressResultStore);
+                        suppressResultStore, targetCpuId);
                     if (direct)
                         return direct;
                 }
@@ -3617,6 +3630,10 @@ uint32_t maxArmInstructionCycles(uint32_t opcode, uint8_t targetCpuId = 0)
     if (Ps2ArmAlu::decodeMultiply(opcode, &multiply))
         return multiply.setFlags ? 4u : 2u;
 
+    Ps2ArmAlu::DecodedLiteralLoad literalLoad;
+    if (Ps2ArmAlu::decodeLiteralLoad(opcode, &literalLoad) && targetCpuId)
+        return 3u;
+
     Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
     if (Ps2ArmAlu::decodeSingleTransfer(opcode, &singleTransfer) &&
         targetCpuId)
@@ -3659,6 +3676,10 @@ uint32_t minArmInstructionCycles(uint32_t opcode, uint8_t targetCpuId = 0)
     if (Ps2ArmAlu::decodeMultiply(opcode, &multiply))
         return multiply.condition == 0xEu
             ? (multiply.setFlags ? 4u : 2u) : 1u;
+
+    Ps2ArmAlu::DecodedLiteralLoad literalLoad;
+    if (Ps2ArmAlu::decodeLiteralLoad(opcode, &literalLoad) && targetCpuId)
+        return literalLoad.condition == 0xEu ? 3u : 1u;
 
     Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
     if (Ps2ArmAlu::decodeSingleTransfer(opcode, &singleTransfer) &&
@@ -3893,7 +3914,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
                         ? base + literal.immediateOffset
                         : base - literal.immediateOffset;
                     if (!(address & 3u) && memory &&
-                        memory->getDirectReadPage(0, address))
+                        memory->getDirectReadPage(targetCpuId != 0, address))
                     {
                         producedGuestReg = literal.rd;
                         producedCondition = literal.condition;
@@ -6025,6 +6046,13 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
             continue;
         }
 
+        Ps2ArmAlu::DecodedLiteralLoad literalLoad;
+        if (Ps2ArmAlu::decodeLiteralLoad(opcode, &literalLoad))
+        {
+            opcodes[count++] = opcode;
+            continue;
+        }
+
         Ps2ArmAlu::DecodedSingleTransfer singleTransfer;
         if (Ps2ArmAlu::decodeSingleTransfer(opcode, &singleTransfer) &&
             !singleTransfer.registerOffset && singleTransfer.preIndex &&
@@ -6093,6 +6121,15 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
         {
             if (!applyArmAlu(opcodes[i], &expected))
                 return -1;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedLiteralLoad literalLoad;
+        if (Ps2ArmAlu::decodeLiteralLoad(opcodes[i], &literalLoad))
+        {
+            if (!applyArmLiteralLoad(&expected, opcodes[i],
+                guestPc + static_cast<uint32_t>(i * 4)))
+                return 0;
             continue;
         }
 
