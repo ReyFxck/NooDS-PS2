@@ -1367,6 +1367,7 @@ void Gpu2D::drawObjects(int line, bool window)
 
     const bool gba = core->isGbaMode();
     const bool noWindows = (dispCnt & 0x0000E000u) == 0;
+    uint32_t *frameLine = &framebuffer[line * 256];
     auto putObjPixel = [&](int x, uint32_t pixel, int8_t priority)
     {
         if (noWindows)
@@ -1608,7 +1609,7 @@ void Gpu2D::drawObjects(int line, bool window)
                     if (index && type == 2) // Object window
                     {
                         // Mark object window pixels with an extra bit, and don't draw anything
-                        framebuffer[line * 256 + offset] |= BIT(24);
+                        frameLine[offset] |= BIT(24);
                     }
                     else
                     {
@@ -1658,7 +1659,7 @@ void Gpu2D::drawObjects(int line, bool window)
                     if (index && type == 2) // Object window
                     {
                         // Mark object window pixels with an extra bit, and don't draw anything
-                        framebuffer[line * 256 + offset] |= BIT(24);
+                        frameLine[offset] |= BIT(24);
                     }
                     else
                     {
@@ -1696,12 +1697,30 @@ void Gpu2D::drawObjects(int line, bool window)
                 pal = &palette[0x200];
             }
 
-            // Draw a line of the object
-            for (int j = 0; j < width; j++)
+            // Clip once per sprite instead of checking screen bounds for
+            // every texel. Texture j remains in the original logical order,
+            // including horizontal flip.
+            const bool hFlip = (object[1] & BIT(12)) != 0;
+            int jStart = 0;
+            int jEnd = width;
+            if (!hFlip)
             {
-                // Determine the horizontal pixel offset based on whether or not the sprite is horizontally flipped
-                int offset = (object[1] & BIT(12)) ? (x + width - j - 1) : (x + j);
-                if (offset < 0 || offset >= 256) continue;
+                if (x < 0) jStart = -x;
+                if (x + jEnd > 256) jEnd = 256 - x;
+            }
+            else
+            {
+                if (x + width > 256) jStart = x + width - 256;
+                if (x < 0) jEnd = x + width;
+            }
+            if (jStart < 0) jStart = 0;
+            if (jEnd > width) jEnd = width;
+            if (jStart >= jEnd) continue;
+
+            // Draw the visible line of the object.
+            for (int j = jStart; j < jEnd; j++)
+            {
+                int offset = hFlip ? (x + width - j - 1) : (x + j);
 
                 // Get the palette index for the current pixel
                 uint8_t index = readObject8(
@@ -1710,7 +1729,7 @@ void Gpu2D::drawObjects(int line, bool window)
                 if (index && type == 2) // Object window
                 {
                     // Mark object window pixels with an extra bit, and don't draw anything
-                    framebuffer[line * 256 + offset] |= BIT(24);
+                    frameLine[offset] |= BIT(24);
                 }
                 else
                 {
@@ -1738,12 +1757,29 @@ void Gpu2D::drawObjects(int line, bool window)
             // In 4-bit mode, the object can select from multiple 16-color palettes
             uint8_t *pal = &palette[0x200 + ((object[2] & 0xF000) >> 12) * 32];
 
-            // Draw a line of the object
-            for (int j = 0; j < width; j++)
+            // Clip once per sprite instead of checking screen bounds for
+            // every 4-bit texel.
+            const bool hFlip = (object[1] & BIT(12)) != 0;
+            int jStart = 0;
+            int jEnd = width;
+            if (!hFlip)
             {
-                // Determine the horizontal pixel offset based on whether or not the sprite is horizontally flipped
-                int offset = (object[1] & BIT(12)) ? (x + width - j - 1) : (x + j);
-                if (offset < 0 || offset >= 256) continue;
+                if (x < 0) jStart = -x;
+                if (x + jEnd > 256) jEnd = 256 - x;
+            }
+            else
+            {
+                if (x + width > 256) jStart = x + width - 256;
+                if (x < 0) jEnd = x + width;
+            }
+            if (jStart < 0) jStart = 0;
+            if (jEnd > width) jEnd = width;
+            if (jStart >= jEnd) continue;
+
+            // Draw the visible line of the object.
+            for (int j = jStart; j < jEnd; j++)
+            {
+                int offset = hFlip ? (x + width - j - 1) : (x + j);
 
                 // Get the palette index for the current pixel
                 uint8_t index = readObject8(
@@ -1753,7 +1789,7 @@ void Gpu2D::drawObjects(int line, bool window)
                 if (index && type == 2) // Object window
                 {
                     // Mark object window pixels with an extra bit, and don't draw anything
-                    framebuffer[line * 256 + offset] |= BIT(24);
+                    frameLine[offset] |= BIT(24);
                 }
                 else
                 {
