@@ -91,6 +91,10 @@ void Gpu3DRenderer::drawScanline(int line)
 {
     if (line == 0)
     {
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+        if (profileEnabled)
+            detailProfile.frames++;
+#endif
         // Finish the previous frame before touching polygon bounds or the
         // per-line mask. Threaded drawScanline1() reads both structures, so
         // rebuilding them first would race a worker still completing the old
@@ -143,6 +147,10 @@ void Gpu3DRenderer::drawScanline(int line)
         // Update the thread count
         activeThreads = Settings::getThreaded3D();
         if (activeThreads > 3) activeThreads = 3;
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+        if (profileEnabled && activeThreads > 0)
+            detailProfile.threadedFrames++;
+#endif
 
         // Set up threaded 3D rendering if enabled
         if (activeThreads > 0)
@@ -213,6 +221,10 @@ void Gpu3DRenderer::drawThreaded(int thread)
 
 void Gpu3DRenderer::drawScanline1(int line)
 {
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+    if (profileEnabled && activeThreads == 0)
+        detailProfile.scanlines++;
+#endif
     // Convert the clear values
     // The attribute buffer contains the polygon IDs (0-5, 6-11), transparency bit (12), fog bit (13), edge bit (14), and edge alpha (15-20)
     uint32_t color = BIT(26) | rgba5ToRgba6(((clearColor & 0x001F0000) >> 1) | (clearColor & 0x00007FFF));
@@ -276,6 +288,16 @@ void Gpu3DRenderer::drawScanline1(int line)
 
 void Gpu3DRenderer::finishScanline(int line)
 {
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+    bool finishProfileSampled = false;
+    if (profileEnabled && activeThreads == 0)
+    {
+        finishProfileSampled =
+            profileSample64(finishSampleState, 0x8A0u);
+        if (finishProfileSampled)
+            detailProfile.finishSamples++;
+    }
+#endif
     // Perform edge marking if enabled
     if (disp3DCnt & BIT(5))
     {
@@ -306,6 +328,10 @@ void Gpu3DRenderer::finishScanline(int line)
                 {
                     if ((attribBuffer[0][i] & 0x3F) != id[j] && depthBuffer[0][i] < depth[j])
                     {
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+                        if (finishProfileSampled)
+                            detailProfile.edgePixels++;
+#endif
                         framebuffer[0][i] = BIT(26) | rgba5ToRgba6((0x1F << 15) | edgeColor[(attribBuffer[0][i] & 0x3F) >> 3]);
                         attribBuffer[0][i] = (attribBuffer[0][i] & ~(0x3F << 15)) | (0x20 << 15);
                         break;
@@ -330,6 +356,10 @@ void Gpu3DRenderer::finishScanline(int line)
             {
                 if (attribBuffer[layer][i] & BIT(13)) // Fog bit
                 {
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+                    if (finishProfileSampled)
+                        detailProfile.fogPixels++;
+#endif
                     // Determine the fog table index for the current pixel's
                     // depth. fogStep is a power of two, so reproduce signed
                     // division toward zero with shifts instead of R5900 DIV.
@@ -490,8 +520,15 @@ uint32_t Gpu3DRenderer::interpolateColor(uint32_t c1, uint32_t c2, uint32_t x1, 
 }
 
 uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
-    uint8_t *basePalette)
+    uint8_t *basePalette, bool profileSampled)
 {
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+    if (profileSampled)
+    {
+        detailProfile.textureSamples++;
+        detailProfile.textureFormat[polygon->textureFmt & 7u]++;
+    }
+#endif
     // Handle S-coordinate overflows
     if (polygon->repeatS)
     {
@@ -735,6 +772,27 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
 void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
 {
     _Polygon *polygon = &core->gpu3D.getPolygons()[polygonIndex];
+
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+    bool profileSampled = false;
+    if (profileEnabled && activeThreads == 0)
+    {
+        detailProfile.polygonCalls++;
+        const bool translucent =
+            polygon->alpha < 0x3F || polygon->textureFmt == 1 ||
+            polygon->textureFmt == 6;
+        if (translucent)
+            detailProfile.translucentCalls++;
+        else
+            detailProfile.solidCalls++;
+
+        profileSampled = profileSample64(detailSampleState, 0x830u);
+        if (profileSampled)
+            detailProfile.polygonSamples++;
+    }
+#else
+    const bool profileSampled = false;
+#endif
 
     // Formats 1/2/3/4/6 use one fixed palette base for the whole polygon.
     // Resolve it once instead of indexing the palette-slot table for every
@@ -1154,6 +1212,16 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
     // Draw a line segment
     for (uint32_t x = x1; x < x4; x++)
     {
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+        if (profileSampled)
+        {
+            detailProfile.sampledPixels++;
+            if (linearFill)
+                detailProfile.linearPixels++;
+            else
+                detailProfile.perspectivePixels++;
+        }
+#endif
         uint32_t fillFactor = 0;
         bool fillFactorReady = false;
 
@@ -1216,6 +1284,16 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
             depthPass[0] = (depthBuffer[0][i] > depth);
             depthPass[1] = (disp3DCnt & BIT(4)) && (attribBuffer[0][i] & BIT(14)) && (depthBuffer[1][i] > depth);
         }
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+        if (profileSampled)
+        {
+            detailProfile.depthTests++;
+            if (!depthPass[0] && !depthPass[1])
+                detailProfile.depthFailBoth++;
+            if (polygon->mode == 3)
+                detailProfile.shadowPixels++;
+        }
+#endif
 
         // Check if the pixel should be drawn
         if (polygon->mode == 3) // Shadow
@@ -1265,7 +1343,7 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
                 static_cast<uint32_t>(t2 + 0xFFFF))) - 0xFFFF;
 
             // Read a texel from the texture
-            uint32_t texel = readTexture(polygon, s >> 4, t >> 4, basePalette);
+            uint32_t texel = readTexture(polygon, s >> 4, t >> 4, basePalette, profileSampled);
 
             // Apply texture blending
             // These formulas are a translation of the pseudocode from GBATEK to C++
@@ -1342,14 +1420,30 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
         }
 
         // Skip fully transparent pixels, and hidden edge pixels if the pixel is opaque or blending is disabled
-        if (!(color & 0xFC0000) || ((x < x1e || x >= x4e) && ((color >> 18) == 0x3F || !(disp3DCnt & BIT(3)))))
+        if (!(color & 0xFC0000) ||
+            ((x < x1e || x >= x4e) &&
+                ((color >> 18) == 0x3F || !(disp3DCnt & BIT(3)))))
+        {
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+            if (profileSampled)
+                detailProfile.alphaRejects++;
+#endif
             continue;
+        }
 
         // Draw a pixel, marked with an extra bit as an indicator for 2D blending
         if ((color >> 18) == 0x3F) // Opaque
         {
             uint8_t edgeAlpha = 0x3F;
             bool edge = (x <= x2 || x >= x3 || horizontal);
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+            if (profileSampled)
+            {
+                detailProfile.opaqueWrites++;
+                if (edge)
+                    detailProfile.edgePixels++;
+            }
+#endif
 
             // Push the previous pixel to the back layer if drawing a front anti-aliased edge pixel
             if ((disp3DCnt & BIT(4)) && layer == 0 && edge)
@@ -1372,6 +1466,15 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
         }
         else if (!(attribBuffer[layer][i] & BIT(12)) || ((attribBuffer[layer][i] >> 6) & 0x3F) != polygon->id) // Transparent
         {
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+            if (profileSampled)
+            {
+                detailProfile.transparentWrites++;
+                if ((disp3DCnt & BIT(3)) &&
+                    (framebuffer[layer][i] & 0xFC0000))
+                    detailProfile.blendOps++;
+            }
+#endif
             // Transparent pixels are only drawn if the old pixel isn't transparent or the polygon ID differs
             framebuffer[layer][i] = BIT(26) | (((disp3DCnt & BIT(3)) && (framebuffer[layer][i] & 0xFC0000)) ?
                 interpolateColor(framebuffer[layer][i], color, 0, color >> 18, 63) : color);
