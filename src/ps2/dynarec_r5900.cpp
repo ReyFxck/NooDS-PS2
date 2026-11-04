@@ -4156,6 +4156,21 @@ int DynarecR5900::runArm9InterpreterDifferentialSelfTest(Interpreter &cpu,
     ArmAluState dynarecState = {};
     for (int i = 0; i < 16; i++)
         dynarecState.r[i] = savedRegs[i];
+
+    // Prove the live input-mask optimization instead of merely compiling it.
+    // Registers in writeMask but not inputMask are classified as unconditional
+    // write-only destinations. Poison their entry values here; any accidental
+    // read/preserve dependency will diverge from the Interpreter below and the
+    // block will never become activeReady.
+    uint16_t deadEntryMask = static_cast<uint16_t>(
+        (block->writeMask & 0x7FFFu) & ~block->inputMask);
+    for (uint8_t reg = 0; reg < 15; reg++)
+    {
+        if (deadEntryMask & static_cast<uint16_t>(1u << reg))
+            dynarecState.r[reg] = 0xA5A50000u ^
+                (static_cast<uint32_t>(reg) * 0x11111111u);
+    }
+
     dynarecState.cpsr = savedCpsr;
     dynarecState.nextPc = block->guestEndPc;
     dynarecState.memory = memory;
