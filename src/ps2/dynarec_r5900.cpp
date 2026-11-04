@@ -5429,11 +5429,11 @@ bool DynarecR5900::runArmAluSelfTest()
         const Arm7MultiplyTimingCase cases[] =
         {
             { 0xE0040291u, 0x0000007Fu, 0x00000013u, 2u }, // MUL m=1
-            { 0xE0040291u, 0xFFFFFF00u, 0x00000013u, 2u }, // MUL m=1 (-256)
+            { 0xE0040291u, 0xFFFFFF00u, 0x00000013u, 3u }, // MUL m=2 (-256)
             { 0xE0040291u, 0x00000100u, 0x00000013u, 3u }, // MUL m=2
-            { 0xE0040291u, 0xFFFF0000u, 0x00000013u, 3u }, // MUL m=2 (-65536)
+            { 0xE0040291u, 0xFFFF0000u, 0x00000013u, 4u }, // MUL m=3 (-65536)
             { 0xE0040291u, 0x00010000u, 0x00000013u, 4u }, // MUL m=3
-            { 0xE0040291u, 0xFF000000u, 0x00000013u, 4u }, // MUL m=3 (-2^24)
+            { 0xE0040291u, 0xFF000000u, 0x00000013u, 5u }, // MUL m=4 (-2^24)
             { 0xE0040291u, 0x01000000u, 0x00000013u, 5u }, // MUL m=4
             { 0xE0253291u, 0x01000000u, 0x00000013u, 6u }, // MLA m=4
             { 0xE0140291u, 0x00000100u, 0x00000013u, 3u }, // MULS m=2
