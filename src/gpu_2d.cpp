@@ -1614,7 +1614,7 @@ void Gpu2D::drawObjects(int line, bool window)
                     {
                         // Draw a pixel, marking semi-transparent pixels with an extra bit
                         if (index)
-                            drawObjPixel(line, offset, ((type == 1) << 25) | BIT(15) | U8TO16(pal, index * 2), priority);
+                            putObjPixel(offset, ((type == 1) << 25) | BIT(15) | U8TO16(pal, index * 2), priority);
 
                         // Update the priority even if the pixel is transparent
                         // This is a quirky behavior of the GBA, but it seems to have been fixed on the DS
@@ -1664,7 +1664,7 @@ void Gpu2D::drawObjects(int line, bool window)
                     {
                         // Draw a pixel, marking semi-transparent pixels with an extra bit
                         if (index)
-                            drawObjPixel(line, offset, ((type == 1) << 25) | BIT(15) | U8TO16(pal, index * 2), priority);
+                            putObjPixel(offset, ((type == 1) << 25) | BIT(15) | U8TO16(pal, index * 2), priority);
 
                         // Update the priority even if the pixel is transparent
                         // This is a quirky behavior of the GBA, but it seems to have been fixed on the DS
@@ -1716,7 +1716,7 @@ void Gpu2D::drawObjects(int line, bool window)
                 {
                     // Draw a pixel, marking semi-transparent pixels with an extra bit
                     if (index)
-                        drawObjPixel(line, offset, ((type == 1) << 25) | BIT(15) | U8TO16(pal, index * 2), priority);
+                        putObjPixel(offset, ((type == 1) << 25) | BIT(15) | U8TO16(pal, index * 2), priority);
 
                     // Update the priority even if the pixel is transparent
                     // This is a quirky behavior of the GBA, but it seems to have been fixed on the DS
@@ -1759,7 +1759,7 @@ void Gpu2D::drawObjects(int line, bool window)
                 {
                     // Draw a pixel, marking semi-transparent pixels with an extra bit
                     if (index)
-                        drawObjPixel(line, offset, ((type == 1) << 25) | BIT(15) | U8TO16(pal, index * 2), priority);
+                        putObjPixel(offset, ((type == 1) << 25) | BIT(15) | U8TO16(pal, index * 2), priority);
 
                     // Update the priority even if the pixel is transparent
                     // This is a quirky behavior of the GBA, but it seems to have been fixed on the DS
