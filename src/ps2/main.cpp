@@ -23,6 +23,7 @@
 #include <string>
 
 #include "../core.h"
+#include "../cpu_backend.h"
 #include "dynarec_r5900.h"
 #include "ps2_file.h"
 #include "../settings.h"
