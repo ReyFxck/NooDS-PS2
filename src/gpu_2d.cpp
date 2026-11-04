@@ -156,12 +156,11 @@ void Gpu2D::drawGbaScanline(int line)
         }
     }
 
-    // Draw the objects, object window first if enabled
+    // Build object-window and normal OBJ ordering in one OAM scan.
+    // drawObjects() still renders all window sprites first so later normal
+    // sprites observe the complete object-window mask.
     if (dispCnt & BIT(12))
-    {
-        if (dispCnt & BIT(15)) drawObjects(line, true);
-        drawObjects(line, false);
-    }
+        drawObjects(line, (dispCnt & BIT(15)) != 0);
 
     // Draw the background layers depending on the BG mode
     switch (dispCnt & 0x7)
@@ -311,12 +310,11 @@ void Gpu2D::drawScanline(int line)
         }
     }
 
-    // Draw the objects, object window first if enabled
+    // Build object-window and normal OBJ ordering in one OAM scan.
+    // drawObjects() still renders all window sprites first so later normal
+    // sprites observe the complete object-window mask.
     if (dispCnt & BIT(12))
-    {
-        if (dispCnt & BIT(15)) drawObjects(line, true);
-        drawObjects(line, false);
-    }
+        drawObjects(line, (dispCnt & BIT(15)) != 0);
 
     // Draw the background layers depending on the BG mode
     switch (dispCnt & 0x7)
@@ -1650,19 +1648,45 @@ void Gpu2D::drawObjects(int line, bool window)
                 core->memory.read<uint32_t>(gba, address + 4)) << 32);
     };
 
-    // Loop through and draw the 128 sprites in OAM
+    // Classify OAM once. Object-window sprites must be rendered before
+    // normal sprites because drawObjPixel() consults the completed mask.
+    uint8_t windowOrder[128];
+    uint8_t normalOrder[128];
+    uint8_t windowCount = 0;
+    uint8_t normalCount = 0;
     for (int i = 0; i < 128; i++)
     {
         GPU2D_DETAIL_INC(objDetail, spritesScanned, 1);
-        uint8_t byte = oam[i * 8 + 1];
-        uint8_t type = (byte >> 2) & 0x3;
-
-        // Skip objects that are disabled or are/aren't window type
-        if ((byte & 0x3) == 2 || (type == 2) != window)
+        const uint8_t byte = oam[i * 8 + 1];
+        const uint8_t type = (byte >> 2) & 0x3;
+        if ((byte & 0x3) == 2)
         {
             GPU2D_DETAIL_INC(objDetail, spritesDisabled, 1);
             continue;
         }
+
+        if (type == 2)
+        {
+            if (window)
+                windowOrder[windowCount++] = static_cast<uint8_t>(i);
+            else
+                GPU2D_DETAIL_INC(objDetail, spritesDisabled, 1);
+        }
+        else
+        {
+            normalOrder[normalCount++] = static_cast<uint8_t>(i);
+        }
+    }
+
+    const int orderedCount =
+        static_cast<int>(windowCount) + static_cast<int>(normalCount);
+    for (int order = 0; order < orderedCount; order++)
+    {
+        const int i = (order < windowCount)
+            ? windowOrder[order]
+            : normalOrder[order - windowCount];
+        const uint8_t byte = oam[i * 8 + 1];
+        const uint8_t type = (byte >> 2) & 0x3;
 
         // Get the current object
         // Each object takes up 8 bytes in memory, but the last 2 bytes are reserved for rotscale
