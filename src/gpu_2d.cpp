@@ -2388,9 +2388,9 @@ void Gpu2D::writeBldAlpha(uint16_t mask, uint16_t value)
     {
         // Preserve the renderer's original per-term truncation.
         alphaMulA[channel] =
-            static_cast<uint8_t>((channel * eva) >> 4);
+            gpu2dAlphaTerm(static_cast<uint8_t>(channel), eva);
         alphaMulB[channel] =
-            static_cast<uint8_t>((channel * evb) >> 4);
+            gpu2dAlphaTerm(static_cast<uint8_t>(channel), evb);
     }
 }
 
@@ -2402,10 +2402,10 @@ void Gpu2D::writeBldY(uint8_t value)
 
     for (int channel = 0; channel < 64; channel++)
     {
-        blendBrightUp[channel] = static_cast<uint8_t>(
-            channel + (((63 - channel) * bldY) >> 4));
-        blendBrightDown[channel] = static_cast<uint8_t>(
-            channel - ((channel * bldY) >> 4));
+        blendBrightUp[channel] = gpu2dBrightIncrease(
+            static_cast<uint8_t>(channel), bldY);
+        blendBrightDown[channel] = gpu2dBrightDecrease(
+            static_cast<uint8_t>(channel), bldY);
     }
 }
 
@@ -2419,9 +2419,9 @@ void Gpu2D::writeMasterBright(uint16_t mask, uint16_t value)
         std::min<uint16_t>(masterBright & 0x1F, 16);
     for (int channel = 0; channel < 64; channel++)
     {
-        masterBrightUp[channel] = static_cast<uint8_t>(
-            channel + (((63 - channel) * factor) >> 4));
-        masterBrightDown[channel] = static_cast<uint8_t>(
-            channel - ((channel * factor) >> 4));
+        masterBrightUp[channel] = gpu2dBrightIncrease(
+            static_cast<uint8_t>(channel), factor);
+        masterBrightDown[channel] = gpu2dBrightDecrease(
+            static_cast<uint8_t>(channel), factor);
     }
 }
