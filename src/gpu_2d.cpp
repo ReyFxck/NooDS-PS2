@@ -694,10 +694,7 @@ void Gpu2D::drawScanline(int line)
 FORCE_INLINE void Gpu2D::buildWindowMask(int line)
 {
     if (!(dispCnt & 0x0000E000u))
-    {
-        windowMaskValid = false;
         return;
-    }
 
     const bool win0Y = (dispCnt & BIT(13)) &&
         line >= winY1[0] && line < winY2[0];
@@ -752,6 +749,7 @@ void Gpu2D::drawBgPixelNoWindow(int bg, int x,
 
 void Gpu2D::drawBgPixel(int bg, int line, int x, uint32_t pixel)
 {
+    (void)line;
     // Skip the pixel if it's in the bounds of a window that has its layer disabled
     if ((dispCnt & 0x0000E000u) &&
         !(windowMask[x] & BIT(bg)))
