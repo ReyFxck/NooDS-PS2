@@ -6087,6 +6087,66 @@ bool DynarecR5900::runArmAluSelfTest()
         }
     }
 
+    // Gate the first ARM9 Thumb timing differences in generated R5900
+    // code. MULS is fixed at four cycles on ARM9, while a one-register LDMIA
+    // costs two cycles even though the equivalent ARM LDM costs one.
+    {
+        const uint16_t mulOpcode = 0x4348u; // MUL r0,r1
+        uint32_t *mulEntry = nullptr;
+        uint32_t mulHostWords = 0;
+        if (!emitThumbSequence(&mulOpcode, 1, 0x0E000000u,
+            &mulEntry, &mulHostWords) || !mulEntry || !mulHostWords)
+            return false;
+
+        ArmAluState mulState = {};
+        mulState.r[0] = 0x01000000u;
+        mulState.r[1] = 3u;
+        mulState.cpsr = 0x30000032u;
+        mulState.cpuId = 0;
+        typedef void (*Arm9ThumbMulFunction)(ArmAluState *);
+        Arm9ThumbMulFunction mulFunction =
+            reinterpret_cast<Arm9ThumbMulFunction>(mulEntry);
+        mulFunction(&mulState);
+        if (mulState.r[0] != 0x03000000u ||
+            mulState.cycles != 4u ||
+            (mulState.cpsr & 0x30000000u) != 0x30000000u)
+            return false;
+
+        const uint32_t loadBase = 0x02000000u;
+        uint8_t *arm9Page = memory
+            ? memory->getDirectReadPage(0, loadBase) : nullptr;
+        if (!arm9Page)
+            return false;
+        const uint32_t at = loadBase & 0xFFFu;
+        const uint32_t expectedWord =
+            static_cast<uint32_t>(arm9Page[at]) |
+            (static_cast<uint32_t>(arm9Page[at + 1]) << 8) |
+            (static_cast<uint32_t>(arm9Page[at + 2]) << 16) |
+            (static_cast<uint32_t>(arm9Page[at + 3]) << 24);
+
+        const uint16_t ldmOpcode = 0xC901u; // LDMIA r1!,{r0}
+        uint32_t *ldmEntry = nullptr;
+        uint32_t ldmHostWords = 0;
+        if (!emitThumbSequence(&ldmOpcode, 1, 0x0E000100u,
+            &ldmEntry, &ldmHostWords) || !ldmEntry || !ldmHostWords)
+            return false;
+
+        ArmAluState ldmState = {};
+        ldmState.r[1] = loadBase;
+        ldmState.cpsr = 0x00000032u;
+        ldmState.memory = memory;
+        ldmState.cpuId = 0;
+        typedef void (*Arm9ThumbLdmFunction)(ArmAluState *);
+        Arm9ThumbLdmFunction ldmFunction =
+            reinterpret_cast<Arm9ThumbLdmFunction>(ldmEntry);
+        ldmFunction(&ldmState);
+        if (ldmState.memoryFault ||
+            ldmState.r[0] != expectedWord ||
+            ldmState.r[1] != loadBase + 4u ||
+            ldmState.cycles != 2u)
+            return false;
+    }
+
     // Gate Thumb POP {r0,r2,pc} through generated R5900 code. This is
     // read-only and uses whatever words are already present in direct ARM7 RAM,
     // so the self-test leaves guest memory untouched.
