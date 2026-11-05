@@ -545,7 +545,7 @@ uint32_t Gpu3DRenderer::interpolateColor(uint32_t c1, uint32_t c2, uint32_t x1, 
 }
 
 uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
-    uint8_t *basePalette, bool profileSampled)
+    uint8_t *basePalette, uint8_t sizeShiftS, bool profileSampled)
 {
 #if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
     if (profileSampled)
@@ -608,7 +608,7 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
         case 1: // A3I5 translucent
         {
             // Get the 8-bit palette index
-            uint32_t address = polygon->textureAddr + (ut * polygon->sizeS + us);
+            uint32_t address = polygon->textureAddr + ((ut << sizeShiftS) + us);
             uint8_t *data = getTexture(address);
             if (!data) return 0;
             uint8_t index = *data;
@@ -626,7 +626,7 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
         case 2: // 4-color palette
         {
             // Get the 2-bit palette index
-            uint32_t address = polygon->textureAddr + ((ut * polygon->sizeS + us) >> 2);
+            uint32_t address = polygon->textureAddr + (((ut << sizeShiftS) + us) >> 2);
             uint8_t *data = getTexture(address);
             if (!data) return 0;
             uint8_t index = (*data >> ((us & 3u) << 1)) & 0x03;
@@ -646,7 +646,7 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
         case 3: // 16-color palette
         {
             // Get the 4-bit palette index
-            uint32_t address = polygon->textureAddr + ((ut * polygon->sizeS + us) >> 1);
+            uint32_t address = polygon->textureAddr + (((ut << sizeShiftS) + us) >> 1);
             uint8_t *data = getTexture(address);
             if (!data) return 0;
             uint8_t index = (*data >> ((us & 1u) << 2)) & 0x0F;
@@ -666,7 +666,7 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
         case 4: // 256-color palette
         {
             // Get the 8-bit palette index
-            uint32_t address = polygon->textureAddr + (ut * polygon->sizeS + us);
+            uint32_t address = polygon->textureAddr + ((ut << sizeShiftS) + us);
             uint8_t *data = getTexture(address);
             if (!data) return 0;
             uint8_t index = *data;
@@ -686,7 +686,7 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
         case 5: // 4x4 compressed
         {
             // Get the 2-bit palette index
-            uint32_t tile = (ut >> 2) * (static_cast<uint32_t>(polygon->sizeS) >> 2) + (us >> 2);
+            uint32_t tile = (ut >> 2) * (1u << (sizeShiftS - 2)) + (us >> 2);
             uint32_t address = polygon->textureAddr + (tile * 4 + (ut & 3u));
             uint8_t *data = getTexture(address);
             if (!data) return 0;
@@ -765,7 +765,7 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
         case 6: // A5I3 translucent
         {
             // Get the 8-bit palette index
-            uint32_t address = polygon->textureAddr + (ut * polygon->sizeS + us);
+            uint32_t address = polygon->textureAddr + ((ut << sizeShiftS) + us);
             uint8_t *data = getTexture(address);
             if (!data) return 0;
             uint8_t index = *data;
@@ -787,7 +787,7 @@ uint32_t Gpu3DRenderer::readTexture(_Polygon *polygon, int s, int t,
             if (!data) return 0;
 
             // Return the direct color
-            uint16_t color = gpu3dLoad16(data, (ut * polygon->sizeS + us) * 2);
+            uint16_t color = gpu3dLoad16(data, ((ut << sizeShiftS) + us) * 2);
             uint8_t alpha = (color & BIT(15)) ? 0x1F : 0;
             return rgba5ToRgba6((alpha << 15) | color);
         }
@@ -818,6 +818,11 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
 #else
     const bool profileSampled = false;
 #endif
+
+    const uint8_t textureSizeShiftS = polygon->sizeS > 0
+        ? static_cast<uint8_t>(
+            __builtin_ctz(static_cast<unsigned>(polygon->sizeS)))
+        : 0;
 
     // Formats 1/2/3/4/6 use one fixed palette base for the whole polygon.
     // Resolve it once instead of indexing the palette-slot table for every
@@ -1371,7 +1376,8 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
                 static_cast<uint32_t>(t2 + 0xFFFF))) - 0xFFFF;
 
             // Read a texel from the texture
-            uint32_t texel = readTexture(polygon, s >> 4, t >> 4, basePalette, profileSampled);
+            uint32_t texel = readTexture(polygon, s >> 4, t >> 4, basePalette,
+                textureSizeShiftS, profileSampled);
 
             // Apply texture blending
             // These formulas are a translation of the pseudocode from GBATEK to C++
