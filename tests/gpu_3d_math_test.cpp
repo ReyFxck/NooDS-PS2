@@ -15,10 +15,13 @@ static uint32_t referenceLinear(uint32_t v1, uint32_t v2,
 
 int main()
 {
+    // Renderer domains: interpolated color <= 504, shifted S/T values
+    // stay around 17 bits, and Z is 24-bit. For span <= 256 these preserve
+    // the original uint32_t multiplication without overflow.
     const uint32_t values[] =
     {
-        0, 1, 2, 7, 31, 63, 255, 511, 4095, 65535,
-        0x00FFFFFEu, 0x7FFFFFFFu
+        0, 1, 2, 7, 31, 63, 255, 504, 511, 4095, 65535,
+        0x0001FFFEu, 0x00FFFFFFu
     };
 
     for (uint32_t span = 1; span <= 256; span++)
