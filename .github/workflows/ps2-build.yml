@@ -112,6 +112,22 @@ jobs:
             -o noods-ps2-poc.iso \
             iso-root
 
+          # Android loaders that only accept ISOs can still collect comparable
+          # runtime profiles from the same boot and HostFS setup.
+          cp noods-ps2-profile-level1.elf iso-root/NOODSPS2.ELF
+          xorriso -as mkisofs \
+            -iso-level 1 \
+            -V NOODSP1 \
+            -o noods-ps2-profile-level1.iso \
+            iso-root
+
+          cp noods-ps2-profile.elf iso-root/NOODSPS2.ELF
+          xorriso -as mkisofs \
+            -iso-level 1 \
+            -V NOODSP2 \
+            -o noods-ps2-profile-level2.iso \
+            iso-root
+
       - name: Upload PS2 POC ELFs
         uses: actions/upload-artifact@v4
         with:
@@ -122,4 +138,6 @@ jobs:
             noods-ps2-profile.elf
             noods-ps2-debug.elf
             noods-ps2-poc.iso
+            noods-ps2-profile-level1.iso
+            noods-ps2-profile-level2.iso
           if-no-files-found: error
