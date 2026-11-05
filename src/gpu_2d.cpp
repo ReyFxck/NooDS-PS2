@@ -138,6 +138,8 @@ uint32_t Gpu2D::rgb5ToRgb6(uint32_t color)
 
 void Gpu2D::drawGbaScanline(int line)
 {
+    windowMaskReady = false;
+    windowAllMask = 0x3F;
     const int bgMosaicSize = ((mosaic >> 4) & 0xFu) + 1;
     const int bgMosaicLine =
         (bgMosaicSize > 1) ? (line - (line % bgMosaicSize)) : line;
@@ -288,6 +290,8 @@ void Gpu2D::drawGbaScanline(int line)
 
 void Gpu2D::drawScanline(int line)
 {
+    windowMaskReady = false;
+    windowAllMask = 0x3F;
     // Reload the internal registers at the start of the frame
     if (line == 0)
     {
@@ -462,6 +466,8 @@ void Gpu2D::drawScanline(int line)
             uint32_t *output = &framebuffer[line * 256];
             const uint8_t mode = (bldCnt >> 6) & 0x3;
             const bool noWindows = (dispCnt & 0x0000E000u) == 0;
+            const bool effectsUnmasked =
+                noWindows || (windowAllMask & BIT(5));
             GPU2D_DETAIL_INC(composeDetail, windowedCalls,
                 noWindows ? 0 : 1);
             GPU2D_DETAIL_INC(composeDetail, pixels, 256);
@@ -534,7 +540,7 @@ void Gpu2D::drawScanline(int line)
 
                 // Skip blending if a window disables color effects. Avoid the
                 // entire decision tree on the common no-window path.
-                if (!noWindows)
+                if (!effectsUnmasked)
                 {
                     GPU2D_DETAIL_INC(composeDetail, windowChecks, 1);
                     if (!(windowMask[i] & BIT(5)))
@@ -694,7 +700,11 @@ void Gpu2D::drawScanline(int line)
 FORCE_INLINE void Gpu2D::buildWindowMask(int line)
 {
     if (!(dispCnt & 0x0000E000u))
+    {
+        windowAllMask = 0x3F;
+        windowMaskReady = true;
         return;
+    }
 
     const bool win0Y = (dispCnt & BIT(13)) &&
         line >= winY1[0] && line < winY2[0];
@@ -707,17 +717,24 @@ FORCE_INLINE void Gpu2D::buildWindowMask(int line)
     const uint8_t outsideMask = static_cast<uint8_t>(winOut);
     const uint32_t *frameLine = &framebuffer[line * 256];
 
+    uint8_t allMask = 0x3F;
     for (int x = 0; x < 256; x++)
     {
+        uint8_t mask;
         if (win0Y && x >= winX1[0] && x < winX2[0])
-            windowMask[x] = win0Mask;
+            mask = win0Mask;
         else if (win1Y && x >= winX1[1] && x < winX2[1])
-            windowMask[x] = win1Mask;
+            mask = win1Mask;
         else if (objWindow && (frameLine[x] & BIT(24)))
-            windowMask[x] = objMask;
+            mask = objMask;
         else
-            windowMask[x] = outsideMask;
+            mask = outsideMask;
+
+        windowMask[x] = mask;
+        allMask &= mask;
     }
+    windowAllMask = allMask;
+    windowMaskReady = true;
 }
 
 void Gpu2D::drawBgPixelNoWindow(int bg, int x,
@@ -752,6 +769,7 @@ void Gpu2D::drawBgPixel(int bg, int line, int x, uint32_t pixel)
     (void)line;
     // Skip the pixel if it's in the bounds of a window that has its layer disabled
     if ((dispCnt & 0x0000E000u) &&
+        !(windowAllMask & BIT(bg)) &&
         !(windowMask[x] & BIT(bg)))
         return;
 
@@ -844,10 +862,12 @@ void Gpu2D::drawText(int bg, int line, int mosaicLine)
     {
         uint32_t *data = core->gpu3DRenderer.getLine(line);
         const bool noWindows = (dispCnt & 0x0000E000u) == 0;
+        const bool layerUnmasked =
+            noWindows || (windowAllMask & BIT(0));
         GPU2D_DETAIL_INC(textDetail, threeD, 1);
         GPU2D_DETAIL_INC(textDetail, windowed, noWindows ? 0 : 1);
         const int8_t bgPriority = bgCnt[0] & 0x3;
-        if (noWindows)
+        if (layerUnmasked)
         {
             for (int i = 0; i < 256; i++)
             {
@@ -899,11 +919,13 @@ void Gpu2D::drawText(int bg, int line, int mosaicLine)
 
     const bool gba = core->isGbaMode();
     const bool noWindows = (dispCnt & 0x0000E000u) == 0;
+    const bool layerUnmasked =
+        noWindows || (windowAllMask & BIT(bg));
     GPU2D_DETAIL_INC(textDetail, windowed, noWindows ? 0 : 1);
     const int8_t bgPriority = bgCnt[bg] & 0x3;
     auto putBgPixel = [&](int x, uint32_t pixel)
     {
-        if (noWindows)
+        if (layerUnmasked)
             drawBgPixelNoWindow(bg, x, pixel, bgPriority);
         else
             drawBgPixel(bg, line, x, pixel);
@@ -1135,10 +1157,12 @@ void Gpu2D::drawAffine(int bg, int line)
         bgPA[bg - 2], bgPC[bg - 2]);
     const bool gba = core->isGbaMode();
     const bool noWindows = (dispCnt & 0x0000E000u) == 0;
+    const bool layerUnmasked =
+        noWindows || (windowAllMask & BIT(bg));
     const int8_t bgPriority = bgCnt[bg] & 0x3;
     auto putBgPixel = [&](int x, uint32_t pixel)
     {
-        if (noWindows)
+        if (layerUnmasked)
             drawBgPixelNoWindow(bg, x, pixel, bgPriority);
         else
             drawBgPixel(bg, line, x, pixel);
