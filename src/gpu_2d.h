@@ -240,6 +240,16 @@ class Gpu2D
         uint8_t bldY = 0;
         uint16_t masterBright = 0;
 
+        // Register-derived color tables. BLDALPHA/BLDY/MASTER_BRIGHT only
+        // change on MMIO writes, so avoid recomputing channel multiplies for
+        // every composed pixel.
+        uint8_t alphaMulA[64] = {};
+        uint8_t alphaMulB[64] = {};
+        uint8_t blendBrightUp[64] = {};
+        uint8_t blendBrightDown[64] = {};
+        uint8_t masterBrightUp[64] = {};
+        uint8_t masterBrightDown[64] = {};
+
 #ifdef NOODS_PROFILE
         bool profileEnabled = false;
         Gpu2DRunProfile runProfile;
