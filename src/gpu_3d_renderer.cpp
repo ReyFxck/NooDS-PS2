@@ -247,8 +247,19 @@ void Gpu3DRenderer::drawThreaded(int thread)
 void Gpu3DRenderer::drawScanline1(int line)
 {
 #if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+    bool scanlineTimingSampled = false;
+    clock_t scanlineTimingStart = 0;
     if (profileEnabled && activeThreads == 0)
+    {
         detailProfile.scanlines++;
+        scanlineTimingSampled =
+            profileSample64(scanlineTimingState, 0x8C0u);
+        if (scanlineTimingSampled)
+        {
+            detailProfile.scanlineTimingSamples++;
+            scanlineTimingStart = clock();
+        }
+    }
 #endif
     // Convert the clear values
     // The attribute buffer contains the polygon IDs (0-5, 6-11), transparency bit (12), fog bit (13), edge bit (14), and edge alpha (15-20)
@@ -283,6 +294,17 @@ void Gpu3DRenderer::drawScanline1(int line)
 
     stencilClear[line] = false;
 
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+    clock_t polygonTimingStart = 0;
+    if (scanlineTimingSampled)
+    {
+        polygonTimingStart = clock();
+        detailProfile.clearTicks +=
+            static_cast<uint64_t>(
+                polygonTimingStart - scanlineTimingStart);
+    }
+#endif
+
     // Draw only polygons pre-indexed for this scanline. Two tiny bitset
     // passes preserve the original solid-then-translucent ordering without
     // heap allocation or a 4 KiB per-thread temporary index buffer.
@@ -309,18 +331,31 @@ void Gpu3DRenderer::drawScanline1(int line)
             }
         }
     }
+
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+    if (scanlineTimingSampled)
+    {
+        detailProfile.polygonTicks +=
+            static_cast<uint64_t>(clock() - polygonTimingStart);
+    }
+#endif
 }
 
 void Gpu3DRenderer::finishScanline(int line)
 {
 #if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
     bool finishProfileSampled = false;
+    clock_t finishTimingStart = 0;
     if (profileEnabled && activeThreads == 0)
     {
         finishProfileSampled =
             profileSample64(finishSampleState, 0x8A0u);
         if (finishProfileSampled)
+        {
             detailProfile.finishSamples++;
+            detailProfile.finishTimingSamples++;
+            finishTimingStart = clock();
+        }
     }
 #endif
     // Perform edge marking if enabled
@@ -450,6 +485,12 @@ void Gpu3DRenderer::finishScanline(int line)
             }
         }
     }
+
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+    if (finishProfileSampled)
+        detailProfile.finishTicks +=
+            static_cast<uint64_t>(clock() - finishTimingStart);
+#endif
 }
 
 FORCE_INLINE uint8_t *Gpu3DRenderer::getTexture(uint32_t address)
