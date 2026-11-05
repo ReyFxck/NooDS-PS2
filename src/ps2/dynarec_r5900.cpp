@@ -5579,14 +5579,19 @@ void thumbInstructionCycleRange(const Ps2Thumb::Decoded &decoded,
             case Ps2Thumb::ARM_LOAD:
             {
                 Ps2ArmAlu::DecodedMultiBlockTransfer multi;
+                Ps2ArmAlu::DecodedSingleBlockTransfer singleBlock;
                 if (Ps2ArmAlu::decodeMultiBlockTransfer(
                     decoded.armOpcode, &multi))
                 {
-                    const uint32_t count = multi.count;
-                    // Thumb LDMIA/POP without PC: n cycles for n>1,
-                    // otherwise 2 cycles on ARM9.
-                    minValue = maxValue =
-                        count + ((count > 1u) ? 0u : 1u);
+                    // ARM9 Thumb LDMIA/POP costs one cycle per register for
+                    // multi-register forms.
+                    minValue = maxValue = multi.count;
+                }
+                else if (Ps2ArmAlu::decodeSingleBlockTransfer(
+                    decoded.armOpcode, &singleBlock))
+                {
+                    // One-register LDMIA/POP is the special two-cycle form.
+                    minValue = maxValue = 2;
                 }
                 else
                 {
@@ -5684,19 +5689,6 @@ bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
                 return false;
             words += emitted;
 
-            // Thumb LDMIA/POP with a single low register costs two cycles on
-            // ARM9, one more than the equivalent ARM LDM emitter. Multi-reg
-            // forms already match exactly.
-            if (decoded.kind == Ps2Thumb::ARM_LOAD && targetCpuId == 0)
-            {
-                Ps2ArmAlu::DecodedMultiBlockTransfer multi;
-                if (Ps2ArmAlu::decodeMultiBlockTransfer(
-                    decoded.armOpcode, &multi) && multi.count == 1)
-                {
-                    words += emitArmCycleAdd(1, code + words, true);
-                }
-            }
-
             // Multi-register PUSH/STMIA timing already matches the ARM9 ARM
             // emitter, as does one-register STMIA. Only the synthetic
             // pre-decrement STR used for a one-register PUSH needs one extra
@@ -5721,8 +5713,14 @@ bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
             // remains in host t2 and becomes ArmAluState::nextPc.
             if (decoded.armOpcode)
             {
-                size_t emitted = emitArmMultiBlockTransferInstruction(
-                    decoded.armOpcode, code + words, true, true, 1);
+                // Route through the generic ARM selector so one-low-register
+                // POP {...,pc} uses the single-block emitter while larger
+                // lists use the multi-block emitter. Passing ARM7 timing here
+                // is intentional: low-register loads plus the final PC load
+                // then sum exactly to NooDS' n+4 POP-PC timing on ARM9 too.
+                size_t emitted = emitArmInstruction(decoded.armOpcode, pc,
+                    code + words, true, true, memory, -1, false, 0xEu,
+                    false, 1);
                 if (!emitted)
                     return false;
                 words += emitted;
