@@ -76,6 +76,28 @@ int main()
         assert(bx.terminal && bx.minCycles == 3 && bx.maxCycles == 3);
     }
 
+    // Read-only load subset maps onto the already differential-gated ARM
+    // memory backend with ARM7-equivalent timing.
+    {
+        Ps2Thumb::Decoded load;
+        assert(Ps2Thumb::decode(0x6848u, 0x1000u, &load)); // LDR r0,[r1,#4]
+        assert(load.kind == Ps2Thumb::ARM_LOAD);
+        assert(load.armOpcode == 0xE5910004u);
+        assert(load.readMask == (1u << 1) &&
+            load.writeMask == (1u << 0));
+
+        assert(Ps2Thumb::decode(0x795Au, 0x1000u, &load)); // LDRB r2,[r3,#5]
+        assert(load.armOpcode == 0xE5D32005u);
+
+        assert(Ps2Thumb::decode(0x88ECu, 0x1000u, &load)); // LDRH r4,[r5,#6]
+        assert(load.armOpcode == 0xE1D540B6u);
+
+        assert(Ps2Thumb::decode(0x9E03u, 0x1000u, &load)); // LDR r6,[sp,#12]
+        assert(load.armOpcode == 0xE59D600Cu);
+        assert(load.readMask == (1u << 13));
+        assert(load.minCycles == 3 && load.maxCycles == 3);
+    }
+
     // Initial subset intentionally rejects operations whose Thumb timing
     // differs from the ARM emitter or that mutate memory/stack state.
     Ps2Thumb::Decoded d;
@@ -84,7 +106,10 @@ int main()
     assert(!Ps2Thumb::decode(0x4788u, 0x1000u, &d)); // BLX r1 (ARM9-only)
     assert(!Ps2Thumb::decode(0x46F8u, 0x1000u, &d)); // MOV pc,r15/PC write
     assert(!Ps2Thumb::decode(0xB500u, 0x1000u, &d)); // PUSH
-    assert(!Ps2Thumb::decode(0x6008u, 0x1000u, &d)); // STR
+    assert(!Ps2Thumb::decode(0x6008u, 0x1000u, &d)); // STR word
+    assert(!Ps2Thumb::decode(0x7008u, 0x1000u, &d)); // STRB
+    assert(!Ps2Thumb::decode(0x8008u, 0x1000u, &d)); // STRH
+    assert(!Ps2Thumb::decode(0x9000u, 0x1000u, &d)); // STR [SP]
 
     // Unconditional Thumb B uses PC+4 and signed halfword offset.
     assert(Ps2Thumb::decode(0xE7FEu, 0x2000u, &d));
