@@ -5,6 +5,27 @@
 #include <cstddef>
 #include <cstring>
 
+inline uint8_t gpu2dAlphaTerm(uint8_t channel, uint8_t factor)
+{
+    if (factor > 16) factor = 16;
+    return static_cast<uint8_t>(
+        (static_cast<uint32_t>(channel) * factor) >> 4);
+}
+
+inline uint8_t gpu2dBrightIncrease(uint8_t channel, uint8_t factor)
+{
+    if (factor > 16) factor = 16;
+    return static_cast<uint8_t>(channel +
+        ((static_cast<uint32_t>(63 - channel) * factor) >> 4));
+}
+
+inline uint8_t gpu2dBrightDecrease(uint8_t channel, uint8_t factor)
+{
+    if (factor > 16) factor = 16;
+    return static_cast<uint8_t>(channel -
+        ((static_cast<uint32_t>(channel) * factor) >> 4));
+}
+
 inline uint16_t gpu2dLoad16(const uint8_t *data, size_t index)
 {
     uint16_t value = 0;
