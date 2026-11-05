@@ -103,9 +103,11 @@ namespace Ps2ArmAlu
     {
         uint8_t condition = 0xE;
         bool write = false;
+        bool immediate = false;
         uint8_t fieldMask = 0;
         uint8_t rd = 0;
         uint8_t rm = 0;
+        uint32_t immediateValue = 0;
     };
 
     struct DecodedBranch
