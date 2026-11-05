@@ -1747,11 +1747,11 @@ FORCE_INLINE int Interpreter::subImm8T(uint16_t opcode) // SUB Rd,#i
     uint32_t op2 = opcode & 0x00FF;
 
     // Subtraction
-    *op0 -= op2;
+    const ThumbArithmeticResult arithmetic = thumbSub(op1, op2);
+    *op0 = arithmetic.result;
 
-    // Set the flags
-    cpsr = (cpsr & ~0xF0000000) | (*op0 & BIT(31)) | ((*op0 == 0) << 30) | ((op1 >= *op0) << 29) |
-        (((op2 & BIT(31)) != (op1 & BIT(31)) && (*op0 & BIT(31)) == (op2 & BIT(31))) << 28);
+    // Set NZCV. ARM subtraction sets C when no unsigned borrow occurred.
+    cpsr = (cpsr & ~0xF0000000u) | arithmetic.nzcv;
 
     return 1;
 }
