@@ -1275,8 +1275,19 @@ void Gpu2D::drawExtended(int bg, int line)
                 // Handle display area overflow
                 if (wrap)
                 {
-                    rotscaleX %= sizeX; if (rotscaleX < 0) rotscaleX += sizeX;
-                    rotscaleY %= sizeY; if (rotscaleY < 0) rotscaleY += sizeY;
+                    if (!gba)
+                    {
+                        // DS extended bitmap dimensions are powers of two.
+                        rotscaleX &= sizeX - 1;
+                        rotscaleY &= sizeY - 1;
+                    }
+                    else
+                    {
+                        rotscaleX %= sizeX;
+                        if (rotscaleX < 0) rotscaleX += sizeX;
+                        rotscaleY %= sizeY;
+                        if (rotscaleY < 0) rotscaleY += sizeY;
+                    }
                     GPU2D_EXT_COUNT(wrapped, 1);
                 }
                 else if (rotscaleX < 0 || rotscaleX >= sizeX || rotscaleY < 0 || rotscaleY >= sizeY) // Transparent
@@ -1315,8 +1326,19 @@ void Gpu2D::drawExtended(int bg, int line)
                 // Handle display area overflow
                 if (wrap)
                 {
-                    rotscaleX %= sizeX; if (rotscaleX < 0) rotscaleX += sizeX;
-                    rotscaleY %= sizeY; if (rotscaleY < 0) rotscaleY += sizeY;
+                    if (!gba)
+                    {
+                        // DS extended bitmap dimensions are powers of two.
+                        rotscaleX &= sizeX - 1;
+                        rotscaleY &= sizeY - 1;
+                    }
+                    else
+                    {
+                        rotscaleX %= sizeX;
+                        if (rotscaleX < 0) rotscaleX += sizeX;
+                        rotscaleY %= sizeY;
+                        if (rotscaleY < 0) rotscaleY += sizeY;
+                    }
                     GPU2D_EXT_COUNT(wrapped, 1);
                 }
                 else if (rotscaleX < 0 || rotscaleX >= sizeX || rotscaleY < 0 || rotscaleY >= sizeY) // Transparent
@@ -1509,8 +1531,9 @@ void Gpu2D::drawLarge(int bg, int line)
         // Handle display area overflow
         if (bgCnt[bg] & BIT(13)) // Wraparound
         {
-            rotscaleX %= sizeX; if (rotscaleX < 0) rotscaleX += sizeX;
-            rotscaleY %= sizeY; if (rotscaleY < 0) rotscaleY += sizeY;
+            // Large bitmap dimensions are always powers of two.
+            rotscaleX &= sizeX - 1;
+            rotscaleY &= sizeY - 1;
         }
         else if (rotscaleX < 0 || rotscaleX >= sizeX || rotscaleY < 0 || rotscaleY >= sizeY) // Transparent
         {
@@ -1520,7 +1543,7 @@ void Gpu2D::drawLarge(int bg, int line)
         // A full large bitmap requires 512KB of VRAM, but engine B can only use 128KB
         // For engine B, wrap the 128KB bitmap 4 times to cover the full area
         if (engine == 1)
-            rotscaleY %= sizeY / 4;
+            rotscaleY &= (sizeY / 4) - 1;
 
         // Get the palette index for the current pixel
         uint8_t index = core->memory.read<uint8_t>(0, bgVramAddr + rotscaleY * sizeX + rotscaleX);
