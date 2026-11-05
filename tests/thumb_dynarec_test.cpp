@@ -302,6 +302,17 @@ int main()
         assert(bl.writeMask == (1u << 14));
         assert(bl.terminal && bl.minCycles == 3 && bl.maxCycles == 3);
 
+        // ARM9 BLX immediate uses the same high-half setup but its 0xE8xx
+        // suffix switches to ARM state and aligns the branch target.
+        assert(Ps2Thumb::decode(0xE802u, 0x2002u, &bl));
+        assert(bl.kind == Ps2Thumb::LONG_BRANCH_LINK_EXCHANGE);
+        assert(bl.addend == 4);
+        assert(bl.target == 0x2005u);
+        assert(bl.readMask == (1u << 14));
+        assert(bl.writeMask == (1u << 14));
+        assert(bl.writesFlags);
+        assert(bl.terminal && bl.minCycles == 3 && bl.maxCycles == 3);
+
         assert(Ps2Thumb::decode(0xF7FFu, 0x3000u, &bl));
         assert(bl.kind == Ps2Thumb::LONG_BRANCH_SETUP);
         assert(bl.target == 0x00002004u); // signed -1 high half
