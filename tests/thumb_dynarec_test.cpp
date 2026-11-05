@@ -217,16 +217,40 @@ int main()
         assert(load.writeMask == (1u << 13));
         assert(load.terminal && load.minCycles == 5 && load.maxCycles == 5);
 
-        assert(!Ps2Thumb::decode(0xCB08u, 0x1000u, &load)); // base in list
-        assert(!Ps2Thumb::decode(0xC313u, 0x1000u, &load)); // STMIA
+        assert(!Ps2Thumb::decode(0xCB08u, 0x1000u, &load)); // LDM base in list
+
+        assert(Ps2Thumb::decode(0xC313u, 0x1000u, &load)); // STMIA r3!,{r0,r1,r4}
+        assert(load.kind == Ps2Thumb::ARM_STORE);
+        assert(load.armOpcode == 0xE8A30013u);
+        assert(load.readMask ==
+            static_cast<uint16_t>((1u << 3) | 0x0013u));
+        assert(load.writeMask == (1u << 3));
+        assert(load.minCycles == 4 && load.maxCycles == 4);
+
+        assert(!Ps2Thumb::decode(0xC308u, 0x1000u, &load)); // STM base in list
     }
 
-    // Scalar stores now translate to the transactional ARM backend. ARM9
+    // Scalar and stack/multiple stores now translate to the transactional ARM
+    // backend. ARM9 admits them live only after journal differential
+    // verification; ARM7 compilation still blocks stores at its CPU gate.
     // admits them live only after journal differential verification; ARM7
     // compilation still blocks stores at the CPU-specific gate.
     Ps2Thumb::Decoded d;
     assert(!Ps2Thumb::decode(0x46F8u, 0x1000u, &d)); // MOV pc,r15/PC write
-    assert(!Ps2Thumb::decode(0xB500u, 0x1000u, &d)); // PUSH stays later
+
+    assert(Ps2Thumb::decode(0xB500u, 0x1000u, &d)); // PUSH {lr}
+    assert(d.kind == Ps2Thumb::ARM_STORE);
+    assert(d.armOpcode == 0xE52DE004u);
+    assert(d.readMask == ((1u << 13) | (1u << 14)));
+    assert(d.writeMask == (1u << 13));
+    assert(d.minCycles == 2 && d.maxCycles == 2);
+
+    assert(Ps2Thumb::decode(0xB510u, 0x1000u, &d)); // PUSH {r4,lr}
+    assert(d.kind == Ps2Thumb::ARM_STORE);
+    assert(d.armOpcode == 0xE92D4010u);
+    assert(d.readMask == ((1u << 4) | (1u << 13) | (1u << 14)));
+    assert(d.writeMask == (1u << 13));
+    assert(d.minCycles == 3 && d.maxCycles == 3);
 
     assert(Ps2Thumb::decode(0x5008u, 0x1000u, &d)); // STR r0,[r1,r0]
     assert(d.kind == Ps2Thumb::ARM_STORE);
