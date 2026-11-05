@@ -484,6 +484,11 @@ namespace Ps2Thumb
             if (popPc)
             {
                 out->kind = POP_PC;
+                // ARM9 POP {...,pc} can clear CPSR.T when the loaded target
+                // is even. ARM7 leaves Thumb state unchanged, but marking the
+                // potential CPSR write here is harmless and keeps liveness
+                // conservative for both CPUs.
+                out->writesFlags = true;
                 out->terminal = true;
                 out->minCycles = out->maxCycles =
                     static_cast<uint8_t>(count + 5u);
