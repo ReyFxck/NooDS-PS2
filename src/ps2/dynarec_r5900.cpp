@@ -9681,15 +9681,16 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
         *guestInstructions = 0;
 
     DYNAREC_PROFILE(profile.activeAttempts++);
-    if (!cycleBudget || CpuBackendAccess::isArm9(cpu) ||
-        CpuBackendAccess::isThumb(cpu))
+    if (!cycleBudget || CpuBackendAccess::isArm9(cpu))
     {
         DYNAREC_PROFILE(profile.activeStateFallbacks++);
         return 0;
     }
 
     synchronizeMemoryMap();
+    const bool thumb = CpuBackendAccess::isThumb(cpu);
     uint32_t guestPc = CpuBackendAccess::nextInstructionAddress(cpu);
+    const uint32_t rejectKey = guestPc | (thumb ? 1u : 0u);
     constexpr uint32_t MIN_ARM7_ACTIVE_INSTRUCTIONS = 2;
 
     // Recovery mode after the live-ARM7 black-screen regression: only admit
@@ -9706,10 +9707,10 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
             !candidate->internalSelfLoop;
     };
 
-    R5900CompiledBlock *block = findMutableBlock(guestPc, false);
+    R5900CompiledBlock *block = findMutableBlock(guestPc, thumb);
     if (!conservativeArm7LiveSafe(block))
     {
-        ActiveRejectKind rejected = findActiveReject(guestPc);
+        ActiveRejectKind rejected = findActiveReject(rejectKey);
         if (rejected != ACTIVE_REJECT_NONE)
         {
             DYNAREC_PROFILE(profile.activeVerifyFallbacks++; recordActiveFallback(profile, guestPc, R5900_ACTIVE_FALLBACK_VERIFY));
@@ -9718,25 +9719,40 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
 
         if (blocks.size() >= 2048)
         {
-            cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
+            cacheActiveReject(rejectKey, ACTIVE_REJECT_VERIFY);
             DYNAREC_PROFILE(profile.activeVerifyFallbacks++; recordActiveFallback(profile, guestPc, R5900_ACTIVE_FALLBACK_VERIFY));
             return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
         }
 
         DYNAREC_PROFILE(profile.activeCompileMisses++; recordActiveFallback(profile, guestPc, R5900_ACTIVE_FALLBACK_COMPILE));
-        int shadow = runArm7AluBranchShadowSelfTest(cpu, nullptr, nullptr,
-            nullptr, 16);
-        if (shadow <= 0)
+        if (thumb)
         {
-            cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
-            DYNAREC_PROFILE(profile.activeVerifyFallbacks++; recordActiveFallback(profile, guestPc, R5900_ACTIVE_FALLBACK_VERIFY));
-            return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
+            const int differential =
+                runArm7ThumbDifferentialSelfTest(cpu, nullptr, nullptr,
+                    nullptr, 16);
+            if (differential <= 0)
+            {
+                cacheActiveReject(rejectKey, ACTIVE_REJECT_VERIFY);
+                DYNAREC_PROFILE(profile.activeVerifyFallbacks++; recordActiveFallback(profile, guestPc, R5900_ACTIVE_FALLBACK_VERIFY));
+                return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
+            }
+        }
+        else
+        {
+            int shadow = runArm7AluBranchShadowSelfTest(cpu, nullptr,
+                nullptr, nullptr, 16);
+            if (shadow <= 0)
+            {
+                cacheActiveReject(rejectKey, ACTIVE_REJECT_VERIFY);
+                DYNAREC_PROFILE(profile.activeVerifyFallbacks++; recordActiveFallback(profile, guestPc, R5900_ACTIVE_FALLBACK_VERIFY));
+                return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
+            }
         }
 
-        block = findMutableBlock(guestPc, false);
+        block = findMutableBlock(guestPc, thumb);
         if (!conservativeArm7LiveSafe(block))
         {
-            cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
+            cacheActiveReject(rejectKey, ACTIVE_REJECT_VERIFY);
             DYNAREC_PROFILE(profile.activeVerifyFallbacks++; recordActiveFallback(profile, guestPc, R5900_ACTIVE_FALLBACK_VERIFY));
             return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
         }
@@ -9757,27 +9773,28 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
             block->maxMemoryWrites ||
             ((block->readMask | block->writeMask) & 0x8000u))
         {
-            cacheActiveReject(guestPc, ACTIVE_REJECT_STATE);
+            cacheActiveReject(rejectKey, ACTIVE_REJECT_STATE);
             DYNAREC_PROFILE(profile.activeStateFallbacks++; recordActiveFallback(profile, guestPc, R5900_ACTIVE_FALLBACK_STATE));
             return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
         }
 
         if (!block->differentialVerified)
         {
-            int differential =
-                runArm7AluBranchDifferentialSelfTest(cpu);
+            int differential = thumb
+                ? runArm7ThumbDifferentialSelfTest(cpu)
+                : runArm7AluBranchDifferentialSelfTest(cpu);
             if (differential <= 0)
             {
-                cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
+                cacheActiveReject(rejectKey, ACTIVE_REJECT_VERIFY);
                 DYNAREC_PROFILE(profile.activeVerifyFallbacks++; recordActiveFallback(profile, guestPc, R5900_ACTIVE_FALLBACK_VERIFY));
                 return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
             }
 
-            block = findMutableBlock(guestPc, false);
+            block = findMutableBlock(guestPc, thumb);
             if (!block || !block->differentialVerified ||
                 !block->arm7TimingSafe)
             {
-                cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
+                cacheActiveReject(rejectKey, ACTIVE_REJECT_VERIFY);
                 DYNAREC_PROFILE(profile.activeVerifyFallbacks++; recordActiveFallback(profile, guestPc, R5900_ACTIVE_FALLBACK_VERIFY));
                 return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
             }
@@ -9902,6 +9919,7 @@ int DynarecR5900::runArm7ActiveAluBranchBlock(Interpreter &cpu,
             break;
         }
 
+        // THUMB is deliberately one-block-only in the first live backend.
         if ((state.cpsr & BIT(5)) ||
             executedBlocks >= MAX_ARM7_RESIDENT_BLOCKS ||
             totalCycles >= cycleBudget)
