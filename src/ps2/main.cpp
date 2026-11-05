@@ -2222,7 +2222,7 @@ int main(int argc, char **argv)
                     profKnownMs / profFrameDiv);
 
                 const CoreRunProfile &runProfile = core->getRunProfile();
-                PS2_LOG("[PS2][PROF] scheduler: ARM9=%llu ARM7=%llu tasks=%llu schedules=%llu maxDepth=%lu legacyEstimatedMoves=%llu cursorCompactions=%llu cursorMoves=%llu blockFilterHit=%llu blockExec=%llu blockDrop=%llu blockBudgetSkip=%llu autoHot=%llu filterCollision=%llu sampleCollision=%llu\n",
+                PS2_LOG("[PS2][PROF] scheduler: ARM9=%llu ARM7=%llu tasks=%llu schedules=%llu maxDepth=%lu legacyEstimatedMoves=%llu cursorCompactions=%llu cursorMoves=%llu blockFilterHit=%llu blockExec=%llu blockDrop=%llu blockBudgetSkip=%llu autoHot=%llu thumbAutoHot=%llu filterCollision=%llu sampleCollision=%llu\n",
                     static_cast<unsigned long long>(runProfile.arm9Opcodes),
                     static_cast<unsigned long long>(runProfile.arm7Opcodes),
                     static_cast<unsigned long long>(runProfile.taskExecutions),
@@ -2236,6 +2236,8 @@ int main(int argc, char **argv)
                     static_cast<unsigned long long>(runProfile.arm9BlockFilterDrops),
                     static_cast<unsigned long long>(runProfile.arm9BlockBudgetSkips),
                     static_cast<unsigned long long>(runProfile.arm9AutoHotPromotions),
+                    static_cast<unsigned long long>(
+                        runProfile.arm9ThumbAutoHotPromotions),
                     static_cast<unsigned long long>(runProfile.arm9BlockFilterCollisions),
                     static_cast<unsigned long long>(runProfile.arm9HotSampleCollisions));
                 PS2_LOG("[PS2][PROF] arm7-block: filterHit=%llu exec=%llu chained=%llu drop=%llu budgetSkip=%llu autoHot=%llu thumbAutoHot=%llu filterCollision=%llu sampleCollision=%llu\n",
