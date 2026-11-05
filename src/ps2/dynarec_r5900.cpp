@@ -5598,6 +5598,37 @@ bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
             continue;
         }
 
+        if (decoded.kind == Ps2Thumb::POP_PC)
+        {
+            // Load low registers first with the already gated ARM7 LDMIA
+            // emitter. Then consume the stacked PC with a post-index word load
+            // whose guest destination store is suppressed; the loaded value
+            // remains in host t2 and becomes ArmAluState::nextPc.
+            if (decoded.armOpcode)
+            {
+                size_t emitted = emitArmMultiBlockTransferInstruction(
+                    decoded.armOpcode, code + words, true, true, 1);
+                if (!emitted)
+                    return false;
+                words += emitted;
+            }
+            else
+            {
+                // POP {pc} has no preceding LDM, but NooDS still charges
+                // n+4 == 5 cycles. The post-index ARM7 LDR below contributes 3.
+                words += emitArmCycleAdd(2, code + words, true);
+            }
+
+            constexpr uint32_t popPcLoad = 0xE49D0004u; // LDR r0,[sp],#4
+            size_t emitted = emitArmWordLoadCachedInstruction(popPcLoad,
+                code + words, true, true, true, 1);
+            if (!emitted)
+                return false;
+            words += emitted;
+            code[words++] = R5900::sw(R5900::R_T2, 68, R5900::R_A0);
+            continue;
+        }
+
         if (decoded.kind == Ps2Thumb::ADDRESS_ADD)
         {
             words += emitArmCycleAdd(1, code + words, true);
