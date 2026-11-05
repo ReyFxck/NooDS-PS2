@@ -10059,12 +10059,30 @@ int DynarecR5900::runArm7ThumbDifferentialSelfTest(Interpreter &cpu,
     typedef void (*ThumbDifferentialFunction)(ArmAluState *);
     ThumbDifferentialFunction function =
         reinterpret_cast<ThumbDifferentialFunction>(block->hostCode);
-    function(&generated);
-    if (generated.memoryFault || generated.writeCount)
+
+    ArmMemoryWrite generatedWrites[16] = {};
+    uint32_t generatedWriteCount = 0;
     {
-        CpuBackendAccess::restoreStraightLineState(cpu, savedRegs,
-            savedCpsr, savedPipeline0, savedPipeline1);
-        return 0;
+        ArmMemoryWriteGuard generatedGuard(&generated);
+        function(&generated);
+        if (generated.memoryFault)
+        {
+            CpuBackendAccess::restoreStraightLineState(cpu, savedRegs,
+                savedCpsr, savedPipeline0, savedPipeline1);
+            return 0;
+        }
+
+        generatedWriteCount = generated.writeCount;
+        if (generatedWriteCount > 16)
+        {
+            generatedGuard.restoreNow();
+            CpuBackendAccess::restoreStraightLineState(cpu, savedRegs,
+                savedCpsr, savedPipeline0, savedPipeline1);
+            return -1;
+        }
+        for (uint32_t i = 0; i < generatedWriteCount; i++)
+            generatedWrites[i] = generated.writes[i];
+        generatedGuard.restoreNow();
     }
 
     MemoryWriteJournal interpreterWrites;
@@ -10083,8 +10101,27 @@ int DynarecR5900::runArm7ThumbDifferentialSelfTest(Interpreter &cpu,
     }
     memory->endWriteJournal(&interpreterWrites);
 
-    bool match = interpreterOk && !interpreterWrites.overflow &&
-        interpreterWrites.count == 0 &&
+    bool writesMatch = !interpreterWrites.overflow &&
+        interpreterWrites.count == generatedWriteCount;
+    if (writesMatch)
+    {
+        for (uint32_t i = 0; i < generatedWriteCount; i++)
+        {
+            const MemoryWriteJournalEntry &actual =
+                interpreterWrites.entries[i];
+            const ArmMemoryWrite &expected = generatedWrites[i];
+            if (actual.address != expected.address ||
+                actual.before != expected.before ||
+                actual.after != expected.after ||
+                actual.size != expected.size)
+            {
+                writesMatch = false;
+                break;
+            }
+        }
+    }
+
+    bool match = interpreterOk && writesMatch &&
         CpuBackendAccess::readCpsr(cpu) == generated.cpsr &&
         CpuBackendAccess::nextInstructionAddress(cpu) ==
             generated.nextPc &&
@@ -10107,6 +10144,15 @@ int DynarecR5900::runArm7ThumbDifferentialSelfTest(Interpreter &cpu,
     hash *= 16777619u;
     hash ^= block->guestInstructions;
     hash *= 16777619u;
+    for (uint32_t i = 0; i < generatedWriteCount; i++)
+    {
+        hash ^= generatedWrites[i].address;
+        hash *= 16777619u;
+        hash ^= generatedWrites[i].after;
+        hash *= 16777619u;
+        hash ^= generatedWrites[i].size;
+        hash *= 16777619u;
+    }
 
     memory->rollbackWriteJournal(interpreterWrites);
     CpuBackendAccess::restoreStraightLineState(cpu, savedRegs,
@@ -10148,11 +10194,13 @@ int DynarecR5900::runArm9ThumbDifferentialSelfTest(Interpreter &cpu,
         block = findMutableBlock(guestPc, true);
     }
 
-    // First ARM9 Thumb live subset is intentionally read-only. Stores can be
-    // added later through the existing ARM9 transactional journal once the
-    // CPU0 Thumb timing/state gate has accumulated runtime coverage.
+    // Scalar Thumb stores use the same bounded transactional journal as
+    // ARM9 ARM blocks. Reject only malformed write metadata; generated and
+    // interpreter writes are compared and rolled back below before live
+    // admission.
     if (!block || !block->hostCode || !block->guestInstructions ||
-        block->writesMemory || block->maxMemoryWrites)
+        (block->writesMemory && !block->maxMemoryWrites) ||
+        block->maxMemoryWrites > 16)
         return 0;
 
     uint32_t savedRegs[16] = {};
