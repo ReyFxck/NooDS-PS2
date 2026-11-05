@@ -228,6 +228,22 @@ int main()
             static_cast<uint16_t>((1u << 3) | 0x0013u));
         assert(load.writeMask == (1u << 3));
         assert(load.minCycles == 4 && load.maxCycles == 4);
+        Ps2ArmAlu::DecodedMultiBlockTransfer stmiaMulti;
+        assert(Ps2ArmAlu::decodeMultiBlockTransfer(
+            load.armOpcode, &stmiaMulti));
+        assert(!stmiaMulti.load && stmiaMulti.writeBack &&
+            !stmiaMulti.decrementBefore && stmiaMulti.rn == 3 &&
+            stmiaMulti.count == 3 && stmiaMulti.registerMask == 0x0013u);
+
+        assert(Ps2Thumb::decode(0xC201u, 0x1000u, &load)); // STMIA r2!,{r0}
+        assert(load.kind == Ps2Thumb::ARM_STORE);
+        assert(load.armOpcode == 0xE8A20001u);
+        assert(load.minCycles == 2 && load.maxCycles == 2);
+        Ps2ArmAlu::DecodedSingleBlockTransfer stmiaSingle;
+        assert(Ps2ArmAlu::decodeSingleBlockTransfer(
+            load.armOpcode, &stmiaSingle));
+        assert(!stmiaSingle.load && stmiaSingle.writeBack &&
+            stmiaSingle.rn == 2 && stmiaSingle.reg == 0);
 
         assert(!Ps2Thumb::decode(0xC308u, 0x1000u, &load)); // STM base in list
     }
@@ -246,6 +262,12 @@ int main()
     assert(d.readMask == ((1u << 13) | (1u << 14)));
     assert(d.writeMask == (1u << 13));
     assert(d.minCycles == 2 && d.maxCycles == 2);
+    Ps2ArmAlu::DecodedSingleTransfer pushSingle;
+    assert(Ps2ArmAlu::decodeSingleTransfer(d.armOpcode, &pushSingle));
+    assert(!pushSingle.load && pushSingle.preIndex &&
+        !pushSingle.addOffset && pushSingle.writeBack &&
+        pushSingle.rn == 13 && pushSingle.rd == 14 &&
+        pushSingle.immediateOffset == 4);
 
     assert(Ps2Thumb::decode(0xB510u, 0x1000u, &d)); // PUSH {r4,lr}
     assert(d.kind == Ps2Thumb::ARM_STORE);
@@ -253,6 +275,11 @@ int main()
     assert(d.readMask == ((1u << 4) | (1u << 13) | (1u << 14)));
     assert(d.writeMask == (1u << 13));
     assert(d.minCycles == 3 && d.maxCycles == 3);
+    Ps2ArmAlu::DecodedMultiBlockTransfer pushMulti;
+    assert(Ps2ArmAlu::decodeMultiBlockTransfer(d.armOpcode, &pushMulti));
+    assert(!pushMulti.load && pushMulti.writeBack &&
+        pushMulti.decrementBefore && pushMulti.rn == 13 &&
+        pushMulti.count == 2 && pushMulti.registerMask == 0x4010u);
 
     assert(Ps2Thumb::decode(0x5008u, 0x1000u, &d)); // STR r0,[r1,r0]
     assert(d.kind == Ps2Thumb::ARM_STORE);
