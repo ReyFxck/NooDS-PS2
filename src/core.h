@@ -87,6 +87,7 @@ struct CoreRunProfile
     uint64_t arm9AutoHotPromotions = 0;
     uint64_t arm9BlockFilterCollisions = 0;
     uint64_t arm9HotSampleCollisions = 0;
+    uint64_t arm9ThumbAutoHotPromotions = 0;
     uint64_t arm7BlockFilterHits = 0;
     uint64_t arm7BlockExecutions = 0;
     uint64_t arm7BlockChainedExecutions = 0;
@@ -244,18 +245,24 @@ class Core
         uint8_t arm9HotSampleScore[ARM9_HOT_SAMPLE_SLOTS] = {};
         uint8_t arm9HotSampleDivider = 0;
 
-        size_t arm9BlockFilterSlot(uint32_t pc) const
+        uint32_t arm9BlockKey(uint32_t pc, bool thumb) const
         {
-            return ((pc >> 2) ^ (pc >> 11)) & (ARM9_BLOCK_FILTER_SLOTS - 1);
+            return pc | (thumb ? 1u : 0u);
         }
 
-        size_t arm9HotSampleSlot(uint32_t pc) const
+        size_t arm9BlockFilterSlot(uint32_t key) const
         {
-            return ((pc >> 2) ^ (pc >> 10) ^ (pc >> 18)) &
+            return ((key >> 1) ^ (key >> 11) ^ key) &
+                (ARM9_BLOCK_FILTER_SLOTS - 1);
+        }
+
+        size_t arm9HotSampleSlot(uint32_t key) const
+        {
+            return ((key >> 1) ^ (key >> 10) ^ (key >> 18) ^ key) &
                 (ARM9_HOT_SAMPLE_SLOTS - 1);
         }
 
-        void sampleArm9HotPc(uint32_t pc);
+        void sampleArm9HotPc(uint32_t pc, bool thumb);
 
         void *arm7BlockRunnerContext = nullptr;
         Arm7BlockRunner arm7BlockRunner = nullptr;
