@@ -5469,6 +5469,187 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     return true;
 }
 
+bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
+    size_t count, uint32_t guestPc, uint32_t **entry, uint32_t *hostWords)
+{
+    if (!opcodes || !count || !entry || !hostWords || !memory)
+        return false;
+
+    uint32_t minCycles = 0;
+    uint32_t maxCycles = 0;
+    bool internalSelfLoop = false;
+    for (size_t i = 0; i < count; i++)
+    {
+        Ps2Thumb::Decoded decoded;
+        const uint32_t pc = guestPc + static_cast<uint32_t>(i * 2);
+        if (!Ps2Thumb::decode(opcodes[i], pc, &decoded))
+            return false;
+        if (decoded.terminal && i + 1 != count)
+            return false;
+        minCycles += decoded.minCycles;
+        maxCycles += decoded.maxCycles;
+        if (i + 1 == count && decoded.terminal &&
+            decoded.target == guestPc)
+            internalSelfLoop = true;
+    }
+
+    const size_t maxWords = count * 160 + 16;
+    uint32_t *code = cache.reserveWords(maxWords);
+    if (!code)
+        return false;
+
+    size_t words = 0;
+    // The initial subset either writes NZCV or branches on it, so keep the
+    // live CPSR resident exactly like an ARM flag-dependent block.
+    code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
+    code[words++] = R5900::or_(R5900::R_T8,
+        R5900::R_ZERO, R5900::R_ZERO);
+
+    for (size_t i = 0; i < count; i++)
+    {
+        const uint32_t pc = guestPc + static_cast<uint32_t>(i * 2);
+        Ps2Thumb::Decoded decoded;
+        if (!Ps2Thumb::decode(opcodes[i], pc, &decoded))
+            return false;
+
+        if (decoded.kind == Ps2Thumb::ARM_ALU)
+        {
+            size_t emitted = emitArmAluInstruction(decoded.armOpcode,
+                code + words, true, true);
+            if (!emitted)
+                return false;
+            words += emitted;
+            continue;
+        }
+
+        if (decoded.kind == Ps2Thumb::LITERAL_LOAD)
+        {
+            // Reuse the direct ARM literal-load emitter by choosing a synthetic
+            // ARM PC whose architectural PC+8 is exactly the Thumb literal
+            // address. No guest PC state leaks into the generated operation.
+            const uint32_t synthetic =
+                0xE59F0000u |
+                (static_cast<uint32_t>(decoded.rd) << 12);
+            const uint32_t syntheticPc = decoded.target - 8u;
+            size_t emitted = emitArmLiteralLoadDirectInstruction(
+                synthetic, syntheticPc, code + words, memory,
+                true, true, false, targetCpuId);
+            if (!emitted)
+                return false;
+            words += emitted;
+            continue;
+        }
+
+        if (decoded.kind == Ps2Thumb::CONDITIONAL_BRANCH)
+        {
+            words += emitArmCycleAdd(1, code + words, true);
+            words += emitArmCondition(decoded.condition,
+                code + words, true);
+            size_t notTakenBranch = words;
+            code[words++] = R5900::beq(R5900::R_T7,
+                R5900::R_ZERO, 0);
+            code[words++] = R5900::nop();
+
+            words += emitArmCycleAdd(2, code + words, true);
+            code[words++] = R5900::lui(R5900::R_T2,
+                static_cast<uint16_t>(decoded.target >> 16));
+            code[words++] = R5900::ori(R5900::R_T2,
+                R5900::R_T2, static_cast<uint16_t>(decoded.target));
+            code[words++] = R5900::sw(R5900::R_T2,
+                68, R5900::R_A0);
+
+            size_t distance = words - (notTakenBranch + 1);
+            if (distance > 0x7FFFu)
+                return false;
+            code[notTakenBranch] = R5900::beq(R5900::R_T7,
+                R5900::R_ZERO, static_cast<int16_t>(distance));
+            continue;
+        }
+
+        if (decoded.kind == Ps2Thumb::BRANCH)
+        {
+            words += emitArmCycleAdd(3, code + words, true);
+            code[words++] = R5900::lui(R5900::R_T2,
+                static_cast<uint16_t>(decoded.target >> 16));
+            code[words++] = R5900::ori(R5900::R_T2,
+                R5900::R_T2, static_cast<uint16_t>(decoded.target));
+            code[words++] = R5900::sw(R5900::R_T2,
+                68, R5900::R_A0);
+            continue;
+        }
+
+        return false;
+    }
+
+    code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
+    code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
+    code[words++] = R5900::jr(R5900::R_RA);
+    code[words++] = R5900::nop();
+
+    cache.commitWords(words);
+    cache.syncExecutable(code, code + words);
+
+    R5900CompiledBlock block = {};
+    block.guestPc = guestPc;
+    block.guestEndPc = guestPc + static_cast<uint32_t>(count * 2);
+    block.mapGeneration = mappedGeneration;
+    block.guestInstructions = static_cast<uint32_t>(count);
+    block.minCycles = minCycles;
+    block.cycles = maxCycles;
+    block.entryOpcode0 = opcodes[0];
+    block.entryOpcode1 = count > 1 ? opcodes[1] : 0;
+    block.thumb = true;
+    block.internalSelfLoop = internalSelfLoop;
+    block.hostCode = code;
+    block.hostWords = static_cast<uint32_t>(words);
+
+    for (size_t i = 0; i < count; i++)
+    {
+        Ps2Thumb::Decoded decoded;
+        if (!Ps2Thumb::decode(opcodes[i],
+            guestPc + static_cast<uint32_t>(i * 2), &decoded))
+            return false;
+        block.readMask |= decoded.readMask;
+        block.writeMask |= decoded.writeMask;
+        block.readsFlags |= decoded.readsFlags;
+        block.writesFlags |= decoded.writesFlags;
+    }
+
+    uint16_t writeMask =
+        static_cast<uint16_t>(block.writeMask & 0x7FFFu);
+    uint16_t inputMask = writeMask;
+    for (size_t i = count; i-- > 0;)
+    {
+        Ps2Thumb::Decoded decoded;
+        if (!Ps2Thumb::decode(opcodes[i],
+            guestPc + static_cast<uint32_t>(i * 2), &decoded))
+            return false;
+        const uint16_t reads =
+            static_cast<uint16_t>(decoded.readMask & 0x7FFFu);
+        const uint16_t writes =
+            static_cast<uint16_t>(decoded.writeMask & 0x7FFFu);
+        inputMask = static_cast<uint16_t>(
+            reads | (inputMask & ~writes));
+    }
+    block.inputMask = inputMask;
+
+    for (uint8_t reg = 0; reg < 15; reg++)
+    {
+        const uint16_t bit = static_cast<uint16_t>(1u << reg);
+        if (inputMask & bit)
+            block.inputRegs[block.inputRegCount++] = reg;
+        if (writeMask & bit)
+            block.writeRegs[block.writeRegCount++] = reg;
+    }
+
+    blocks.push_back(block);
+    rememberCompiledCodePages(blocks.back());
+    *entry = code;
+    *hostWords = static_cast<uint32_t>(words);
+    return true;
+}
+
+
 bool DynarecR5900::runArmAluSelfTest()
 {
     struct Test
