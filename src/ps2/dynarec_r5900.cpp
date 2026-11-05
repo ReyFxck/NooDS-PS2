@@ -1719,7 +1719,8 @@ size_t emitArmFlags(const Ps2ArmAlu::Decoded &decoded, uint32_t *code,
 
 size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
     bool registerCycles = false, bool registerCpsr = false,
-    int forwardedGuestReg = -1, bool suppressResultStore = false)
+    int forwardedGuestReg = -1, bool suppressResultStore = false,
+    bool oneCycleRegisterShift = false)
 {
     if (!code)
         return 0;
@@ -1746,7 +1747,7 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
         code[words++] = R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
         code[words++] = R5900::nop();
     }
-    if (decoded.registerShift)
+    if (decoded.registerShift && !oneCycleRegisterShift)
         words += emitArmCycleAdd(1, code + words, registerCycles);
 
     const bool carryInputOperation =
@@ -5542,7 +5543,18 @@ bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
         if (decoded.kind == Ps2Thumb::ARM_ALU)
         {
             size_t emitted = emitArmAluInstruction(decoded.armOpcode,
-                code + words, true, true);
+                code + words, true, true, -1, false,
+                decoded.oneCycleRegisterShift);
+            if (!emitted)
+                return false;
+            words += emitted;
+            continue;
+        }
+
+        if (decoded.kind == Ps2Thumb::ARM_MULTIPLY)
+        {
+            size_t emitted = emitArmMultiplyInstruction(decoded.armOpcode,
+                code + words, true, true, false, targetCpuId);
             if (!emitted)
                 return false;
             words += emitted;
