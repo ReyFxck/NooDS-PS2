@@ -5605,6 +5605,16 @@ bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
             continue;
         }
 
+        if (decoded.kind == Ps2Thumb::BRANCH_EXCHANGE)
+        {
+            size_t emitted = emitArmBranchExchangeDirectInstruction(
+                decoded.armOpcode, code + words, true, true);
+            if (!emitted)
+                return false;
+            words += emitted;
+            continue;
+        }
+
         return false;
     }
 
