@@ -143,6 +143,8 @@ void Gpu3DRenderer::drawScanline(int line)
         // repeating polygonCount range checks 192 times per frame.
         memset(polygonLineMask, 0, sizeof(polygonLineMask));
         const int polygonCount = core->gpu3D.getPolygonCount();
+        polygonMaskWords = static_cast<uint8_t>(
+            (polygonCount + 31) >> 5);
         _Polygon *polygons = core->gpu3D.getPolygons();
         for (int i = 0; i < polygonCount; i++)
         {
@@ -312,7 +314,7 @@ void Gpu3DRenderer::drawScanline1(int line)
     for (int pass = 0; pass < 2; pass++)
     {
         const bool wantTranslucent = pass != 0;
-        for (int word = 0; word < 64; word++)
+        for (int word = 0; word < polygonMaskWords; word++)
         {
             uint32_t bits = polygonLineMask[line][word];
             while (bits)
