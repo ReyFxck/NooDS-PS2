@@ -1749,26 +1749,33 @@ void Gpu2D::drawObjects(int line, bool window)
             (uint16_t)gpu2dLoad16(oam, i * 8 + 4)
         };
 
-        // Determine the dimensions of the object
-        int width, height;
-        switch (((object[0] >> 12) & 0xC) | ((object[1] >> 14) & 0x3)) // Shape, size
+        // Determine the dimensions of the object. This runs for every
+        // active sprite on every scanline, so use the OAM shape/size code as a
+        // direct lookup instead of a 12-way branch.
+        static const uint8_t objectWidth[16] =
         {
-            case 0x0: width =  8; height =  8; break; // Square, 0
-            case 0x1: width = 16; height = 16; break; // Square, 1
-            case 0x2: width = 32; height = 32; break; // Square, 2
-            case 0x3: width = 64; height = 64; break; // Square, 3
-            case 0x4: width = 16; height =  8; break; // Horizontal, 0
-            case 0x5: width = 32; height =  8; break; // Horizontal, 1
-            case 0x6: width = 32; height = 16; break; // Horizontal, 2
-            case 0x7: width = 64; height = 32; break; // Horizontal, 3
-            case 0x8: width =  8; height = 16; break; // Vertical, 0
-            case 0x9: width =  8; height = 32; break; // Vertical, 1
-            case 0xA: width = 16; height = 32; break; // Vertical, 2
-            case 0xB: width = 32; height = 64; break; // Vertical, 3
-
-            default:
-                LOG("Unknown object dimensions: shape=%d, size=%d\n", (object[0] >> 14) & 0x3, (object[1] >> 14) & 0x3);
-                continue;
+             8, 16, 32, 64,
+            16, 32, 32, 64,
+             8,  8, 16, 32,
+             0,  0,  0,  0
+        };
+        static const uint8_t objectHeight[16] =
+        {
+             8, 16, 32, 64,
+             8,  8, 16, 32,
+            16, 32, 32, 64,
+             0,  0,  0,  0
+        };
+        const uint8_t dimensionCode =
+            static_cast<uint8_t>(((object[0] >> 12) & 0xC) |
+                ((object[1] >> 14) & 0x3));
+        const int width = objectWidth[dimensionCode];
+        const int height = objectHeight[dimensionCode];
+        if (!width)
+        {
+            LOG("Unknown object dimensions: shape=%d, size=%d\n",
+                (object[0] >> 14) & 0x3, (object[1] >> 14) & 0x3);
+            continue;
         }
 
         // Double the object bounds for rotscale objects with the double size bit set
