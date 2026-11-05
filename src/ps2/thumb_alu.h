@@ -20,7 +20,8 @@ namespace Ps2Thumb
         BRANCH_EXCHANGE,
         BRANCH_LINK_EXCHANGE,
         LONG_BRANCH_SETUP,
-        LONG_BRANCH_LINK
+        LONG_BRANCH_LINK,
+        LONG_BRANCH_LINK_EXCHANGE
     };
 
     struct Decoded
@@ -596,6 +597,25 @@ namespace Ps2Thumb
             out->minCycles = out->maxCycles = 3;
             // The architectural Thumb return address is the instruction after
             // this suffix with bit 0 set: pc+2 | 1 == pc+3.
+            out->target = pc + 3u;
+            return true;
+        }
+
+        // ARM9 Thumb long BLX suffix. NooDS dispatches the full 0xE8-0xEF
+        // range here: the old LR from LONG_BRANCH_SETUP supplies the high
+        // target, the suffix contributes its low offset, CPSR.T is cleared,
+        // and the ARM pipeline aligns the resulting target to four bytes.
+        // ARM7 rejection remains CPU-specific in compileThumbBlock().
+        if ((opcode & 0xF800u) == 0xE800u)
+        {
+            out->kind = LONG_BRANCH_LINK_EXCHANGE;
+            out->addend = static_cast<int16_t>(
+                static_cast<uint16_t>(opcode & 0x07FFu) << 1);
+            out->readMask = static_cast<uint16_t>(1u << 14);
+            out->writeMask = static_cast<uint16_t>(1u << 14);
+            out->writesFlags = true;
+            out->terminal = true;
+            out->minCycles = out->maxCycles = 3;
             out->target = pc + 3u;
             return true;
         }
