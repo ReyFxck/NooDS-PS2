@@ -621,8 +621,27 @@ int main()
             Ps2ArmAlu::REJECT_NONE);
         assert(Ps2ArmAlu::rejectionReason(0xE121F002u) ==
             Ps2ArmAlu::REJECT_NONE);
+
+        assert(Ps2ArmAlu::decodePsrTransfer(0xE321F013u, &psr));
+        assert(psr.write && psr.immediate &&
+            psr.fieldMask == 1 && psr.immediateValue == 0x13u);
+        psrCpsr = 0x60000092u;
+        assert(Ps2ArmAlu::executePsrTransfer(
+            0xE321F013u, psrRegs, &psrCpsr));
+        assert((psrCpsr & 0xFFu) == 0x13u);
+
+        // Rotated immediate feeds the selected high CPSR byte exactly.
+        assert(Ps2ArmAlu::decodePsrTransfer(0xE328F4A5u, &psr));
+        assert(psr.immediate && psr.fieldMask == 8 &&
+            psr.immediateValue == 0xA5000000u);
+        psrCpsr = 0x00000013u;
+        assert(Ps2ArmAlu::executePsrTransfer(
+            0xE328F4A5u, psrRegs, &psrCpsr));
+        assert(psrCpsr == 0xA0000013u);
+
+        assert(Ps2ArmAlu::rejectionReason(0xE321F013u) ==
+            Ps2ArmAlu::REJECT_NONE);
         assert(!Ps2ArmAlu::decodePsrTransfer(0xE14F1000u, &psr)); // SPSR
-        assert(!Ps2ArmAlu::decodePsrTransfer(0xE321F013u, &psr)); // immediate
     }
 
     Ps2ArmAlu::DecodedBranch branch;
