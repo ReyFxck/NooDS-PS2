@@ -1722,38 +1722,29 @@ size_t emitArmFlags(const Ps2ArmAlu::Decoded &decoded, uint32_t *code,
         }
         else if (decoded.operation == 2 || decoded.operation == 10) // SUB/CMP: T0 - T1
         {
-            code[words++] = R5900::nor_(R5900::R_T3, R5900::R_T0, R5900::R_ZERO);
-            code[words++] = R5900::and_(R5900::R_T3, R5900::R_T3, R5900::R_T1);
-            code[words++] = R5900::xor_(R5900::R_T6, R5900::R_T0, R5900::R_T1);
-            code[words++] = R5900::nor_(R5900::R_T6, R5900::R_T6, R5900::R_ZERO);
-            code[words++] = R5900::and_(R5900::R_T6, R5900::R_T6, R5900::R_T2);
-            code[words++] = R5900::or_(R5900::R_T3, R5900::R_T3, R5900::R_T6);
-            code[words++] = R5900::srl(R5900::R_T3, R5900::R_T3, 31);
+            // ARM C is NOT-borrow. R5900 word values are sign-extended in
+            // 64-bit GPRs, but that mapping preserves their unsigned 32-bit
+            // ordering, so SLTU gives the exact borrow bit directly.
+            code[words++] = R5900::sltu(R5900::R_T3,
+                R5900::R_T0, R5900::R_T1);
             code[words++] = R5900::xori(R5900::R_T3, R5900::R_T3, 1);
             code[words++] = R5900::xor_(R5900::R_T4, R5900::R_T0, R5900::R_T1);
             code[words++] = R5900::xor_(R5900::R_T6, R5900::R_T0, R5900::R_T2);
         }
         else if (decoded.operation == 3) // RSB: T1 - T0
         {
-            code[words++] = R5900::nor_(R5900::R_T3, R5900::R_T1, R5900::R_ZERO);
-            code[words++] = R5900::and_(R5900::R_T3, R5900::R_T3, R5900::R_T0);
-            code[words++] = R5900::xor_(R5900::R_T6, R5900::R_T1, R5900::R_T0);
-            code[words++] = R5900::nor_(R5900::R_T6, R5900::R_T6, R5900::R_ZERO);
-            code[words++] = R5900::and_(R5900::R_T6, R5900::R_T6, R5900::R_T2);
-            code[words++] = R5900::or_(R5900::R_T3, R5900::R_T3, R5900::R_T6);
-            code[words++] = R5900::srl(R5900::R_T3, R5900::R_T3, 31);
+            code[words++] = R5900::sltu(R5900::R_T3,
+                R5900::R_T1, R5900::R_T0);
             code[words++] = R5900::xori(R5900::R_T3, R5900::R_T3, 1);
             code[words++] = R5900::xor_(R5900::R_T4, R5900::R_T1, R5900::R_T0);
             code[words++] = R5900::xor_(R5900::R_T6, R5900::R_T1, R5900::R_T2);
         }
         else // ADD: T0 + T1
         {
-            code[words++] = R5900::and_(R5900::R_T3, R5900::R_T0, R5900::R_T1);
-            code[words++] = R5900::or_(R5900::R_T6, R5900::R_T0, R5900::R_T1);
-            code[words++] = R5900::nor_(R5900::R_T4, R5900::R_T2, R5900::R_ZERO);
-            code[words++] = R5900::and_(R5900::R_T6, R5900::R_T6, R5900::R_T4);
-            code[words++] = R5900::or_(R5900::R_T3, R5900::R_T3, R5900::R_T6);
-            code[words++] = R5900::srl(R5900::R_T3, R5900::R_T3, 31);
+            // Unsigned addition carries exactly when the wrapped result is
+            // below either input.
+            code[words++] = R5900::sltu(R5900::R_T3,
+                R5900::R_T2, R5900::R_T0);
             code[words++] = R5900::xor_(R5900::R_T4, R5900::R_T0, R5900::R_T1);
             code[words++] = R5900::nor_(R5900::R_T4, R5900::R_T4, R5900::R_ZERO);
             code[words++] = R5900::xor_(R5900::R_T6, R5900::R_T0, R5900::R_T2);
@@ -6621,6 +6612,9 @@ bool DynarecR5900::runArmAluSelfTest()
         { 0xE1100001u, 0x30000013u, 0, 0xFFFFFFFFu }, // TST preserves registers
         { 0xE1300001u, 0x30000013u, 0, 0x01020304u }, // TEQ preserves registers
         { 0xE15C0002u, 0xF0000013u, 12, 0x00000010u }, // hot CMP r12,r2
+        { 0xE15C0002u, 0x00000013u, 12, 0xFFFFFFFFu }, // CMP high unsigned, C=1
+        { 0xE15C0002u, 0xF0000013u, 12, 0x80000000u }, // CMP sign boundary, C=1
+        { 0xE15C0002u, 0x20000013u, 12, 0x00000001u }, // CMP borrow, C=0
         { 0xE2121102u, 0x30000013u, 2, 0x80000000u }, // hot ANDS rotated immediate
         { 0xE1B01081u, 0x10000013u, 1, 0x80000001u }, // MOVS r1,r1,LSL #1 carry
         { 0xE1B01821u, 0x30000013u, 1, 0x00018000u }, // hot MOVS LSR #16
