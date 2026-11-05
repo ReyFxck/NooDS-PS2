@@ -5543,6 +5543,10 @@ void thumbInstructionCycleRange(const Ps2Thumb::Decoded &decoded,
                 minValue = maxValue = 1;
                 break;
 
+            case Ps2Thumb::ARM_STORE:
+                minValue = maxValue = 1;
+                break;
+
             case Ps2Thumb::ARM_LOAD:
             {
                 Ps2ArmAlu::DecodedMultiBlockTransfer multi;
@@ -5641,7 +5645,8 @@ bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
             continue;
         }
 
-        if (decoded.kind == Ps2Thumb::ARM_LOAD)
+        if (decoded.kind == Ps2Thumb::ARM_LOAD ||
+            decoded.kind == Ps2Thumb::ARM_STORE)
         {
             size_t emitted = emitArmInstruction(decoded.armOpcode, pc,
                 code + words, true, true, memory, -1, false, 0xEu,
@@ -5652,8 +5657,9 @@ bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
 
             // Thumb LDMIA/POP with a single low register costs two cycles on
             // ARM9, one more than the equivalent ARM LDM emitter. Multi-reg
-            // forms already match exactly.
-            if (targetCpuId == 0)
+            // forms already match exactly. Scalar stores already match the
+            // ARM emitter timing (ARM9=1, ARM7=2).
+            if (decoded.kind == Ps2Thumb::ARM_LOAD && targetCpuId == 0)
             {
                 Ps2ArmAlu::DecodedMultiBlockTransfer multi;
                 if (Ps2ArmAlu::decodeMultiBlockTransfer(
@@ -5872,6 +5878,12 @@ bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
         block.writeMask |= decoded.writeMask;
         block.readsFlags |= decoded.readsFlags;
         block.writesFlags |= decoded.writesFlags;
+        if (decoded.kind == Ps2Thumb::ARM_STORE)
+        {
+            block.writesMemory = true;
+            if (block.maxMemoryWrites != 0xFFu)
+                block.maxMemoryWrites++;
+        }
     }
 
     uint16_t writeMask =
@@ -9978,7 +9990,8 @@ bool DynarecR5900::compileThumbBlock(const Interpreter &cpu,
         // first live subset until its mode-switch commit path is separately
         // differential-gated.
         if ((targetCpuId != 0 &&
-                decoded.kind == Ps2Thumb::BRANCH_LINK_EXCHANGE) ||
+                (decoded.kind == Ps2Thumb::BRANCH_LINK_EXCHANGE ||
+                 decoded.kind == Ps2Thumb::ARM_STORE)) ||
             (targetCpuId == 0 && decoded.kind == Ps2Thumb::POP_PC))
             break;
 
