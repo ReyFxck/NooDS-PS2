@@ -121,6 +121,7 @@ namespace Ps2ArmAlu
     {
         uint8_t condition = 0xE;
         uint8_t rm = 0;
+        bool link = false;
     };
 
 
@@ -267,7 +268,7 @@ namespace Ps2ArmAlu
     bool executeBranch(uint32_t opcode, uint32_t pc, uint32_t cpsr,
         uint32_t *nextPc, uint32_t registers[16] = nullptr);
     bool executeBranchExchange(uint32_t opcode, uint32_t registers[16],
-        uint32_t *cpsr, uint32_t *nextPc);
+        uint32_t *cpsr, uint32_t *nextPc, uint32_t pc = 0);
     bool execute(uint32_t opcode, uint32_t registers[16],
         uint32_t *cpsr = nullptr);
     void inspect(uint32_t opcode, uint32_t pc, InstructionInfo *info);
