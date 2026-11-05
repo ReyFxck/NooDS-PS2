@@ -24,29 +24,55 @@ int main()
         0x0001FFFEu, 0x00FFFFFFu
     };
 
-    for (uint32_t span = 1; span <= 256; span++)
+    for (uint32_t span = 1; span <= 1024; span++)
     {
         for (uint32_t a : values)
         {
             for (uint32_t b : values)
             {
+                const bool exact =
+                    Gpu3DLinearStepper::matchesWrappedUint32Formula(
+                        a, b, span);
                 Gpu3DLinearStepper stepper(a, b, span);
                 for (uint32_t x = 0; x <= span; x++)
                 {
-                    uint32_t expected =
-                        referenceLinear(a, b, 0, x, span);
-                    if (stepper.current() != expected)
+                    if (exact)
                     {
-                        std::fprintf(stderr,
-                            "linear step mismatch span=%u a=%u b=%u x=%u got=%u expected=%u\n",
-                            span, a, b, x, stepper.current(), expected);
-                        return 1;
+                        uint32_t expected =
+                            referenceLinear(a, b, 0, x, span);
+                        if (stepper.current() != expected)
+                        {
+                            std::fprintf(stderr,
+                                "linear step mismatch span=%u a=%u b=%u x=%u got=%u expected=%u\n",
+                                span, a, b, x, stepper.current(), expected);
+                            return 1;
+                        }
                     }
                     if (x != span)
                         stepper.advance();
                 }
             }
         }
+    }
+
+    // This is the renderer case the <=256-span test missed: 24-bit Z
+    // interpolation across a wider clipped polygon wraps the old uint32_t
+    // product. The optimized path must detect it and fall back.
+    if (Gpu3DLinearStepper::matchesWrappedUint32Formula(
+        0, 0x00FFFFFFu, 300))
+    {
+        std::fputs("overflow guard failed for wide 24-bit Z span\n", stderr);
+        return 1;
+    }
+
+    Gpu3DLinearStepper wrappedProbe(0, 0x00FFFFFFu, 300);
+    wrappedProbe.advanceBy(257);
+    if (wrappedProbe.current() ==
+        referenceLinear(0, 0x00FFFFFFu, 0, 257, 300))
+    {
+        std::fputs("overflow regression probe no longer distinguishes paths\n",
+            stderr);
+        return 1;
     }
 
     std::puts("gpu_3d_math_test: OK");
