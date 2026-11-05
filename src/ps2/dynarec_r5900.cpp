@@ -5830,6 +5830,12 @@ bool DynarecR5900::runArmAluSelfTest()
               0x60000092u, 0u, 1u, 0u }, // same-mode MSR CPSR_c
             { 0xE121F002u, 1u, 0x60000092u, 0x00000013u,
               0x60000092u, 0u, 1u, 1u }, // mode change -> fallback
+            { 0xE321F092u, 1u, 0x60000092u, 0u,
+              0x60000092u, 0u, 1u, 0u }, // immediate same-mode CPSR_c
+            { 0xE321F013u, 1u, 0x60000092u, 0u,
+              0x60000092u, 0u, 1u, 1u }, // immediate mode change -> fallback
+            { 0xE328F4A5u, 1u, 0x00000013u, 0u,
+              0xA5000013u, 0u, 1u, 0u }, // rotated CPSR_f immediate
             { 0x0121F002u, 1u, 0x00000092u, 0x00000092u,
               0x00000092u, 0u, 1u, 0u }  // EQ fails (Z clear)
         };
