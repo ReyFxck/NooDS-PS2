@@ -120,9 +120,9 @@ class Gpu3DRenderer
 #endif
 #endif
 
-        uint32_t framebuffer[2][256 * 192] = {};
-        int32_t depthBuffer[2][256 * 192] = {};
-        uint32_t attribBuffer[2][256 * 192] = {};
+        alignas(8) uint32_t framebuffer[2][256 * 192] = {};
+        alignas(8) int32_t depthBuffer[2][256 * 192] = {};
+        alignas(8) uint32_t attribBuffer[2][256 * 192] = {};
         uint8_t stencilBuffer[256 * 192] = {};
         bool stencilClear[256] = {};
 
