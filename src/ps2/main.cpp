@@ -2238,14 +2238,20 @@ int main(int argc, char **argv)
                     static_cast<unsigned long long>(runProfile.arm9AutoHotPromotions),
                     static_cast<unsigned long long>(runProfile.arm9BlockFilterCollisions),
                     static_cast<unsigned long long>(runProfile.arm9HotSampleCollisions));
-                PS2_LOG("[PS2][PROF] arm7-block: filterHit=%llu exec=%llu chained=%llu drop=%llu budgetSkip=%llu autoHot=%llu\n",
+                PS2_LOG("[PS2][PROF] arm7-block: filterHit=%llu exec=%llu chained=%llu drop=%llu budgetSkip=%llu autoHot=%llu thumbAutoHot=%llu filterCollision=%llu sampleCollision=%llu\n",
                     static_cast<unsigned long long>(runProfile.arm7BlockFilterHits),
                     static_cast<unsigned long long>(runProfile.arm7BlockExecutions),
                     static_cast<unsigned long long>(
                         runProfile.arm7BlockChainedExecutions),
                     static_cast<unsigned long long>(runProfile.arm7BlockFilterDrops),
                     static_cast<unsigned long long>(runProfile.arm7BlockBudgetSkips),
-                    static_cast<unsigned long long>(runProfile.arm7AutoHotPromotions));
+                    static_cast<unsigned long long>(runProfile.arm7AutoHotPromotions),
+                    static_cast<unsigned long long>(
+                        runProfile.arm7ThumbAutoHotPromotions),
+                    static_cast<unsigned long long>(
+                        runProfile.arm7BlockFilterCollisions),
+                    static_cast<unsigned long long>(
+                        runProfile.arm7HotSampleCollisions));
 
                 double schedulerInsertUs = runProfile.schedulerInsertSamples
                     ? static_cast<double>(runProfile.schedulerInsertTicks) *
