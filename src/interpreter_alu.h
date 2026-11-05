@@ -21,6 +21,7 @@
 #define INTERPRETER_ALU
 
 #include "core.h"
+#include "thumb_alu_math.h"
 
 FORCE_INLINE uint32_t Interpreter::lli(uint32_t opcode) // Rm,LSL #i
 {
@@ -424,12 +425,11 @@ FORCE_INLINE int Interpreter::cmp(uint32_t opcode, uint32_t op2) // CMP Rn,op2
     // When used as Rn when shifting by register, the program counter is read with +4
     uint32_t op1 = *registers[(opcode & 0x000F0000) >> 16] + (((opcode & 0x020F0010) == 0x000F0010) ? 4 : 0);
 
-    // Compare
-    uint32_t res = op1 - op2;
+    // Compare (SUBS without storing the result).
+    const ThumbArithmeticResult arithmetic = thumbSub(op1, op2);
 
-    // Set the flags
-    cpsr = (cpsr & ~0xF0000000) | (res & BIT(31)) | ((res == 0) << 30) | ((op1 >= res) << 29) |
-        (((op2 & BIT(31)) != (op1 & BIT(31)) && (res & BIT(31)) == (op2 & BIT(31))) << 28);
+    // Set NZCV. C is NOT-borrow.
+    cpsr = (cpsr & ~0xF0000000u) | arithmetic.nzcv;
 
     return 1;
 }
@@ -1542,11 +1542,11 @@ FORCE_INLINE int Interpreter::subRegT(uint16_t opcode) // SUB Rd,Rs,Rn
     uint32_t op2 = *registers[(opcode & 0x01C0) >> 6];
 
     // Subtraction
-    *op0 = op1 - op2;
+    const ThumbArithmeticResult arithmetic = thumbSub(op1, op2);
+    *op0 = arithmetic.result;
 
-    // Set the flags
-    cpsr = (cpsr & ~0xF0000000) | (*op0 & BIT(31)) | ((*op0 == 0) << 30) | ((op1 >= *op0) << 29) |
-        (((op2 & BIT(31)) != (op1 & BIT(31)) && (*op0 & BIT(31)) == (op2 & BIT(31))) << 28);
+    // Set NZCV. ARM subtraction sets C when no unsigned borrow occurred.
+    cpsr = (cpsr & ~0xF0000000u) | arithmetic.nzcv;
 
     return 1;
 }
@@ -1572,12 +1572,11 @@ FORCE_INLINE int Interpreter::cmpHT(uint16_t opcode) // CMP Rd,Rs
     uint32_t op1 = *registers[((opcode & 0x0080) >> 4) | (opcode & 0x0007)];
     uint32_t op2 = *registers[(opcode & 0x0078) >> 3];
 
-    // Compare
-    uint32_t res = op1 - op2;
+    // Compare (SUBS without storing the result).
+    const ThumbArithmeticResult arithmetic = thumbSub(op1, op2);
 
-    // Set the flags
-    cpsr = (cpsr & ~0xF0000000) | (res & BIT(31)) | ((res == 0) << 30) | ((op1 >= res) << 29) |
-        (((op2 & BIT(31)) != (op1 & BIT(31)) && (res & BIT(31)) == (op2 & BIT(31))) << 28);
+    // Set NZCV. C is NOT-borrow.
+    cpsr = (cpsr & ~0xF0000000u) | arithmetic.nzcv;
 
     return 1;
 }
@@ -1714,11 +1713,11 @@ FORCE_INLINE int Interpreter::subImm3T(uint16_t opcode) // SUB Rd,Rs,#i
     uint32_t op2 = (opcode & 0x01C0) >> 6;
 
     // Subtraction
-    *op0 = op1 - op2;
+    const ThumbArithmeticResult arithmetic = thumbSub(op1, op2);
+    *op0 = arithmetic.result;
 
-    // Set the flags
-    cpsr = (cpsr & ~0xF0000000) | (*op0 & BIT(31)) | ((*op0 == 0) << 30) | ((op1 >= *op0) << 29) |
-        (((op2 & BIT(31)) != (op1 & BIT(31)) && (*op0 & BIT(31)) == (op2 & BIT(31))) << 28);
+    // Set NZCV. ARM subtraction sets C when no unsigned borrow occurred.
+    cpsr = (cpsr & ~0xF0000000u) | arithmetic.nzcv;
 
     return 1;
 }
@@ -1764,12 +1763,11 @@ FORCE_INLINE int Interpreter::cmpImm8T(uint16_t opcode) // CMP Rd,#i
     uint32_t op1 = *registers[(opcode & 0x0700) >> 8];
     uint32_t op2 = opcode & 0x00FF;
 
-    // Compare
-    uint32_t res = op1 - op2;
+    // Compare (SUBS without storing the result).
+    const ThumbArithmeticResult arithmetic = thumbSub(op1, op2);
 
-    // Set the flags
-    cpsr = (cpsr & ~0xF0000000) | (res & BIT(31)) | ((res == 0) << 30) | ((op1 >= res) << 29) |
-        (((op2 & BIT(31)) != (op1 & BIT(31)) && (res & BIT(31)) == (op2 & BIT(31))) << 28);
+    // Set NZCV. C is NOT-borrow.
+    cpsr = (cpsr & ~0xF0000000u) | arithmetic.nzcv;
 
     return 1;
 }
@@ -1902,12 +1900,12 @@ FORCE_INLINE int Interpreter::adcDpT(uint16_t opcode) // ADC Rd,Rs
     uint32_t op2 = *registers[(opcode & 0x0038) >> 3];
 
     // Addition with carry
-    *op0 += op2 + ((cpsr & BIT(29)) >> 29);
+    const ThumbArithmeticResult arithmetic = thumbAddWithCarry(
+        op1, op2, (cpsr & BIT(29)) != 0);
+    *op0 = arithmetic.result;
 
-    // Set the flags
-    cpsr = (cpsr & ~0xF0000000) | (*op0 & BIT(31)) | ((*op0 == 0) << 30) |
-        ((op1 > *op0 || (op2 == 0xFFFFFFFF && (cpsr & BIT(29)))) << 29) |
-        (((op2 & BIT(31)) == (op1 & BIT(31)) && (*op0 & BIT(31)) != (op2 & BIT(31))) << 28);
+    // Set exact NZCV, including carry-in overflow.
+    cpsr = (cpsr & ~0xF0000000u) | arithmetic.nzcv;
 
     return 1;
 }
@@ -1919,13 +1917,13 @@ FORCE_INLINE int Interpreter::sbcDpT(uint16_t opcode) // SBC Rd,Rs
     uint32_t op1 = *registers[opcode & 0x0007];
     uint32_t op2 = *registers[(opcode & 0x0038) >> 3];
 
-    // Subtraction with carry
-    *op0 = op1 - op2 - 1 + ((cpsr & BIT(29)) >> 29);
+    // Subtraction with carry (C is NOT-borrow).
+    const ThumbArithmeticResult arithmetic = thumbSubWithCarry(
+        op1, op2, (cpsr & BIT(29)) != 0);
+    *op0 = arithmetic.result;
 
-    // Set the flags
-    cpsr = (cpsr & ~0xF0000000) | (*op0 & BIT(31)) | ((*op0 == 0) << 30) |
-        ((op1 >= *op0 && (op2 != 0xFFFFFFFF || (cpsr & BIT(29)))) << 29) |
-        (((op2 & BIT(31)) != (op1 & BIT(31)) && (*op0 & BIT(31)) == (op2 & BIT(31))) << 28);
+    // Set exact NZCV, including the borrow input.
+    cpsr = (cpsr & ~0xF0000000u) | arithmetic.nzcv;
 
     return 1;
 }
@@ -1951,12 +1949,11 @@ FORCE_INLINE int Interpreter::cmpDpT(uint16_t opcode) // CMP Rd,Rs
     uint32_t op1 = *registers[opcode & 0x0007];
     uint32_t op2 = *registers[(opcode & 0x0038) >> 3];
 
-    // Compare
-    uint32_t res = op1 - op2;
+    // Compare (SUBS without storing the result).
+    const ThumbArithmeticResult arithmetic = thumbSub(op1, op2);
 
-    // Set the flags
-    cpsr = (cpsr & ~0xF0000000) | (res & BIT(31)) | ((res == 0) << 30) | ((op1 >= res) << 29) |
-        (((op2 & BIT(31)) != (op1 & BIT(31)) && (res & BIT(31)) == (op2 & BIT(31))) << 28);
+    // Set NZCV. C is NOT-borrow.
+    cpsr = (cpsr & ~0xF0000000u) | arithmetic.nzcv;
 
     return 1;
 }
@@ -2030,11 +2027,11 @@ FORCE_INLINE int Interpreter::negDpT(uint16_t opcode) // NEG Rd,Rs
     uint32_t op2 = *registers[(opcode & 0x0038) >> 3];
 
     // Negation
-    *op0 = op1 - op2;
+    const ThumbArithmeticResult arithmetic = thumbSub(op1, op2);
+    *op0 = arithmetic.result;
 
-    // Set the flags
-    cpsr = (cpsr & ~0xF0000000) | (*op0 & BIT(31)) | ((*op0 == 0) << 30) | ((op1 >= *op0) << 29) |
-        (((op2 & BIT(31)) != (op1 & BIT(31)) && (*op0 & BIT(31)) == (op2 & BIT(31))) << 28);
+    // Set exact NZCV.
+    cpsr = (cpsr & ~0xF0000000u) | arithmetic.nzcv;
 
     return 1;
 }
