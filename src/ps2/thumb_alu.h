@@ -227,6 +227,41 @@ namespace Ps2Thumb
             return true;
         }
 
+        // Formats 7/8: register-offset loads. Store forms are kept
+        // interpreter-only; all five load forms share ARM7's 3-cycle timing.
+        if ((opcode & 0xF000u) == 0x5000u)
+        {
+            const uint8_t op = static_cast<uint8_t>((opcode >> 9) & 7u);
+            if (op < 3u)
+                return false; // STR/STRH/STRB
+
+            const uint8_t ro = static_cast<uint8_t>((opcode >> 6) & 7u);
+            const uint8_t rb = static_cast<uint8_t>((opcode >> 3) & 7u);
+            const uint8_t rd = static_cast<uint8_t>(opcode & 7u);
+
+            uint32_t arm = 0;
+            switch (op)
+            {
+                case 3: arm = 0xE19000D0u; break; // LDRSB
+                case 4: arm = 0xE7900000u; break; // LDR
+                case 5: arm = 0xE19000B0u; break; // LDRH
+                case 6: arm = 0xE7D00000u; break; // LDRB
+                case 7: arm = 0xE19000F0u; break; // LDRSH
+                default: return false;
+            }
+
+            out->kind = ARM_LOAD;
+            out->rd = rd;
+            out->readMask = static_cast<uint16_t>(
+                (1u << rb) | (1u << ro));
+            out->writeMask = static_cast<uint16_t>(1u << rd);
+            out->armOpcode = arm |
+                (static_cast<uint32_t>(rb) << 16) |
+                (static_cast<uint32_t>(rd) << 12) | ro;
+            out->minCycles = out->maxCycles = 3;
+            return true;
+        }
+
         // Format 9: LDR/LDRB with immediate offset. Stores stay outside
         // the conservative backend. ARM7 timing matches the ARM load emitter.
         if ((opcode & 0xE000u) == 0x6000u)
