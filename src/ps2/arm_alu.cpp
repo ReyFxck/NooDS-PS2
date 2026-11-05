@@ -341,14 +341,28 @@ bool Ps2ArmAlu::decodePsrTransfer(uint32_t opcode,
         return decoded->rd != 15;
     }
 
-    // MSR CPSR_<fields>,Rm. Immediate and SPSR forms are kept in the
-    // interpreter until they have an equally strict live-state gate.
+    // MSR CPSR_<fields>,Rm.
     if ((opcode & 0x0FF0FFF0u) == 0x0120F000u)
     {
         decoded->write = true;
         decoded->fieldMask = static_cast<uint8_t>((opcode >> 16) & 0xFu);
         decoded->rm = static_cast<uint8_t>(opcode & 0xFu);
         return decoded->fieldMask && decoded->rm != 15;
+    }
+
+    // MSR CPSR_<fields>,#imm. ARM immediates use the normal imm8 ROR(2*n)
+    // encoding. SPSR (R bit) is excluded by the fixed mask.
+    if ((opcode & 0x0FB0F000u) == 0x0320F000u)
+    {
+        decoded->write = true;
+        decoded->immediate = true;
+        decoded->fieldMask = static_cast<uint8_t>((opcode >> 16) & 0xFu);
+        uint32_t value = opcode & 0xFFu;
+        const uint32_t rotate = ((opcode >> 8) & 0xFu) * 2u;
+        if (rotate)
+            value = (value >> rotate) | (value << (32u - rotate));
+        decoded->immediateValue = value;
+        return decoded->fieldMask != 0;
     }
 
     return false;
@@ -369,7 +383,8 @@ bool Ps2ArmAlu::executePsrTransfer(uint32_t opcode,
         return true;
     }
 
-    const uint32_t value = registers[decoded.rm];
+    const uint32_t value = decoded.immediate
+        ? decoded.immediateValue : registers[decoded.rm];
     uint32_t next = *cpsr;
 
     if (decoded.fieldMask & 0x1u)
@@ -1263,8 +1278,16 @@ void Ps2ArmAlu::inspect(uint32_t opcode, uint32_t pc, InstructionInfo *info)
         info->readsFlags = true;
         if (psr.write)
         {
-            info->rm = psr.rm;
-            info->readMask = static_cast<uint16_t>(1u << psr.rm);
+            if (!psr.immediate)
+            {
+                info->rm = psr.rm;
+                info->readMask = static_cast<uint16_t>(1u << psr.rm);
+            }
+            else
+            {
+                info->immediate = true;
+                info->immediateValue = psr.immediateValue;
+            }
             info->writesFlags = true;
             info->terminatesBlock = true;
         }
@@ -1428,7 +1451,11 @@ void Ps2ArmAlu::format(uint32_t opcode, uint32_t pc, char *buffer, uint32_t size
         DecodedPsrTransfer psr;
         if (decodePsrTransfer(opcode, &psr))
         {
-            if (psr.write)
+            if (psr.write && psr.immediate)
+                std::snprintf(buffer, size, "MSR.%s CPSR_%X,#0x%lX",
+                    condition, psr.fieldMask,
+                    static_cast<unsigned long>(psr.immediateValue));
+            else if (psr.write)
                 std::snprintf(buffer, size, "MSR.%s CPSR_%X,r%u",
                     condition, psr.fieldMask, psr.rm);
             else
