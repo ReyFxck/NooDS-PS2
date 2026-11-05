@@ -61,11 +61,28 @@ int main()
     requireArm(0x4148u, 0x1000u, 0xE0B00001u); // ADCS r0,r1
     requireArm(0x4188u, 0x1000u, 0xE0D00001u); // SBCS r0,r1
 
+    // High-register ALU and BX stay read-only/terminal in the first live
+    // backend. PC-writing ADD/MOV and ARM7-invalid BLX remain rejected.
+    requireArm(0x4488u, 0x1000u, 0xE0888001u); // ADD r8,r1
+    requireArm(0x4580u, 0x1000u, 0xE1580000u); // CMP r8,r0
+    requireArm(0x4680u, 0x1000u, 0xE1A08000u); // MOV r8,r0
+    requireArm(0x4640u, 0x1000u, 0xE1A00008u); // MOV r0,r8
+    {
+        Ps2Thumb::Decoded bx;
+        assert(Ps2Thumb::decode(0x4740u, 0x1000u, &bx)); // BX r8
+        assert(bx.kind == Ps2Thumb::BRANCH_EXCHANGE);
+        assert(bx.armOpcode == 0xE12FFF18u);
+        assert(bx.readMask == (1u << 8));
+        assert(bx.terminal && bx.minCycles == 3 && bx.maxCycles == 3);
+    }
+
     // Initial subset intentionally rejects operations whose Thumb timing
     // differs from the ARM emitter or that mutate memory/stack state.
     Ps2Thumb::Decoded d;
     assert(!Ps2Thumb::decode(0x4088u, 0x1000u, &d)); // LSL r0,r1 (reg)
     assert(!Ps2Thumb::decode(0x4348u, 0x1000u, &d)); // MUL r0,r1
+    assert(!Ps2Thumb::decode(0x4788u, 0x1000u, &d)); // BLX r1 (ARM9-only)
+    assert(!Ps2Thumb::decode(0x46F8u, 0x1000u, &d)); // MOV pc,r15/PC write
     assert(!Ps2Thumb::decode(0xB500u, 0x1000u, &d)); // PUSH
     assert(!Ps2Thumb::decode(0x6008u, 0x1000u, &d)); // STR
 
