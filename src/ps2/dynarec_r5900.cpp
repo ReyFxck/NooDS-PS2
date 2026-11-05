@@ -6020,6 +6020,58 @@ bool DynarecR5900::runArmAluSelfTest()
         }
     }
 
+    // Gate Thumb POP {r0,r2,pc} through generated R5900 code. This is
+    // read-only and uses whatever words are already present in direct ARM7 RAM,
+    // so the self-test leaves guest memory untouched.
+    {
+        const uint32_t stackBase = 0x02000000u;
+        uint8_t *page = memory ? memory->getDirectReadPage(1, stackBase) :
+            nullptr;
+        if (!page)
+            return false;
+        const uint32_t offset = stackBase & 0xFFFu;
+        auto readWord = [&](uint32_t byteOffset) -> uint32_t
+        {
+            const uint32_t at = offset + byteOffset;
+            return static_cast<uint32_t>(page[at]) |
+                (static_cast<uint32_t>(page[at + 1]) << 8) |
+                (static_cast<uint32_t>(page[at + 2]) << 16) |
+                (static_cast<uint32_t>(page[at + 3]) << 24);
+        };
+        const uint32_t expectedR0 = readWord(0);
+        const uint32_t expectedR2 = readWord(4);
+        const uint32_t expectedPc = readWord(8);
+
+        const uint16_t thumbOpcode = 0xBD05u; // POP {r0,r2,pc}
+        uint32_t *entry = nullptr;
+        uint32_t hostWords = 0;
+        if (!emitThumbSequence(&thumbOpcode, 1, 0x0F000000u,
+            &entry, &hostWords) || !entry || !hostWords)
+            return false;
+
+        ArmAluState state = {};
+        state.r[0] = 0xAAAAAAAAu;
+        state.r[2] = 0xBBBBBBBBu;
+        state.r[13] = stackBase;
+        state.cpsr = 0x00000032u; // Thumb, IRQ mode
+        state.nextPc = 0x0F000002u;
+        state.memory = memory;
+        state.cpuId = 1;
+        typedef void (*ThumbPopPcFunction)(ArmAluState *);
+        ThumbPopPcFunction function =
+            reinterpret_cast<ThumbPopPcFunction>(entry);
+        function(&state);
+
+        if (state.memoryFault ||
+            state.r[0] != expectedR0 ||
+            state.r[2] != expectedR2 ||
+            state.r[13] != stackBase + 12u ||
+            state.nextPc != expectedPc ||
+            state.cpsr != 0x00000032u ||
+            state.cycles != 7u)
+            return false;
+    }
+
     // A failed ARM condition is resolved before operand2/register-shift
     // decoding in Interpreter::runOpcode(), so the extra shift cycle must not
     // be charged on the not-taken path.
