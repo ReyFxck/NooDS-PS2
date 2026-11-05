@@ -5885,6 +5885,44 @@ bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
             continue;
         }
 
+        if (decoded.kind == Ps2Thumb::LONG_BRANCH_LINK_EXCHANGE)
+        {
+            if (targetCpuId != 0)
+                return false;
+
+            words += emitArmCycleAdd(3, code + words, true);
+
+            // NooDS' BLX suffix forms the target from the LR prepared by the
+            // preceding long-branch prefix, then ARM pipeline refill aligns
+            // the address to a four-byte boundary.
+            code[words++] = R5900::lw(R5900::R_T2, 14 * 4,
+                R5900::R_A0);
+            if (decoded.addend)
+            {
+                code[words++] = R5900::addiu(R5900::R_T2,
+                    R5900::R_T2, decoded.addend);
+            }
+            code[words++] = R5900::srl(R5900::R_T2, R5900::R_T2, 2);
+            code[words++] = R5900::sll(R5900::R_T2, R5900::R_T2, 2);
+            code[words++] = R5900::sw(R5900::R_T2, 68,
+                R5900::R_A0);
+
+            // Return to Thumb after the ARM callee: suffix pc+2 with bit 0.
+            code[words++] = R5900::lui(R5900::R_T2,
+                static_cast<uint16_t>(decoded.target >> 16));
+            code[words++] = R5900::ori(R5900::R_T2,
+                R5900::R_T2, static_cast<uint16_t>(decoded.target));
+            code[words++] = R5900::sw(R5900::R_T2, 14 * 4,
+                R5900::R_A0);
+
+            // Clear CPSR.T without disturbing the upper CPSR bits.
+            code[words++] = R5900::addiu(R5900::R_T3,
+                R5900::R_ZERO, -33);
+            code[words++] = R5900::and_(R5900::R_V1,
+                R5900::R_V1, R5900::R_T3);
+            continue;
+        }
+
         return false;
     }
 
@@ -10042,6 +10080,7 @@ bool DynarecR5900::compileThumbBlock(const Interpreter &cpu,
         // differential-gated.
         if ((targetCpuId != 0 &&
                 (decoded.kind == Ps2Thumb::BRANCH_LINK_EXCHANGE ||
+                 decoded.kind == Ps2Thumb::LONG_BRANCH_LINK_EXCHANGE ||
                  decoded.kind == Ps2Thumb::ARM_STORE)) ||
             (targetCpuId == 0 && decoded.kind == Ps2Thumb::POP_PC))
             break;
