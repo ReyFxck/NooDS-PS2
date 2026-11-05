@@ -9,6 +9,7 @@ namespace Ps2Thumb
     {
         UNSUPPORTED = 0,
         ARM_ALU,
+        ARM_LOAD,
         LITERAL_LOAD,
         CONDITIONAL_BRANCH,
         BRANCH,
@@ -223,6 +224,72 @@ namespace Ps2Thumb
                 out->armOpcode = armDataReg(13, false, 0, rd, rs);
                 out->writeMask = static_cast<uint16_t>(1u << rd);
             }
+            return true;
+        }
+
+        // Format 9: LDR/LDRB with immediate offset. Stores stay outside
+        // the conservative backend. ARM7 timing matches the ARM load emitter.
+        if ((opcode & 0xE000u) == 0x6000u)
+        {
+            const bool byte = (opcode & 0x1000u) != 0;
+            const bool load = (opcode & 0x0800u) != 0;
+            if (!load)
+                return false;
+            const uint8_t imm5 = static_cast<uint8_t>((opcode >> 6) & 0x1Fu);
+            const uint8_t rb = static_cast<uint8_t>((opcode >> 3) & 7u);
+            const uint8_t rd = static_cast<uint8_t>(opcode & 7u);
+            const uint32_t offset = byte ? imm5 :
+                (static_cast<uint32_t>(imm5) << 2);
+
+            out->kind = ARM_LOAD;
+            out->rd = rd;
+            out->readMask = static_cast<uint16_t>(1u << rb);
+            out->writeMask = static_cast<uint16_t>(1u << rd);
+            out->armOpcode = (byte ? 0xE5D00000u : 0xE5900000u) |
+                (static_cast<uint32_t>(rb) << 16) |
+                (static_cast<uint32_t>(rd) << 12) | offset;
+            out->minCycles = out->maxCycles = 3;
+            return true;
+        }
+
+        // Format 10: LDRH Rd,[Rb,#imm5*2]. STRH remains interpreter-only.
+        if ((opcode & 0xF000u) == 0x8000u)
+        {
+            const bool load = (opcode & 0x0800u) != 0;
+            if (!load)
+                return false;
+            const uint8_t imm5 = static_cast<uint8_t>((opcode >> 6) & 0x1Fu);
+            const uint8_t rb = static_cast<uint8_t>((opcode >> 3) & 7u);
+            const uint8_t rd = static_cast<uint8_t>(opcode & 7u);
+            const uint32_t offset = static_cast<uint32_t>(imm5) << 1;
+            out->kind = ARM_LOAD;
+            out->rd = rd;
+            out->readMask = static_cast<uint16_t>(1u << rb);
+            out->writeMask = static_cast<uint16_t>(1u << rd);
+            out->armOpcode = 0xE1D000B0u |
+                (static_cast<uint32_t>(rb) << 16) |
+                (static_cast<uint32_t>(rd) << 12) |
+                ((offset & 0xF0u) << 4) | (offset & 0xFu);
+            out->minCycles = out->maxCycles = 3;
+            return true;
+        }
+
+        // Format 11: LDR Rd,[SP,#imm8*4]. STR remains interpreter-only.
+        if ((opcode & 0xF000u) == 0x9000u)
+        {
+            const bool load = (opcode & 0x0800u) != 0;
+            if (!load)
+                return false;
+            const uint8_t rd = static_cast<uint8_t>((opcode >> 8) & 7u);
+            const uint32_t offset =
+                static_cast<uint32_t>(opcode & 0xFFu) << 2;
+            out->kind = ARM_LOAD;
+            out->rd = rd;
+            out->readMask = static_cast<uint16_t>(1u << 13);
+            out->writeMask = static_cast<uint16_t>(1u << rd);
+            out->armOpcode = 0xE59D0000u |
+                (static_cast<uint32_t>(rd) << 12) | offset;
+            out->minCycles = out->maxCycles = 3;
             return true;
         }
 
