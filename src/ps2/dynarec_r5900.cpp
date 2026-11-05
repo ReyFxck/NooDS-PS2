@@ -10779,8 +10779,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         *guestInstructions = 0;
 
     DYNAREC_PROFILE(profile.activeAttempts++);
-    if (!cycleBudget || !CpuBackendAccess::isArm9(cpu) ||
-        CpuBackendAccess::isThumb(cpu))
+    if (!cycleBudget || !CpuBackendAccess::isArm9(cpu))
     {
         DYNAREC_PROFILE(profile.activeStateFallbacks++);
         return 0;
@@ -10789,6 +10788,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     synchronizeMemoryMap();
 
     uint32_t guestPc = CpuBackendAccess::nextInstructionAddress(cpu);
+    const bool thumb = CpuBackendAccess::isThumb(cpu);
+    const uint32_t rejectKey = guestPc | (thumb ? 1u : 0u);
     constexpr uint32_t MIN_ACTIVE_GUEST_INSTRUCTIONS = 3;
     auto activeBlockUseful = [](const R5900CompiledBlock *candidate)
     {
@@ -10808,7 +10809,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         return -2;
     }
 
-    R5900CompiledBlock *block = findMutableBlock(guestPc, false);
+    R5900CompiledBlock *block = findMutableBlock(guestPc, thumb);
 
     // Once a block has passed every live-execution gate, successful hot-path
     // dispatches no longer need the reject-table lookup or repeated
@@ -10816,7 +10817,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     // ready bit cannot outlive the code/memory mapping it validated against.
     if (!block || !block->activeReady)
     {
-        ActiveRejectKind rejected = findActiveReject(guestPc);
+        ActiveRejectKind rejected = findActiveReject(rejectKey);
         if (rejected != ACTIVE_REJECT_NONE)
         {
             if (rejected == ACTIVE_REJECT_WRITE)
@@ -10836,7 +10837,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         // generated-code capacity guard.
         if (blocks.size() >= 2048)
         {
-            cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
+            cacheActiveReject(rejectKey, ACTIVE_REJECT_VERIFY);
             DYNAREC_PROFILE(profile.activeVerifyFallbacks++; recordActiveFallback(profile, guestPc, R5900_ACTIVE_FALLBACK_VERIFY));
             return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
         }
@@ -10849,19 +10850,22 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         // so late hot-PC discovery cannot consume the remaining cache too fast.
         size_t activeCompileLimit =
             (cache.usedBytes() * 4u < cache.capacity() * 3u) ? 24u : 16u;
-        int shadow = runArm9BlockShadowSelfTest(cpu, nullptr, nullptr, nullptr,
-            activeCompileLimit);
+        int shadow = thumb
+            ? runArm9ThumbDifferentialSelfTest(cpu, nullptr, nullptr,
+                nullptr, activeCompileLimit)
+            : runArm9BlockShadowSelfTest(cpu, nullptr, nullptr, nullptr,
+                activeCompileLimit);
         if (shadow <= 0)
         {
-            cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
+            cacheActiveReject(rejectKey, ACTIVE_REJECT_VERIFY);
             DYNAREC_PROFILE(profile.activeVerifyFallbacks++; recordActiveFallback(profile, guestPc, R5900_ACTIVE_FALLBACK_VERIFY));
             return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
         }
 
-        block = findMutableBlock(guestPc, false);
+        block = findMutableBlock(guestPc, thumb);
         if (!activeBlockUseful(block))
         {
-            cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
+            cacheActiveReject(rejectKey, ACTIVE_REJECT_VERIFY);
             DYNAREC_PROFILE(profile.activeVerifyFallbacks++; recordActiveFallback(profile, guestPc, R5900_ACTIVE_FALLBACK_VERIFY));
             return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
         }
@@ -10889,25 +10893,27 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         // kept out of live execution. Literal LDR has its own PC+8 helper.
         if ((block->readMask | block->writeMask) & 0x8000u)
         {
-            cacheActiveReject(guestPc, ACTIVE_REJECT_STATE);
+            cacheActiveReject(rejectKey, ACTIVE_REJECT_STATE);
             DYNAREC_PROFILE(profile.activeStateFallbacks++; recordActiveFallback(profile, guestPc, R5900_ACTIVE_FALLBACK_STATE));
             return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
         }
 
         if (!block->differentialVerified)
         {
-            int differential = runArm9InterpreterDifferentialSelfTest(cpu);
+            int differential = thumb
+                ? runArm9ThumbDifferentialSelfTest(cpu)
+                : runArm9InterpreterDifferentialSelfTest(cpu);
             if (differential <= 0)
             {
-                cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
+                cacheActiveReject(rejectKey, ACTIVE_REJECT_VERIFY);
                 DYNAREC_PROFILE(profile.activeVerifyFallbacks++; recordActiveFallback(profile, guestPc, R5900_ACTIVE_FALLBACK_VERIFY));
                 return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
             }
 
-            block = findMutableBlock(guestPc, false);
+            block = findMutableBlock(guestPc, thumb);
             if (!block || !block->differentialVerified)
             {
-                cacheActiveReject(guestPc, ACTIVE_REJECT_VERIFY);
+                cacheActiveReject(rejectKey, ACTIVE_REJECT_VERIFY);
                 DYNAREC_PROFILE(profile.activeVerifyFallbacks++; recordActiveFallback(profile, guestPc, R5900_ACTIVE_FALLBACK_VERIFY));
                 return ARM9_BLOCK_RUNNER_PERMANENT_REJECT;
             }
@@ -11093,7 +11099,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         initializedMask |= currentWriteMask;
         unionWriteMask |= currentWriteMask;
 
-        if (state.cpsr & BIT(5))
+        if (current->thumb || (state.cpsr & BIT(5)))
             break;
 
         // Stop before looking up/importing a successor when this dispatch has
@@ -11178,7 +11184,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
 
     bool committed = false;
     R5900CompiledBlock *pipelineBlock = nullptr;
-    if (!(state.cpsr & BIT(5)))
+    if (!block->thumb && !(state.cpsr & BIT(5)))
     {
         pipelineBlock = pipelineHint;
         if (!pipelineBlock)
