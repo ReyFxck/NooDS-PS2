@@ -103,6 +103,16 @@ int main()
         assert(bx.armOpcode == 0xE12FFF18u);
         assert(bx.readMask == (1u << 8));
         assert(bx.terminal && bx.minCycles == 3 && bx.maxCycles == 3);
+
+        // Thumb BLX-register is ARM9-only at compile time, but decoding is
+        // CPU-neutral. The ARM BLX emitter is reused with a pc-1 adjustment
+        // so LR becomes Thumb pc+3 exactly.
+        assert(Ps2Thumb::decode(0x4788u, 0x1000u, &bx)); // BLX r1
+        assert(bx.kind == Ps2Thumb::BRANCH_LINK_EXCHANGE);
+        assert(bx.armOpcode == 0xE12FFF31u);
+        assert(bx.readMask == (1u << 1));
+        assert(bx.writeMask == (1u << 14));
+        assert(bx.terminal && bx.minCycles == 3 && bx.maxCycles == 3);
     }
 
     // Register-offset signed/unsigned loads also map onto the existing
@@ -214,7 +224,6 @@ int main()
     // Initial subset intentionally rejects operations whose Thumb timing
     // differs from the ARM emitter or that mutate memory/stack state.
     Ps2Thumb::Decoded d;
-    assert(!Ps2Thumb::decode(0x4788u, 0x1000u, &d)); // BLX r1 (ARM9-only)
     assert(!Ps2Thumb::decode(0x46F8u, 0x1000u, &d)); // MOV pc,r15/PC write
     assert(!Ps2Thumb::decode(0xB500u, 0x1000u, &d)); // PUSH
     assert(!Ps2Thumb::decode(0x5008u, 0x1000u, &d)); // STR register
