@@ -5949,6 +5949,8 @@ bool DynarecR5900::runArmAluSelfTest()
         { 0xE1B01821u, 0x30000013u, 1, 0x00018000u }, // hot MOVS LSR #16
         { 0xE1B01041u, 0x10000013u, 1, 0x80000001u }, // MOVS r1,r1,ASR #32
         { 0xE1B01461u, 0x10000013u, 1, 0x80000001u }, // MOVS r1,r1,ROR #8
+        { 0xE1B02061u, 0x30000013u, 1, 0x00000002u }, // MOVS r2,r1,RRX C=1
+        { 0xE1B02061u, 0x10000013u, 1, 0x00000001u }, // MOVS r2,r1,RRX C=0
         { 0xE1700001u, 0xF0000013u, 0, 0xFEFDFCFCu }  // CMN preserves registers
     };
 
@@ -5972,6 +5974,35 @@ bool DynarecR5900::runArmAluSelfTest()
         ArmAluFunction function = reinterpret_cast<ArmAluFunction>(entry);
         function(&actual);
         if (std::memcmp(&actual, &expected, sizeof(actual)) != 0)
+            return false;
+    }
+
+    // RRX also consumes CPSR.C when S=0 while preserving every flag.
+    {
+        const uint32_t opcode = 0xE1A02061u; // MOV r2,r1,RRX
+        ArmAluState expected = {};
+        expected.r[1] = 0x00000002u;
+        expected.r[2] = 0xDEADBEEFu;
+        expected.cpsr = 0x30000013u;
+        if (!applyArmAlu(opcode, &expected))
+            return false;
+
+        uint32_t *entry = nullptr;
+        uint8_t rd = 0;
+        if (!emitArmAluBlock(opcode, &entry, &rd) || rd != 2)
+            return false;
+
+        ArmAluState actual = {};
+        actual.r[1] = 0x00000002u;
+        actual.r[2] = 0xDEADBEEFu;
+        actual.cpsr = 0x30000013u;
+        typedef void (*ArmRrxFunction)(ArmAluState *);
+        ArmRrxFunction function =
+            reinterpret_cast<ArmRrxFunction>(entry);
+        function(&actual);
+        if (actual.r[2] != expected.r[2] ||
+            actual.cpsr != expected.cpsr ||
+            actual.cycles != expected.cycles)
             return false;
     }
 
