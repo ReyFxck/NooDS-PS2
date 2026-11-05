@@ -171,7 +171,7 @@ Este projeto continua sendo considerado POC até que exista, no mínimo:
 
 ## Estado atual do bootstrap PS2
 
-**Resultado com dumps reais:** NSMB saiu do framebuffer totalmente branco no frame 19 com hash `9598DDC5`; 49.152 pixels permaneceram brancos (exatamente uma tela DS). O M5 apresentou esse frame sem erro. O stream agora continua sem limite artificial, com estatísticas separadas para a tela superior e inferior a cada 60 frames.\n\n**Estado de compilação:** o CI PS2 compila e linka Release, Profile e Debug para R5900, além de ISOs de teste. Os quatro page maps planos que consumiam ~16 MiB em ponteiros no PS2 foram substituídos por tabelas esparsas; o build imprime `sizeof(Core)` e bytes reais das page tables em runtime. No Android, o acesso a ROM/BIOS reais pelo `host:` depende de habilitar Host Filesystem e da configuração do loader. M3 foi confirmado: o primeiro `runFrame()` retornou com 560.190 ciclos. M5 inicializa o gsKit em NTSC 640x448, envia as duas telas em uma textura CT16 256x384 e mantém stream contínuo com DualShock/touchscreen. O hash histórico `E7911DC5` corresponde exatamente a um framebuffer CT32 inteiro `0xFFFFFFFF` (98.304 pixels brancos), então a saída branca observada não foi causada pelo GS. No teste de 30 frames, os frames 1, 5 e 10 continuaram 100% brancos; depois disso o ARM9 entrou em uma enxurrada de writes CP15 e acessos de memória unmapped. O interpreter envia IRQ do ARM9 para `exceptionAddr + 0x18` e SWI para `exceptionAddr + 0x08`, portanto o BIOS9 sintético zerado não é válido para testes comerciais. O bootstrap agora detecta esse BIOS9 sintético e para com segurança após M2; M3+ com jogos requer dump BIOS9 real de 4 KiB.
+**Resultado com dumps reais:** NSMB saiu do framebuffer totalmente branco no frame 19 com hash `9598DDC5`; 49.152 pixels permaneceram brancos (exatamente uma tela DS). O M5 apresentou esse frame sem erro. O stream agora continua sem limite artificial, com estatísticas separadas para a tela superior e inferior a cada 60 frames.\n\n**Estado de compilação:** o CI PS2 compila e linka ELFs Release, Profile e Debug para R5900. Os quatro page maps planos que consumiam ~16 MiB em ponteiros no PS2 foram substituídos por tabelas esparsas; o build imprime `sizeof(Core)` e bytes reais das page tables em runtime. No Android, o acesso a ROM/BIOS reais pelo `host:` depende de habilitar Host Filesystem e da configuração do loader. M3 foi confirmado: o primeiro `runFrame()` retornou com 560.190 ciclos. M5 inicializa o gsKit em NTSC 640x448, envia as duas telas em uma textura CT16 256x384 e mantém stream contínuo com DualShock/touchscreen. O hash histórico `E7911DC5` corresponde exatamente a um framebuffer CT32 inteiro `0xFFFFFFFF` (98.304 pixels brancos), então a saída branca observada não foi causada pelo GS. No teste de 30 frames, os frames 1, 5 e 10 continuaram 100% brancos; depois disso o ARM9 entrou em uma enxurrada de writes CP15 e acessos de memória unmapped. O interpreter envia IRQ do ARM9 para `exceptionAddr + 0x18` e SWI para `exceptionAddr + 0x08`, portanto o BIOS9 sintético zerado não é válido para testes comerciais. O bootstrap agora detecta esse BIOS9 sintético e para com segurança após M2; M3+ com jogos requer dump BIOS9 real de 4 KiB.
 
 O bootstrap PS2 valida PS2SDK e `host:` e agora também tenta **construir o core do NooDS sem executar frames**. Isso isola problemas de RAM/BIOS/firmware/ROM antes de envolver execução ARM9/ARM7, GPU e áudio.
 
@@ -190,36 +190,21 @@ make -f Makefile.ps2 debug
 O ELF resultante é `noods-ps2.elf`.
 
 
-### Android / NetherSX2: use o ISO de teste
+### Android / NetherSX2: execute o ELF diretamente
 
-### Self-test embutido no ISO
-
-O ISO do CI contém também um conjunto **100% sintético** para bring-up:
-
-- `SELFTEST.NDS`: imagem NDS mínima criada pelo próprio CI, com ARM9/ARM7 em loop.
-- `BIOS9.BIN` e `BIOS7.BIN`: arquivos zerados apenas para permitir testar construção/alocação do core em direct boot.
-- `FIRMWARE.BIN`: firmware sintético zerado de 256 KiB.
-
-Esses arquivos **não são dumps da Nintendo** e não servem para testar compatibilidade de jogos. O backend tenta `host:` primeiro; se HostFS não estiver disponível (caso observado ao iniciar por ISO no NetherSX2 Android), usa os arquivos sintéticos de `cdrom0:` apenas para M1/M2. **M3 e posteriores são bloqueados quando o BIOS9 detectado é o arquivo sintético zerado**, porque IRQ/SWI do ARM9 precisam de código BIOS real.
-
-
-Algumas builds Android do AetherSX2/NetherSX2 recebem ELFs pelo Storage Access Framework como URLs `content://`. Nessa situação o loader pode falhar antes de executar o ELF. O CI também gera `noods-ps2-poc.iso`, que contém somente o ELF de bootstrap e `SYSTEM.CNF`.
+O log de teste mostra que o NetherSX2 abriu `noods-ps2-profile.elf` diretamente pelo Storage Access Framework e definiu o diretório do ELF como raiz de `host:`. Use os ELFs do artefato do CI, sem criar ISO.
 
 Para testar no NetherSX2:
 
 ```text
-noods-ps2-poc.iso
+noods-ps2-profile.elf
 game.nds
 bios9.bin
 bios7.bin
 firmware.bin
 ```
 
-Deixe os arquivos no mesmo diretório concedido ao NetherSX2 e mantenha **Enable Host Filesystem** ativado. O ISO existe apenas como transporte para iniciar o ELF; ROM/BIOS/firmware continuam externos via `host:` e não são incluídos no ISO.
-
-Se o ISO abrir e aparecer `M0 bootstrap started`, o problema do loader Android foi contornado. Se depois aparecer erro em `host:`, esse passa a ser um problema separado de acesso aos arquivos externos.
-
-Para comparar o desempenho com menos custo de instrumentação, use `noods-ps2-profile-level1.iso` do mesmo artefato e envie as linhas `[PS2][SUMMARY]` e `[PS2][JIT-SELFTEST]` do novo log. `noods-ps2-profile-level2.iso` ativa os contadores detalhados da GPU e do dynarec; seu FPS inclui mais overhead de profiler. Ambos os ISOs usam os mesmos arquivos externos via `host:` e incluem dados sintéticos somente para o bootstrap.
+Deixe os arquivos no mesmo diretório concedido ao NetherSX2 e mantenha **Enable Host Filesystem** ativado. O ELF `noods-ps2-profile.elf` usa instrumentação nível 2 para investigar gargalos. Para comparar FPS entre versões, `noods-ps2-profile-level1.elf` reduz o overhead de instrumentação. Compare trechos equivalentes do jogo e consulte as linhas `[PS2][SUMMARY]` e `[PS2][JIT-SELFTEST]`.
 
 
 ### Teste rápido no PCSX2 com hostfs
