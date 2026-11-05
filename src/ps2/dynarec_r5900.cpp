@@ -598,6 +598,48 @@ uint32_t arm7MultiplyM(int32_t value)
     return 4u;
 }
 
+bool applyArmPsrTransfer(uint32_t opcode, ArmAluState *state)
+{
+    Ps2ArmAlu::DecodedPsrTransfer decoded;
+    if (!state || !Ps2ArmAlu::decodePsrTransfer(opcode, &decoded))
+        return false;
+
+    const bool passed =
+        Ps2ArmAlu::conditionPassed(decoded.condition, state->cpsr);
+    if (!passed)
+    {
+        state->cycles += 1u;
+        return true;
+    }
+
+    if (decoded.write)
+    {
+        const uint32_t oldCpsr = state->cpsr;
+        uint32_t nextCpsr = oldCpsr;
+        if (!Ps2ArmAlu::executePsrTransfer(
+            opcode, state->r, &nextCpsr))
+            return false;
+
+        // ArmAluState has no banked-register ABI. Let the interpreter own
+        // actual mode switches; same-mode CPSR control/IRQ/flag updates are
+        // safe to commit at this terminal block boundary.
+        if ((nextCpsr ^ oldCpsr) & 0x1Fu)
+        {
+            state->memoryFault = 1u;
+            state->cycles += 1u;
+            return true;
+        }
+        state->cpsr = nextCpsr;
+        state->cycles += 1u;
+        return true;
+    }
+
+    if (!Ps2ArmAlu::executePsrTransfer(opcode, state->r, &state->cpsr))
+        return false;
+    state->cycles += state->cpuId ? 1u : 2u;
+    return true;
+}
+
 bool applyArmMultiply(uint32_t opcode, ArmAluState *state)
 {
     Ps2ArmAlu::DecodedMultiply decoded;
