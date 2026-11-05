@@ -9,6 +9,7 @@ namespace Ps2Thumb
     {
         UNSUPPORTED = 0,
         ARM_ALU,
+        ARM_MULTIPLY,
         ARM_LOAD,
         ADDRESS_ADD,
         LITERAL_LOAD,
@@ -30,6 +31,7 @@ namespace Ps2Thumb
         int16_t addend = 0;
         bool readsFlags = false;
         bool writesFlags = false;
+        bool oneCycleRegisterShift = false;
         bool terminal = false;
         uint8_t minCycles = 1;
         uint8_t maxCycles = 1;
@@ -139,20 +141,49 @@ namespace Ps2Thumb
             return true;
         }
 
-        // Format 4: low-register ALU. Register-shifts/ROR and MUL are kept in
-        // the interpreter initially because their Thumb timing differs from
-        // the ARM emitter's timing model.
+        // Format 4: low-register ALU. Register shifts use ARM's identical
+        // register-shift semantics but Thumb charges one cycle instead of the
+        // ARM emitter's normal two. MUL maps to ARM MULS with Rs=old Rd so
+        // ARM7's early-termination timing is based on the same multiplier as
+        // Interpreter::mulDpT().
         if ((opcode & 0xFC00u) == 0x4000u)
         {
             const uint8_t op = static_cast<uint8_t>((opcode >> 6) & 0xFu);
             const uint8_t rs = static_cast<uint8_t>((opcode >> 3) & 7u);
             const uint8_t rd = static_cast<uint8_t>(opcode & 7u);
-            if (op == 2 || op == 3 || op == 4 || op == 7 || op == 13)
-                return false;
 
-            out->kind = ARM_ALU;
             out->writesFlags = true;
             out->rd = rd;
+            out->readMask = static_cast<uint16_t>(
+                (1u << rs) | (1u << rd));
+
+            if (op == 2 || op == 3 || op == 4 || op == 7)
+            {
+                const uint8_t shiftType = static_cast<uint8_t>(
+                    op == 2 ? 0 : (op == 3 ? 1 : (op == 4 ? 2 : 3)));
+                out->kind = ARM_ALU;
+                out->oneCycleRegisterShift = true;
+                out->armOpcode = 0xE1B00010u |
+                    (static_cast<uint32_t>(rd) << 12) |
+                    (static_cast<uint32_t>(rs) << 8) |
+                    (static_cast<uint32_t>(shiftType) << 5) | rd;
+                out->writeMask = static_cast<uint16_t>(1u << rd);
+                return true;
+            }
+
+            if (op == 13)
+            {
+                out->kind = ARM_MULTIPLY;
+                out->armOpcode = 0xE0100090u |
+                    (static_cast<uint32_t>(rd) << 16) |
+                    (static_cast<uint32_t>(rd) << 8) | rs;
+                out->writeMask = static_cast<uint16_t>(1u << rd);
+                out->minCycles = 2;
+                out->maxCycles = 5;
+                return true;
+            }
+
+            out->kind = ARM_ALU;
             switch (op)
             {
                 case 0: out->armOpcode = armDataReg(0, true, rd, rd, rs); break; // AND
@@ -170,9 +201,8 @@ namespace Ps2Thumb
                 case 15: out->armOpcode = armDataReg(15, true, 0, rd, rs); break; // MVN
                 default: return false;
             }
-            out->readMask = static_cast<uint16_t>(1u << rs);
-            if (op != 9 && op != 15)
-                out->readMask |= static_cast<uint16_t>(1u << rd);
+            if (op == 9 || op == 15)
+                out->readMask = static_cast<uint16_t>(1u << rs);
             if (op != 8 && op != 10 && op != 11)
                 out->writeMask = static_cast<uint16_t>(1u << rd);
             return true;
