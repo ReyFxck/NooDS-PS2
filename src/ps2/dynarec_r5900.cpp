@@ -5649,6 +5649,19 @@ bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
             if (!emitted)
                 return false;
             words += emitted;
+
+            // Thumb LDMIA/POP with a single low register costs two cycles on
+            // ARM9, one more than the equivalent ARM LDM emitter. Multi-reg
+            // forms already match exactly.
+            if (targetCpuId == 0)
+            {
+                Ps2ArmAlu::DecodedMultiBlockTransfer multi;
+                if (Ps2ArmAlu::decodeMultiBlockTransfer(
+                    decoded.armOpcode, &multi) && multi.count == 1)
+                {
+                    words += emitArmCycleAdd(1, code + words, true);
+                }
+            }
             continue;
         }
 
