@@ -76,6 +76,28 @@ int main()
         assert(bx.terminal && bx.minCycles == 3 && bx.maxCycles == 3);
     }
 
+    // Register-offset signed/unsigned loads also map onto the existing
+    // ARM memory backend with identical ARM7 timing.
+    {
+        Ps2Thumb::Decoded load;
+        assert(Ps2Thumb::decode(0x5688u, 0x1000u, &load)); // LDRSB r0,[r1,r2]
+        assert(load.kind == Ps2Thumb::ARM_LOAD);
+        assert(load.armOpcode == 0xE19100D2u);
+
+        assert(Ps2Thumb::decode(0x5963u, 0x1000u, &load)); // LDR r3,[r4,r5]
+        assert(load.armOpcode == 0xE7943005u);
+
+        assert(Ps2Thumb::decode(0x5A3Eu, 0x1000u, &load)); // LDRH r6,[r7,r0]
+        assert(load.armOpcode == 0xE19760B0u);
+
+        assert(Ps2Thumb::decode(0x5CD1u, 0x1000u, &load)); // LDRB r1,[r2,r3]
+        assert(load.armOpcode == 0xE7D21003u);
+
+        assert(Ps2Thumb::decode(0x5FACu, 0x1000u, &load)); // LDRSH r4,[r5,r6]
+        assert(load.armOpcode == 0xE19540F6u);
+        assert(load.minCycles == 3 && load.maxCycles == 3);
+    }
+
     // Read-only load subset maps onto the already differential-gated ARM
     // memory backend with ARM7-equivalent timing.
     {
@@ -106,6 +128,9 @@ int main()
     assert(!Ps2Thumb::decode(0x4788u, 0x1000u, &d)); // BLX r1 (ARM9-only)
     assert(!Ps2Thumb::decode(0x46F8u, 0x1000u, &d)); // MOV pc,r15/PC write
     assert(!Ps2Thumb::decode(0xB500u, 0x1000u, &d)); // PUSH
+    assert(!Ps2Thumb::decode(0x5008u, 0x1000u, &d)); // STR register
+    assert(!Ps2Thumb::decode(0x5208u, 0x1000u, &d)); // STRH register
+    assert(!Ps2Thumb::decode(0x5408u, 0x1000u, &d)); // STRB register
     assert(!Ps2Thumb::decode(0x6008u, 0x1000u, &d)); // STR word
     assert(!Ps2Thumb::decode(0x7008u, 0x1000u, &d)); // STRB
     assert(!Ps2Thumb::decode(0x8008u, 0x1000u, &d)); // STRH
