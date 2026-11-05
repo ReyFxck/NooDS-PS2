@@ -428,7 +428,11 @@ bool Ps2ArmAlu::decodeBranch(uint32_t opcode, DecodedBranch *decoded)
 bool Ps2ArmAlu::decodeBranchExchange(uint32_t opcode,
     DecodedBranchExchange *decoded)
 {
-    if (!decoded || (opcode & 0x0FFFFFF0u) != 0x012FFF10u)
+    if (!decoded)
+        return false;
+
+    const uint32_t form = opcode & 0x0FFFFFF0u;
+    if (form != 0x012FFF10u && form != 0x012FFF30u)
         return false;
 
     uint8_t condition = static_cast<uint8_t>(opcode >> 28);
@@ -438,6 +442,7 @@ bool Ps2ArmAlu::decodeBranchExchange(uint32_t opcode,
 
     decoded->condition = condition;
     decoded->rm = rm;
+    decoded->link = (form == 0x012FFF30u);
     return true;
 }
 
@@ -905,7 +910,7 @@ bool Ps2ArmAlu::executeBranch(uint32_t opcode, uint32_t pc, uint32_t cpsr,
 }
 
 bool Ps2ArmAlu::executeBranchExchange(uint32_t opcode,
-    uint32_t registers[16], uint32_t *cpsr, uint32_t *nextPc)
+    uint32_t registers[16], uint32_t *cpsr, uint32_t *nextPc, uint32_t pc)
 {
     if (!registers || !cpsr || !nextPc)
         return false;
@@ -917,6 +922,9 @@ bool Ps2ArmAlu::executeBranchExchange(uint32_t opcode,
         return true;
 
     uint32_t target = registers[decoded.rm];
+    if (decoded.link)
+        registers[14] = pc + 4u;
+
     if (target & 1u)
         *cpsr |= BIT(5);
     else
@@ -1180,11 +1188,14 @@ void Ps2ArmAlu::inspect(uint32_t opcode, uint32_t pc, InstructionInfo *info)
     info->condition = static_cast<uint8_t>(opcode >> 28);
     info->readsFlags = info->condition != 0xEu;
 
-    if ((opcode & 0x0FFFFFF0u) == 0x012FFF10u)
+    if ((opcode & 0x0FFFFFF0u) == 0x012FFF10u ||
+        (opcode & 0x0FFFFFF0u) == 0x012FFF30u)
     {
         info->kind = KIND_BRANCH_EXCHANGE;
         info->rm = static_cast<uint8_t>(opcode & 0xFu);
         info->readMask = static_cast<uint16_t>(1u << info->rm);
+        if ((opcode & 0x0FFFFFF0u) == 0x012FFF30u)
+            info->writeMask = static_cast<uint16_t>(1u << 14);
         info->terminatesBlock = true;
         return;
     }
@@ -1473,7 +1484,9 @@ void Ps2ArmAlu::format(uint32_t opcode, uint32_t pc, char *buffer, uint32_t size
     }
     if (info.kind == KIND_BRANCH_EXCHANGE)
     {
-        std::snprintf(buffer, size, "BX.%s r%u", condition, info.rm);
+        std::snprintf(buffer, size, "%s.%s r%u",
+            ((opcode & 0x0FFFFFF0u) == 0x012FFF30u) ? "BLX" : "BX",
+            condition, info.rm);
         return;
     }
     if (info.kind == KIND_MULTI_MEMORY)
