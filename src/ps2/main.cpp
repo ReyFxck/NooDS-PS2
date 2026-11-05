@@ -1000,6 +1000,13 @@ size_t logDynarecHotBlocks(DynarecR5900 &dynarec,
         static_cast<unsigned long long>(profile.activeWriteFallbacks),
         static_cast<unsigned long long>(profile.activeVerifyFallbacks),
         static_cast<unsigned long long>(profile.activeStateFallbacks));
+    PS2_LOG("[PS2][JIT] ARM9-Thumb active attempts=%llu exec=%llu guest=%llu cycles=%llu differentialPass=%llu\n",
+        static_cast<unsigned long long>(profile.activeThumbAttempts),
+        static_cast<unsigned long long>(profile.activeThumbExecutions),
+        static_cast<unsigned long long>(profile.activeThumbGuestInstructions),
+        static_cast<unsigned long long>(profile.activeThumbCycles),
+        static_cast<unsigned long long>(
+            profile.activeThumbDifferentialPasses));
     logActiveFallbackPcs("ARM9", profile);
 
     uint8_t fallbackOrder[16] = {};
