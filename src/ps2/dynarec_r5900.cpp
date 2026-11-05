@@ -4531,6 +4531,10 @@ uint32_t maxArmInstructionCycles(uint32_t opcode, uint8_t targetCpuId = 0)
         return longMultiply.setFlags ? 5u : 3u;
     }
 
+    Ps2ArmAlu::DecodedPsrTransfer psrTransfer;
+    if (Ps2ArmAlu::decodePsrTransfer(opcode, &psrTransfer))
+        return psrTransfer.write ? 1u : (targetCpuId ? 1u : 2u);
+
     Ps2ArmAlu::DecodedLiteralLoad literalLoad;
     if (Ps2ArmAlu::decodeLiteralLoad(opcode, &literalLoad) && targetCpuId)
         return 3u;
@@ -4596,6 +4600,14 @@ uint32_t minArmInstructionCycles(uint32_t opcode, uint8_t targetCpuId = 0)
         if (targetCpuId)
             return longMultiply.accumulate ? 4u : 3u;
         return longMultiply.setFlags ? 5u : 3u;
+    }
+
+    Ps2ArmAlu::DecodedPsrTransfer psrTransfer;
+    if (Ps2ArmAlu::decodePsrTransfer(opcode, &psrTransfer))
+    {
+        if (psrTransfer.condition != 0xEu)
+            return 1u;
+        return psrTransfer.write ? 1u : (targetCpuId ? 1u : 2u);
     }
 
     Ps2ArmAlu::DecodedLiteralLoad literalLoad;
@@ -4672,7 +4684,9 @@ bool armSequenceIsReadOnlySelfLoop(const uint32_t *opcodes, size_t count,
         Ps2ArmAlu::DecodedSingleTransfer single;
         Ps2ArmAlu::DecodedSingleBlockTransfer block;
         Ps2ArmAlu::DecodedMultiBlockTransfer multi;
-        if ((Ps2ArmAlu::decodeHalfwordTransfer(opcodes[i], &half) && !half.load) ||
+        Ps2ArmAlu::DecodedPsrTransfer psr;
+        if ((Ps2ArmAlu::decodePsrTransfer(opcodes[i], &psr) && psr.write) ||
+            (Ps2ArmAlu::decodeHalfwordTransfer(opcodes[i], &half) && !half.load) ||
             (Ps2ArmAlu::decodeByteTransfer(opcodes[i], &byte) && !byte.load) ||
             (Ps2ArmAlu::decodeSingleTransfer(opcodes[i], &single) && !single.load) ||
             (Ps2ArmAlu::decodeSingleBlockTransfer(opcodes[i], &block) && !block.load) ||
@@ -4738,6 +4752,15 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             if (longMultiply.condition != 0xEu || longMultiply.setFlags)
                 registerCpsr = true;
             if (longMultiply.setFlags)
+                writesRegisterCpsr = true;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedPsrTransfer psrTransfer;
+        if (Ps2ArmAlu::decodePsrTransfer(opcodes[i], &psrTransfer))
+        {
+            registerCpsr = true;
+            if (psrTransfer.write)
                 writesRegisterCpsr = true;
             continue;
         }
