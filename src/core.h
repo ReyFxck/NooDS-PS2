@@ -93,6 +93,9 @@ struct CoreRunProfile
     uint64_t arm7BlockFilterDrops = 0;
     uint64_t arm7BlockBudgetSkips = 0;
     uint64_t arm7AutoHotPromotions = 0;
+    uint64_t arm7BlockFilterCollisions = 0;
+    uint64_t arm7HotSampleCollisions = 0;
+    uint64_t arm7ThumbAutoHotPromotions = 0;
     uint64_t taskExecutions = 0;
     uint64_t scheduleCalls = 0;
     uint64_t estimatedLegacyFrontMoves = 0;
@@ -256,27 +259,34 @@ class Core
 
         void *arm7BlockRunnerContext = nullptr;
         Arm7BlockRunner arm7BlockRunner = nullptr;
-        static constexpr size_t ARM7_BLOCK_FILTER_SLOTS = 128;
+        static constexpr size_t ARM7_BLOCK_FILTER_SLOTS = 256;
         uint32_t arm7BlockHotPc[ARM7_BLOCK_FILTER_SLOTS] = {};
         uint8_t arm7BlockHotFailures[ARM7_BLOCK_FILTER_SLOTS] = {};
         uint8_t arm7BlockMinCycles[ARM7_BLOCK_FILTER_SLOTS] = {};
-        uint8_t arm7BlockHotCount = 0;
+        uint16_t arm7BlockHotCount = 0;
 
-        static constexpr size_t ARM7_HOT_SAMPLE_SLOTS = 128;
+        static constexpr size_t ARM7_HOT_SAMPLE_SLOTS = 256;
         uint32_t arm7HotSamplePc[ARM7_HOT_SAMPLE_SLOTS] = {};
         uint8_t arm7HotSampleScore[ARM7_HOT_SAMPLE_SLOTS] = {};
         uint8_t arm7HotSampleDivider = 0;
 
-        size_t arm7BlockFilterSlot(uint32_t pc) const
+        uint32_t arm7BlockKey(uint32_t pc, bool thumb) const
         {
-            return ((pc >> 2) ^ (pc >> 11)) & (ARM7_BLOCK_FILTER_SLOTS - 1);
+            return pc | (thumb ? 1u : 0u);
         }
-        size_t arm7HotSampleSlot(uint32_t pc) const
+        size_t arm7BlockFilterSlot(uint32_t key) const
         {
-            return ((pc >> 2) ^ (pc >> 10) ^ (pc >> 18)) &
+            // Thumb block entries are halfword aligned, so hash from >>1 and
+            // retain bit 0 as the ARM/Thumb mode discriminator.
+            return ((key >> 1) ^ (key >> 10) ^ key) &
+                (ARM7_BLOCK_FILTER_SLOTS - 1);
+        }
+        size_t arm7HotSampleSlot(uint32_t key) const
+        {
+            return ((key >> 1) ^ (key >> 9) ^ (key >> 17) ^ key) &
                 (ARM7_HOT_SAMPLE_SLOTS - 1);
         }
-        void sampleArm7HotPc(uint32_t pc);
+        void sampleArm7HotPc(uint32_t pc, bool thumb);
 
         uint32_t frameCycles = 0, globalCycles = 0;
         uint32_t arm9Cycles = 0, arm7Cycles = 0;
