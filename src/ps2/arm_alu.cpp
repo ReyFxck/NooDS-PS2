@@ -320,6 +320,75 @@ bool Ps2ArmAlu::decodeLongMultiply(uint32_t opcode,
     return true;
 }
 
+bool Ps2ArmAlu::decodePsrTransfer(uint32_t opcode,
+    DecodedPsrTransfer *decoded)
+{
+    if (!decoded)
+        return false;
+
+    *decoded = DecodedPsrTransfer();
+    decoded->condition = static_cast<uint8_t>(opcode >> 28);
+    if (decoded->condition == 0xFu)
+        return false;
+
+    // MRS Rd,CPSR. SPSR remains outside the generated-state ABI because
+    // ArmAluState intentionally models only the current CPSR.
+    if ((opcode & 0x0FFF0FFFu) == 0x010F0000u)
+    {
+        decoded->write = false;
+        decoded->rd = static_cast<uint8_t>((opcode >> 12) & 0xFu);
+        return decoded->rd != 15;
+    }
+
+    // MSR CPSR_<fields>,Rm. Immediate and SPSR forms are kept in the
+    // interpreter until they have an equally strict live-state gate.
+    if ((opcode & 0x0FF0FFF0u) == 0x0120F000u)
+    {
+        decoded->write = true;
+        decoded->fieldMask = static_cast<uint8_t>((opcode >> 16) & 0xFu);
+        decoded->rm = static_cast<uint8_t>(opcode & 0xFu);
+        return decoded->fieldMask && decoded->rm != 15;
+    }
+
+    return false;
+}
+
+bool Ps2ArmAlu::executePsrTransfer(uint32_t opcode,
+    uint32_t registers[16], uint32_t *cpsr)
+{
+    DecodedPsrTransfer decoded;
+    if (!registers || !cpsr || !decodePsrTransfer(opcode, &decoded))
+        return false;
+    if (!conditionPassed(decoded.condition, *cpsr))
+        return true;
+
+    if (!decoded.write)
+    {
+        registers[decoded.rd] = *cpsr;
+        return true;
+    }
+
+    const uint32_t value = registers[decoded.rm];
+    uint32_t next = *cpsr;
+
+    if (decoded.fieldMask & 0x1u)
+    {
+        const uint32_t mask = ((next & 0x1Fu) == 0x10u)
+            ? 0x000000E0u : 0x000000FFu;
+        next = (next & ~mask) | (value & mask);
+    }
+    for (uint32_t byte = 1; byte < 4; byte++)
+    {
+        if (!(decoded.fieldMask & (1u << byte)))
+            continue;
+        const uint32_t mask = 0xFFu << (byte * 8u);
+        next = (next & ~mask) | (value & mask);
+    }
+
+    *cpsr = next;
+    return true;
+}
+
 bool Ps2ArmAlu::decodeBranch(uint32_t opcode, DecodedBranch *decoded)
 {
     if (!decoded || (opcode & 0x0E000000u) != 0x0A000000u)
@@ -1118,6 +1187,27 @@ void Ps2ArmAlu::inspect(uint32_t opcode, uint32_t pc, InstructionInfo *info)
         return;
     }
 
+    DecodedPsrTransfer psr;
+    if (decodePsrTransfer(opcode, &psr))
+    {
+        info->kind = KIND_SYSTEM;
+        info->condition = psr.condition;
+        info->readsFlags = true;
+        if (psr.write)
+        {
+            info->rm = psr.rm;
+            info->readMask = static_cast<uint16_t>(1u << psr.rm);
+            info->writesFlags = true;
+            info->terminatesBlock = true;
+        }
+        else
+        {
+            info->rd = psr.rd;
+            info->writeMask = static_cast<uint16_t>(1u << psr.rd);
+        }
+        return;
+    }
+
     if ((opcode & 0x0C000000u) == 0)
     {
         info->kind = KIND_DATA;
@@ -1180,6 +1270,9 @@ Ps2ArmAlu::RejectReason Ps2ArmAlu::rejectionReason(uint32_t opcode)
         return REJECT_NONE;
     DecodedLongMultiply longMultiply;
     if (decodeLongMultiply(opcode, &longMultiply))
+        return REJECT_NONE;
+    DecodedPsrTransfer psr;
+    if (decodePsrTransfer(opcode, &psr))
         return REJECT_NONE;
     DecodedBranch branch;
     if (decodeBranch(opcode, &branch))
@@ -1259,6 +1352,20 @@ void Ps2ArmAlu::format(uint32_t opcode, uint32_t pc, char *buffer, uint32_t size
     static const char *shifts[4] = { "LSL", "LSR", "ASR", "ROR" };
     const char *condition = conditions[info.condition & 0xFu];
 
+    if (info.kind == KIND_SYSTEM)
+    {
+        DecodedPsrTransfer psr;
+        if (decodePsrTransfer(opcode, &psr))
+        {
+            if (psr.write)
+                std::snprintf(buffer, size, "MSR.%s CPSR_%X,r%u",
+                    condition, psr.fieldMask, psr.rm);
+            else
+                std::snprintf(buffer, size, "MRS.%s r%u,CPSR",
+                    condition, psr.rd);
+            return;
+        }
+    }
     if (info.kind == KIND_BRANCH)
     {
         std::snprintf(buffer, size, "%s.%s 0x%08lX",
