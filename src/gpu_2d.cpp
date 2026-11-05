@@ -128,6 +128,10 @@ uint32_t Gpu2D::rgb5ToRgb6(uint32_t color)
 
 void Gpu2D::drawGbaScanline(int line)
 {
+    const int bgMosaicSize = ((mosaic >> 4) & 0xFu) + 1;
+    const int bgMosaicLine =
+        (bgMosaicSize > 1) ? (line - (line % bgMosaicSize)) : line;
+
     // Reload the internal registers at the start of the frame
     if (line == 0)
     {
@@ -166,16 +170,16 @@ void Gpu2D::drawGbaScanline(int line)
     switch (dispCnt & 0x7)
     {
         case 0:
-            if (dispCnt & BIT(11)) drawText(3, line);
-            if (dispCnt & BIT(10)) drawText(2, line);
-            if (dispCnt & BIT(9))  drawText(1, line);
-            if (dispCnt & BIT(8))  drawText(0, line);
+            if (dispCnt & BIT(11)) drawText(3, line, bgMosaicLine);
+            if (dispCnt & BIT(10)) drawText(2, line, bgMosaicLine);
+            if (dispCnt & BIT(9))  drawText(1, line, bgMosaicLine);
+            if (dispCnt & BIT(8))  drawText(0, line, bgMosaicLine);
             break;
 
         case 1:
             if (dispCnt & BIT(10)) drawAffine(2, line);
-            if (dispCnt & BIT(9))    drawText(1, line);
-            if (dispCnt & BIT(8))    drawText(0, line);
+            if (dispCnt & BIT(9))    drawText(1, line, bgMosaicLine);
+            if (dispCnt & BIT(8))    drawText(0, line, bgMosaicLine);
             break;
 
         case 2:
@@ -291,6 +295,10 @@ void Gpu2D::drawScanline(int line)
         internalY[1] = bgY[1];
     }
 
+    const int bgMosaicSize = ((mosaic >> 4) & 0xFu) + 1;
+    const int bgMosaicLine =
+        (bgMosaicSize > 1) ? (line - (line % bgMosaicSize)) : line;
+
     {
 #ifdef NOODS_PROFILE
         ProfileScope profile(this, GPU2D_PROFILE_CLEAR);
@@ -320,45 +328,45 @@ void Gpu2D::drawScanline(int line)
     switch (dispCnt & 0x7)
     {
         case 0:
-            if (dispCnt & BIT(11)) drawText(3, line);
-            if (dispCnt & BIT(10)) drawText(2, line);
-            if (dispCnt & BIT(9))  drawText(1, line);
-            if (dispCnt & BIT(8))  drawText(0, line);
+            if (dispCnt & BIT(11)) drawText(3, line, bgMosaicLine);
+            if (dispCnt & BIT(10)) drawText(2, line, bgMosaicLine);
+            if (dispCnt & BIT(9))  drawText(1, line, bgMosaicLine);
+            if (dispCnt & BIT(8))  drawText(0, line, bgMosaicLine);
             break;
 
         case 1:
             if (dispCnt & BIT(11)) drawAffine(3, line);
-            if (dispCnt & BIT(10))   drawText(2, line);
-            if (dispCnt & BIT(9))    drawText(1, line);
-            if (dispCnt & BIT(8))    drawText(0, line);
+            if (dispCnt & BIT(10))   drawText(2, line, bgMosaicLine);
+            if (dispCnt & BIT(9))    drawText(1, line, bgMosaicLine);
+            if (dispCnt & BIT(8))    drawText(0, line, bgMosaicLine);
             break;
 
         case 2:
             if (dispCnt & BIT(11)) drawAffine(3, line);
             if (dispCnt & BIT(10)) drawAffine(2, line);
-            if (dispCnt & BIT(9))    drawText(1, line);
-            if (dispCnt & BIT(8))    drawText(0, line);
+            if (dispCnt & BIT(9))    drawText(1, line, bgMosaicLine);
+            if (dispCnt & BIT(8))    drawText(0, line, bgMosaicLine);
             break;
 
         case 3:
             if (dispCnt & BIT(11)) drawExtended(3, line);
-            if (dispCnt & BIT(10))     drawText(2, line);
-            if (dispCnt & BIT(9))      drawText(1, line);
-            if (dispCnt & BIT(8))      drawText(0, line);
+            if (dispCnt & BIT(10))     drawText(2, line, bgMosaicLine);
+            if (dispCnt & BIT(9))      drawText(1, line, bgMosaicLine);
+            if (dispCnt & BIT(8))      drawText(0, line, bgMosaicLine);
             break;
 
         case 4:
             if (dispCnt & BIT(11)) drawExtended(3, line);
             if (dispCnt & BIT(10))   drawAffine(2, line);
-            if (dispCnt & BIT(9))      drawText(1, line);
-            if (dispCnt & BIT(8))      drawText(0, line);
+            if (dispCnt & BIT(9))      drawText(1, line, bgMosaicLine);
+            if (dispCnt & BIT(8))      drawText(0, line, bgMosaicLine);
             break;
 
         case 5:
             if (dispCnt & BIT(11)) drawExtended(3, line);
             if (dispCnt & BIT(10)) drawExtended(2, line);
-            if (dispCnt & BIT(9))      drawText(1, line);
-            if (dispCnt & BIT(8))      drawText(0, line);
+            if (dispCnt & BIT(9))      drawText(1, line, bgMosaicLine);
+            if (dispCnt & BIT(8))      drawText(0, line, bgMosaicLine);
             break;
 
         case 6:
@@ -798,7 +806,7 @@ void Gpu2D::drawObjPixel(int line, int x, uint32_t pixel, int8_t priority)
     }
 }
 
-void Gpu2D::drawText(int bg, int line)
+void Gpu2D::drawText(int bg, int line, int mosaicLine)
 {
 #ifdef NOODS_PROFILE
     ProfileScope profile(this, GPU2D_PROFILE_TEXT);
@@ -864,7 +872,9 @@ void Gpu2D::drawText(int bg, int line)
     uint32_t indexBase = bgVramAddr + ((dispCnt >>  8) & 0x70000) + ((bgCnt[bg] << 12) & 0x3C000);
 
     // Move the tile address to the current line
-    int yOffset = (((bgCnt[bg] & BIT(6)) ? (line - (line % (((mosaic >> 4) & 0xF) + 1))) : line) + bgVOfs[bg]) & 0x1FF;
+    int yOffset =
+        (((bgCnt[bg] & BIT(6)) ? mosaicLine : line) + bgVOfs[bg]) &
+        0x1FF;
     tileBase += (yOffset & 0xF8) << 3;
 
     // If the Y-offset exceeds 256 and the background is 512 pixels tall, move to the next 256x256 section
