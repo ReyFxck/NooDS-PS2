@@ -194,7 +194,19 @@ int main()
             static_cast<uint16_t>(0x0013u | (1u << 3)));
         assert(load.minCycles == 5 && load.maxCycles == 5);
 
-        assert(!Ps2Thumb::decode(0xBD01u, 0x1000u, &load)); // POP {r0,pc}
+        assert(Ps2Thumb::decode(0xBD85u, 0x1000u, &load)); // POP {r0,r2,r7,pc}
+        assert(load.kind == Ps2Thumb::POP_PC);
+        assert(load.armOpcode == 0xE8BD0085u);
+        assert(load.readMask == (1u << 13));
+        assert(load.writeMask ==
+            static_cast<uint16_t>(0x0085u | (1u << 13)));
+        assert(load.terminal && load.minCycles == 8 && load.maxCycles == 8);
+
+        assert(Ps2Thumb::decode(0xBD00u, 0x1000u, &load)); // POP {pc}
+        assert(load.kind == Ps2Thumb::POP_PC && load.armOpcode == 0);
+        assert(load.writeMask == (1u << 13));
+        assert(load.terminal && load.minCycles == 5 && load.maxCycles == 5);
+
         assert(!Ps2Thumb::decode(0xCB08u, 0x1000u, &load)); // base in list
         assert(!Ps2Thumb::decode(0xC313u, 0x1000u, &load)); // STMIA
     }
