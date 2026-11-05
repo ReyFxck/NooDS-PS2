@@ -5450,6 +5450,66 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
+    // Gate the hot ARM7 CPSR MRS/MSR pair in generated R5900 code.
+    // Mode-changing MSR must fault out before commit; same-mode control writes
+    // and MRS execute with the exact interpreter timing.
+    {
+        struct PsrCase
+        {
+            uint32_t opcode;
+            uint8_t cpuId;
+            uint32_t cpsr;
+            uint32_t r2;
+            uint32_t expectedCpsr;
+            uint32_t expectedR1;
+            uint32_t expectedCycles;
+            uint32_t expectedFault;
+        };
+        const PsrCase cases[] =
+        {
+            { 0xE10F1000u, 1u, 0x60000092u, 0u,
+              0x60000092u, 0x60000092u, 1u, 0u }, // ARM7 MRS
+            { 0xE10F1000u, 0u, 0x60000013u, 0u,
+              0x60000013u, 0x60000013u, 2u, 0u }, // ARM9 MRS
+            { 0xE121F002u, 1u, 0x60000092u, 0xA5A50092u,
+              0x60000092u, 0u, 1u, 0u }, // same-mode MSR CPSR_c
+            { 0xE121F002u, 1u, 0x60000092u, 0x00000013u,
+              0x60000092u, 0u, 1u, 1u }, // mode change -> fallback
+            { 0x0121F002u, 1u, 0x00000092u, 0x00000092u,
+              0x00000092u, 0u, 1u, 0u }  // EQ fails (Z clear)
+        };
+
+        for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+        {
+            uint32_t *code = cache.reserveWords(96);
+            if (!code)
+                return false;
+            size_t words = emitArmPsrTransferInstruction(
+                cases[i].opcode, code, false, false);
+            if (!words)
+                return false;
+            code[words++] = R5900::jr(R5900::R_RA);
+            code[words++] = R5900::nop();
+            cache.commitWords(words);
+            cache.syncExecutable(code, code + words);
+
+            ArmAluState state = {};
+            state.cpsr = cases[i].cpsr;
+            state.r[1] = 0u;
+            state.r[2] = cases[i].r2;
+            state.cpuId = cases[i].cpuId;
+            typedef void (*PsrFunction)(ArmAluState *);
+            PsrFunction function = reinterpret_cast<PsrFunction>(code);
+            function(&state);
+
+            if (state.cpsr != cases[i].expectedCpsr ||
+                state.r[1] != cases[i].expectedR1 ||
+                state.cycles != cases[i].expectedCycles ||
+                state.memoryFault != cases[i].expectedFault)
+                return false;
+        }
+    }
+
     struct FlagTest
     {
         uint32_t opcode;
