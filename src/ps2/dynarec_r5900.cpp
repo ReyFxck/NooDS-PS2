@@ -5783,7 +5783,7 @@ bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
             size_t emitted = emitArmBranchExchangeDirectInstruction(
                 decoded.armOpcode,
                 guestPc + static_cast<uint32_t>(i * 2),
-                code + words, true, true, 1);
+                code + words, true, true, targetCpuId);
             if (!emitted)
                 return false;
             words += emitted;
