@@ -1231,6 +1231,28 @@ void logGpu3DDetailProfile(const Gpu3DDetailProfile &p)
         static_cast<unsigned long long>(p.finishSamples),
         static_cast<unsigned long long>(p.fogPixels),
         static_cast<unsigned long long>(p.edgePixels));
+
+    const double clearAvgUs = p.scanlineTimingSamples
+        ? static_cast<double>(p.clearTicks) * 1000000.0 /
+            CLOCKS_PER_SEC /
+            static_cast<double>(p.scanlineTimingSamples)
+        : 0.0;
+    const double polygonAvgUs = p.scanlineTimingSamples
+        ? static_cast<double>(p.polygonTicks) * 1000000.0 /
+            CLOCKS_PER_SEC /
+            static_cast<double>(p.scanlineTimingSamples)
+        : 0.0;
+    const double finishAvgUs = p.finishTimingSamples
+        ? static_cast<double>(p.finishTicks) * 1000000.0 /
+            CLOCKS_PER_SEC /
+            static_cast<double>(p.finishTimingSamples)
+        : 0.0;
+    PS2_LOG("[PS2][PROF] gpu3d-phase-detail: scanSamples=%llu clearAvgUs=%.2f polygonAvgUs=%.2f finishSamples=%llu finishAvgUs=%.2f\n",
+        static_cast<unsigned long long>(p.scanlineTimingSamples),
+        clearAvgUs,
+        polygonAvgUs,
+        static_cast<unsigned long long>(p.finishTimingSamples),
+        finishAvgUs);
 }
 #endif
 
