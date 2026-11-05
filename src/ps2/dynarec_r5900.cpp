@@ -4984,7 +4984,7 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     // A single 14-register STM expands into journal bookkeeping for every
     // word. Keep enough headroom for that worst admitted instruction while
     // commitWords still advances by the exact generated size.
-    const size_t maxWords = count * 256 + (internalSelfLoop ? 48 : 8);
+    const size_t maxWords = count * 256 + (internalSelfLoop ? 64 : 8);
     uint32_t *code = cache.reserveWords(maxWords);
     if (!code)
         return false;
@@ -5000,14 +5000,21 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     code[words++] = R5900::or_(R5900::R_T8, R5900::R_ZERO, R5900::R_ZERO);
 
     // Self-loops may execute dozens of iterations inside one scheduler slot.
-    // Keep guestExecuted in callee-saved s0 instead of loading/storing state on
-    // every iteration. Save the caller's s0 once so the generated function
-    // still obeys the MIPS ABI; nested C++ helpers preserve s0 themselves.
+    // Keep guestExecuted, cycleLimit and the constant loop target in
+    // callee-saved registers instead of reconstructing/reloading them after
+    // every guest iteration. Nested C++ memory helpers preserve s0-s2 by ABI.
     if (internalSelfLoop)
     {
-        code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, -16);
-        code[words++] = R5900::sw(R5900::R_S0, 12, R5900::R_SP);
+        code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, -32);
+        code[words++] = R5900::sw(R5900::R_S0, 20, R5900::R_SP);
+        code[words++] = R5900::sw(R5900::R_S1, 24, R5900::R_SP);
+        code[words++] = R5900::sw(R5900::R_S2, 28, R5900::R_SP);
         code[words++] = R5900::lw(R5900::R_S0, 100, R5900::R_A0);
+        code[words++] = R5900::lw(R5900::R_S1, 96, R5900::R_A0);
+        code[words++] = R5900::lui(R5900::R_S2,
+            static_cast<uint16_t>(guestPc >> 16));
+        code[words++] = R5900::ori(R5900::R_S2,
+            R5900::R_S2, static_cast<uint16_t>(guestPc));
     }
 
     size_t bodyStart = words;
@@ -5186,9 +5193,9 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
 
         // Shadow/differential states leave cycleLimit=0, so they execute
         // exactly one iteration. Live states may repeat at most 64 times.
-        code[words++] = R5900::lw(R5900::R_T1, 96, R5900::R_A0);
+        // s1 was loaded once in the prologue and survives nested helpers.
         loopExitBranches[loopExitCount++] = words;
-        code[words++] = R5900::beq(R5900::R_T1, R5900::R_ZERO, 0);
+        code[words++] = R5900::beq(R5900::R_S1, R5900::R_ZERO, 0);
         code[words++] = R5900::nop();
 
         code[words++] = R5900::sltiu(R5900::R_T2, R5900::R_S0,
@@ -5198,19 +5205,16 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         code[words++] = R5900::nop();
 
         // Only a taken terminal branch back to this exact block may repeat.
+        // s2 holds guestPc for the lifetime of the generated function.
         code[words++] = R5900::lw(R5900::R_T2, 68, R5900::R_A0);
-        code[words++] = R5900::lui(R5900::R_T3,
-            static_cast<uint16_t>(guestPc >> 16));
-        code[words++] = R5900::ori(R5900::R_T3, R5900::R_T3,
-            static_cast<uint16_t>(guestPc));
         loopExitBranches[loopExitCount++] = words;
-        code[words++] = R5900::bne(R5900::R_T2, R5900::R_T3, 0);
+        code[words++] = R5900::bne(R5900::R_T2, R5900::R_S2, 0);
         code[words++] = R5900::nop();
 
         // Require room for the entire worst-case next iteration.
         code[words++] = R5900::addiu(R5900::R_T2, R5900::R_T8,
             static_cast<int16_t>(sequenceMaxCycles));
-        code[words++] = R5900::sltu(R5900::R_T2, R5900::R_T1, R5900::R_T2);
+        code[words++] = R5900::sltu(R5900::R_T2, R5900::R_S1, R5900::R_T2);
         loopExitBranches[loopExitCount++] = words;
         code[words++] = R5900::bne(R5900::R_T2, R5900::R_ZERO, 0);
         code[words++] = R5900::nop();
@@ -5229,8 +5233,10 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     if (internalSelfLoop)
     {
         code[words++] = R5900::sw(R5900::R_S0, 100, R5900::R_A0);
-        code[words++] = R5900::lw(R5900::R_S0, 12, R5900::R_SP);
-        code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 16);
+        code[words++] = R5900::lw(R5900::R_S0, 20, R5900::R_SP);
+        code[words++] = R5900::lw(R5900::R_S1, 24, R5900::R_SP);
+        code[words++] = R5900::lw(R5900::R_S2, 28, R5900::R_SP);
+        code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
     }
     code[words++] = R5900::jr(R5900::R_RA);
     code[words++] = R5900::nop();
