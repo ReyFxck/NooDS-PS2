@@ -138,6 +138,7 @@ uint32_t Gpu2D::rgb5ToRgb6(uint32_t color)
 
 void Gpu2D::drawGbaScanline(int line)
 {
+    windowMaskValid = false;
     const int bgMosaicSize = ((mosaic >> 4) & 0xFu) + 1;
     const int bgMosaicLine =
         (bgMosaicSize > 1) ? (line - (line % bgMosaicSize)) : line;
@@ -175,6 +176,8 @@ void Gpu2D::drawGbaScanline(int line)
     // sprites observe the complete object-window mask.
     if (dispCnt & BIT(12))
         drawObjects(line, (dispCnt & BIT(15)) != 0);
+    if (dispCnt & 0x0000E000u)
+        buildWindowMask(line);
 
     // Draw the background layers depending on the BG mode
     switch (dispCnt & 0x7)
@@ -236,19 +239,9 @@ void Gpu2D::drawGbaScanline(int line)
         }
 
         // Skip blending if the pixel is in the bounds of a window that has it disabled
-        if (dispCnt & 0x0000E000) // Windows enabled
-        {
-            uint8_t enabled;
-            if ((dispCnt & BIT(13)) && i >= winX1[0] && i < winX2[0] && line >= winY1[0] && line < winY2[0])
-                enabled = winIn >> 0; // Window 0
-            else if ((dispCnt & BIT(14)) && i >= winX1[1] && i < winX2[1] && line >= winY1[1] && line < winY2[1])
-                enabled = winIn >> 8; // Window 1
-            else if ((dispCnt & BIT(15)) && (framebuffer[line * 256 + i] & BIT(24)))
-                enabled = winOut >> 8; // Object window
-            else
-                enabled = winOut >> 0; // Outside of windows
-            if (!(enabled & BIT(5))) continue;
-        }
+        if ((dispCnt & 0x0000E000u) &&
+            !(windowMask[i] & BIT(5)))
+            continue;
 
         // Apply blending, using 15-bit colors in GBA mode
             switch (mode)
@@ -296,6 +289,7 @@ void Gpu2D::drawGbaScanline(int line)
 
 void Gpu2D::drawScanline(int line)
 {
+    windowMaskValid = false;
     // Reload the internal registers at the start of the frame
     if (line == 0)
     {
@@ -333,6 +327,8 @@ void Gpu2D::drawScanline(int line)
     // sprites observe the complete object-window mask.
     if (dispCnt & BIT(12))
         drawObjects(line, (dispCnt & BIT(15)) != 0);
+    if (dispCnt & 0x0000E000u)
+        buildWindowMask(line);
 
     // Draw the background layers depending on the BG mode
     switch (dispCnt & 0x7)
@@ -543,22 +539,7 @@ void Gpu2D::drawScanline(int line)
                 if (!noWindows)
                 {
                     GPU2D_DETAIL_INC(composeDetail, windowChecks, 1);
-                    uint8_t enabled;
-                    if ((dispCnt & BIT(13)) &&
-                        i >= winX1[0] && i < winX2[0] &&
-                        line >= winY1[0] && line < winY2[0])
-                        enabled = winIn >> 0;
-                    else if ((dispCnt & BIT(14)) &&
-                        i >= winX1[1] && i < winX2[1] &&
-                        line >= winY1[1] && line < winY2[1])
-                        enabled = winIn >> 8;
-                    else if ((dispCnt & BIT(15)) &&
-                        (output[i] & BIT(24)))
-                        enabled = winOut >> 8;
-                    else
-                        enabled = winOut >> 0;
-
-                    if (!(enabled & BIT(5)))
+                    if (!(windowMask[i] & BIT(5)))
                     {
                         GPU2D_DETAIL_INC(composeDetail, windowRejects, 1);
                         GPU2D_DETAIL_INC(composeDetail, directWrites, 1);
@@ -712,7 +693,40 @@ void Gpu2D::drawScanline(int line)
     }
 }
 
-FORCE_INLINE void Gpu2D::drawBgPixelNoWindow(int bg, int x,
+FORCE_INLINE void Gpu2D::buildWindowMask(int line)
+{
+    if (!(dispCnt & 0x0000E000u))
+    {
+        windowMaskValid = false;
+        return;
+    }
+
+    const bool win0Y = (dispCnt & BIT(13)) &&
+        line >= winY1[0] && line < winY2[0];
+    const bool win1Y = (dispCnt & BIT(14)) &&
+        line >= winY1[1] && line < winY2[1];
+    const bool objWindow = (dispCnt & BIT(15)) != 0;
+    const uint8_t win0Mask = static_cast<uint8_t>(winIn);
+    const uint8_t win1Mask = static_cast<uint8_t>(winIn >> 8);
+    const uint8_t objMask = static_cast<uint8_t>(winOut >> 8);
+    const uint8_t outsideMask = static_cast<uint8_t>(winOut);
+    const uint32_t *frameLine = &framebuffer[line * 256];
+
+    for (int x = 0; x < 256; x++)
+    {
+        if (win0Y && x >= winX1[0] && x < winX2[0])
+            windowMask[x] = win0Mask;
+        else if (win1Y && x >= winX1[1] && x < winX2[1])
+            windowMask[x] = win1Mask;
+        else if (objWindow && (frameLine[x] & BIT(24)))
+            windowMask[x] = objMask;
+        else
+            windowMask[x] = outsideMask;
+    }
+    windowMaskValid = true;
+}
+
+void Gpu2D::drawBgPixelNoWindow(int bg, int x,
     uint32_t pixel, int8_t priority)
 {
     if (priority <= priorities[0][x])
@@ -742,19 +756,9 @@ FORCE_INLINE void Gpu2D::drawBgPixelNoWindow(int bg, int x,
 void Gpu2D::drawBgPixel(int bg, int line, int x, uint32_t pixel)
 {
     // Skip the pixel if it's in the bounds of a window that has its layer disabled
-    if (dispCnt & 0x0000E000) // Windows enabled
-    {
-        uint8_t enabled;
-        if ((dispCnt & BIT(13)) && x >= winX1[0] && x < winX2[0] && line >= winY1[0] && line < winY2[0])
-            enabled = winIn >> 0; // Window 0
-        else if ((dispCnt & BIT(14)) && x >= winX1[1] && x < winX2[1] && line >= winY1[1] && line < winY2[1])
-            enabled = winIn >> 8; // Window 1
-        else if ((dispCnt & BIT(15)) && (framebuffer[line * 256 + x] & BIT(24)))
-            enabled = winOut >> 8; // Object window
-        else
-            enabled = winOut >> 0; // Outside of windows
-        if (!(enabled & BIT(bg))) return;
-    }
+    if ((dispCnt & 0x0000E000u) &&
+        !(windowMask[x] & BIT(bg)))
+        return;
 
     // Draw the pixel to one of 2 layers, depending on priority, for later
     // blending. If BLDCNT is zero the lower layer is unobservable, so skip
