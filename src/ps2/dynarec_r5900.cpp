@@ -5654,6 +5654,67 @@ bool DynarecR5900::runArmAluSelfTest()
         }
     }
 
+    // Gate ADC/SBC/RSC directly in emitted R5900 code. Include carry-in,
+    // signed overflow, no-S CPSR preservation and a failed condition.
+    {
+        struct CarryAluCase
+        {
+            uint32_t opcode;
+            uint32_t left;
+            uint32_t right;
+            uint32_t cpsr;
+        };
+        const CarryAluCase cases[] =
+        {
+            { 0xE0B02001u, 0xFFFFFFFFu, 0x00000000u,
+              0x20000013u }, // ADCS: carry + zero
+            { 0xE0B02001u, 0x7FFFFFFFu, 0x00000000u,
+              0x20000013u }, // ADCS: signed overflow
+            { 0xE0D02001u, 0x00000000u, 0x00000000u,
+              0x00000013u }, // SBCS: borrow-in
+            { 0xE0D02001u, 0x80000000u, 0x00000000u,
+              0x00000013u }, // SBCS: signed overflow
+            { 0xE0F02001u, 0x80000000u, 0x00000000u,
+              0x00000013u }, // RSCS reversed subtraction
+            { 0xE0A02001u, 0xFFFFFFFFu, 0x00000000u,
+              0x20000013u }, // ADC S=0 preserves flags
+            { 0x00B02001u, 0x12345678u, 0x9ABCDEF0u,
+              0x00000013u }  // ADCS.EQ fails
+        };
+
+        for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+        {
+            ArmAluState expected = {};
+            expected.r[0] = cases[i].left;
+            expected.r[1] = cases[i].right;
+            expected.r[2] = 0xCAFEBABEu;
+            expected.cpsr = cases[i].cpsr;
+            if (!applyArmAlu(cases[i].opcode, &expected))
+                return false;
+
+            uint32_t *entry = nullptr;
+            uint8_t rd = 0;
+            if (!emitArmAluBlock(cases[i].opcode, &entry, &rd) ||
+                rd != 2)
+                return false;
+
+            ArmAluState actual = {};
+            actual.r[0] = cases[i].left;
+            actual.r[1] = cases[i].right;
+            actual.r[2] = 0xCAFEBABEu;
+            actual.cpsr = cases[i].cpsr;
+            typedef void (*CarryAluFunction)(ArmAluState *);
+            CarryAluFunction function =
+                reinterpret_cast<CarryAluFunction>(entry);
+            function(&actual);
+
+            if (actual.r[2] != expected.r[2] ||
+                actual.cpsr != expected.cpsr ||
+                actual.cycles != expected.cycles)
+                return false;
+        }
+    }
+
     struct FlagTest
     {
         uint32_t opcode;
