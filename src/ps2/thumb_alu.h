@@ -495,8 +495,9 @@ namespace Ps2Thumb
             if (high & 0x400)
                 high |= ~0x7FF;
             out->kind = LONG_BRANCH_SETUP;
+            const int32_t highOffset = high * 4096;
             out->target = pc + 4u +
-                static_cast<uint32_t>(high << 12);
+                static_cast<uint32_t>(highOffset);
             out->writeMask = static_cast<uint16_t>(1u << 14);
             out->minCycles = out->maxCycles = 1;
             return true;
