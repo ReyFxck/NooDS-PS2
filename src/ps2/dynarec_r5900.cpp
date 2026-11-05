@@ -170,25 +170,23 @@ const R5900CompiledBlock *DynarecR5900::findBlock(uint32_t pc, bool thumb) const
 
 R5900CompiledBlock *DynarecR5900::findMutableBlock(uint32_t pc, bool thumb)
 {
-    // The active executor currently handles ARM only. Keep the generic linear
-    // path for THUMB/future callers, while ARM gets a direct-mapped fast path.
-    if (!thumb)
+    // Both ARM and Thumb live backends use the same direct-mapped lookup.
+    // Keep mode in bit 0 of the cache key; guest PCs themselves stay aligned.
+    const uint32_t key = pc | (thumb ? 1u : 0u);
+    size_t slot = activeLookupSlot(key);
+    uint16_t indexPlusOne = activeBlockIndex[slot];
+    if (indexPlusOne && activeBlockPc[slot] == key)
     {
-        size_t slot = activeLookupSlot(pc);
-        uint16_t indexPlusOne = activeBlockIndex[slot];
-        if (indexPlusOne && activeBlockPc[slot] == pc)
+        size_t index = static_cast<size_t>(indexPlusOne - 1);
+        if (index < blocks.size())
         {
-            size_t index = static_cast<size_t>(indexPlusOne - 1);
-            if (index < blocks.size())
-            {
-                R5900CompiledBlock &block = blocks[index];
-                if (block.guestPc == pc && !block.thumb &&
-                    block.mapGeneration == mappedGeneration)
-                    return &block;
-            }
-
-            activeBlockIndex[slot] = 0;
+            R5900CompiledBlock &block = blocks[index];
+            if (block.guestPc == pc && block.thumb == thumb &&
+                block.mapGeneration == mappedGeneration)
+                return &block;
         }
+
+        activeBlockIndex[slot] = 0;
     }
 
     // Search newest-first on a direct-cache miss. A PC may have an older,
@@ -200,10 +198,9 @@ R5900CompiledBlock *DynarecR5900::findMutableBlock(uint32_t pc, bool thumb)
         if (blocks[i].guestPc == pc && blocks[i].thumb == thumb &&
             blocks[i].mapGeneration == mappedGeneration)
         {
-            if (!thumb && i < 0xFFFFu)
+            if (i < 0xFFFFu)
             {
-                size_t slot = activeLookupSlot(pc);
-                activeBlockPc[slot] = pc;
+                activeBlockPc[slot] = key;
                 activeBlockIndex[slot] = static_cast<uint16_t>(i + 1);
             }
             return &blocks[i];
@@ -5730,6 +5727,22 @@ bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
 
     blocks.push_back(block);
     rememberCompiledCodePages(blocks.back());
+
+    // Publish Thumb blocks to the same live direct lookup as ARM. The mode bit
+    // in the key prevents an ARM block at the same aligned PC from aliasing it.
+    if (blocks.size() <= 0xFFFFu)
+    {
+        const uint32_t key = guestPc | 1u;
+        size_t slot = activeLookupSlot(key);
+        activeBlockPc[slot] = key;
+        activeBlockIndex[slot] = static_cast<uint16_t>(blocks.size());
+        if (activeRejectedPc[slot] == key)
+        {
+            activeRejectedPc[slot] = 0;
+            activeRejectedKind[slot] = ACTIVE_REJECT_NONE;
+        }
+    }
+
     *entry = code;
     *hostWords = static_cast<uint32_t>(words);
     return true;
