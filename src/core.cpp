@@ -477,8 +477,12 @@ void Core::runNdsFrame()
                 {
                     uint32_t guestPc =
                         CpuBackendAccess::nextInstructionAddress(interpreter[1]);
-                    size_t hotSlot = arm7BlockFilterSlot(guestPc);
-                    if (arm7BlockHotPc[hotSlot] == guestPc)
+                    const bool guestThumb =
+                        CpuBackendAccess::isThumb(interpreter[1]);
+                    const uint32_t guestKey =
+                        arm7BlockKey(guestPc, guestThumb);
+                    size_t hotSlot = arm7BlockFilterSlot(guestKey);
+                    if (arm7BlockHotPc[hotSlot] == guestKey)
                     {
 #ifdef NOODS_PROFILE
                         if (profileEnabled)
@@ -539,9 +543,13 @@ void Core::runNdsFrame()
                                     uint32_t nextPc =
                                         CpuBackendAccess::nextInstructionAddress(
                                             interpreter[1]);
+                                    const bool nextThumb =
+                                        CpuBackendAccess::isThumb(interpreter[1]);
+                                    const uint32_t nextKey =
+                                        arm7BlockKey(nextPc, nextThumb);
                                     size_t nextSlot =
-                                        arm7BlockFilterSlot(nextPc);
-                                    if (arm7BlockHotPc[nextSlot] != nextPc)
+                                        arm7BlockFilterSlot(nextKey);
+                                    if (arm7BlockHotPc[nextSlot] != nextKey)
                                         break;
 
 #ifdef NOODS_PROFILE
@@ -706,12 +714,9 @@ void Core::runNdsFrame()
                 }
                 else
                 {
-                    if (!CpuBackendAccess::isThumb(interpreter[1]))
-                    {
-                        sampleArm7HotPc(
-                            CpuBackendAccess::nextInstructionAddress(
-                                interpreter[1]));
-                    }
+                    sampleArm7HotPc(
+                        CpuBackendAccess::nextInstructionAddress(interpreter[1]),
+                        CpuBackendAccess::isThumb(interpreter[1]));
 #ifdef NOODS_PROFILE
                     if (profileEnabled)
                         runProfile.arm7Opcodes++;
