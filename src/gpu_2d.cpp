@@ -138,7 +138,6 @@ uint32_t Gpu2D::rgb5ToRgb6(uint32_t color)
 
 void Gpu2D::drawGbaScanline(int line)
 {
-    windowMaskValid = false;
     const int bgMosaicSize = ((mosaic >> 4) & 0xFu) + 1;
     const int bgMosaicLine =
         (bgMosaicSize > 1) ? (line - (line % bgMosaicSize)) : line;
@@ -289,7 +288,6 @@ void Gpu2D::drawGbaScanline(int line)
 
 void Gpu2D::drawScanline(int line)
 {
-    windowMaskValid = false;
     // Reload the internal registers at the start of the frame
     if (line == 0)
     {
@@ -723,7 +721,6 @@ FORCE_INLINE void Gpu2D::buildWindowMask(int line)
         else
             windowMask[x] = outsideMask;
     }
-    windowMaskValid = true;
 }
 
 void Gpu2D::drawBgPixelNoWindow(int bg, int x,
