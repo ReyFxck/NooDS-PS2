@@ -88,6 +88,14 @@ struct R5900DynarecProfile
     uint64_t activeVerifyFallbacks = 0;
     uint64_t activeStateFallbacks = 0;
 
+    // Mode split for the new CPU0 Thumb live path. Keep these aggregated so
+    // PROFILE L2 can measure coverage without tracing individual opcodes.
+    uint64_t activeThumbAttempts = 0;
+    uint64_t activeThumbExecutions = 0;
+    uint64_t activeThumbGuestInstructions = 0;
+    uint64_t activeThumbCycles = 0;
+    uint64_t activeThumbDifferentialPasses = 0;
+
     uint64_t rejectReason[Ps2ArmAlu::REJECT_REASON_COUNT] = {};
     uint32_t largestBlock = 0;
     R5900FallbackProfile topFallback[16] = {};
