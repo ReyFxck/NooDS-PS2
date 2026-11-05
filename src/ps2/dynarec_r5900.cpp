@@ -5241,7 +5241,9 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
                 block.readMask |= static_cast<uint16_t>(1u << decoded.rs);
             if (decoded.writesResult)
                 block.writeMask |= static_cast<uint16_t>(1u << decoded.rd);
-            block.readsFlags |= decoded.condition != 0xEu;
+            block.readsFlags |= decoded.condition != 0xEu ||
+                decoded.operation == 5 || decoded.operation == 6 ||
+                decoded.operation == 7;
             block.writesFlags |= decoded.setFlags;
             continue;
         }
