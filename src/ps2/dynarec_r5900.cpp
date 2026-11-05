@@ -5523,6 +5523,56 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
     return true;
 }
 
+void thumbInstructionCycleRange(const Ps2Thumb::Decoded &decoded,
+    uint8_t targetCpuId, uint32_t *minCycles, uint32_t *maxCycles)
+{
+    uint32_t minValue = decoded.minCycles;
+    uint32_t maxValue = decoded.maxCycles;
+
+    if (targetCpuId == 0)
+    {
+        switch (decoded.kind)
+        {
+            case Ps2Thumb::ARM_MULTIPLY:
+                // Interpreter::mulDpT is a fixed four cycles on ARM9.
+                minValue = maxValue = 4;
+                break;
+
+            case Ps2Thumb::LITERAL_LOAD:
+                // ARM9 Thumb scalar loads are one cycle in NooDS.
+                minValue = maxValue = 1;
+                break;
+
+            case Ps2Thumb::ARM_LOAD:
+            {
+                Ps2ArmAlu::DecodedMultiBlockTransfer multi;
+                if (Ps2ArmAlu::decodeMultiBlockTransfer(
+                    decoded.armOpcode, &multi))
+                {
+                    const uint32_t count = multi.count;
+                    // Thumb LDMIA/POP without PC: n cycles for n>1,
+                    // otherwise 2 cycles on ARM9.
+                    minValue = maxValue =
+                        count + ((count > 1u) ? 0u : 1u);
+                }
+                else
+                {
+                    minValue = maxValue = 1;
+                }
+                break;
+            }
+
+            default:
+                break;
+        }
+    }
+
+    if (minCycles)
+        *minCycles = minValue;
+    if (maxCycles)
+        *maxCycles = maxValue;
+}
+
 bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
     size_t count, uint32_t guestPc, uint32_t **entry, uint32_t *hostWords)
 {
@@ -5540,8 +5590,12 @@ bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
             return false;
         if (decoded.terminal && i + 1 != count)
             return false;
-        minCycles += decoded.minCycles;
-        maxCycles += decoded.maxCycles;
+        uint32_t instructionMinCycles = 0;
+        uint32_t instructionMaxCycles = 0;
+        thumbInstructionCycleRange(decoded, targetCpuId,
+            &instructionMinCycles, &instructionMaxCycles);
+        minCycles += instructionMinCycles;
+        maxCycles += instructionMaxCycles;
         if (i + 1 == count && decoded.terminal &&
             decoded.target == guestPc)
             internalSelfLoop = true;
