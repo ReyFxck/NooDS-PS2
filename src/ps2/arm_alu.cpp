@@ -242,6 +242,9 @@ bool Ps2ArmAlu::decode(uint32_t opcode, Decoded *decoded)
         case 2:  // SUB
         case 3:  // RSB
         case 4:  // ADD
+        case 5:  // ADC
+        case 6:  // SBC
+        case 7:  // RSC
         case 8:  // TST
         case 9:  // TEQ
         case 10: // CMP
@@ -1001,12 +1004,18 @@ bool Ps2ArmAlu::execute(uint32_t opcode, uint32_t registers[16], uint32_t *cpsr)
     Decoded decoded;
     if (!decode(opcode, &decoded))
         return false;
-    if ((decoded.condition != 0xEu || decoded.setFlags) && !cpsr)
+    const bool carryInputOperation =
+        decoded.operation == 5 || decoded.operation == 6 ||
+        decoded.operation == 7;
+    if ((decoded.condition != 0xEu || decoded.setFlags ||
+        carryInputOperation) && !cpsr)
         return false;
     if (cpsr && !conditionPassed(decoded.condition, *cpsr))
         return true;
 
-    bool shifterCarry = cpsr ? ((*cpsr & BIT(29)) != 0) : false;
+    const bool arithmeticCarryIn =
+        cpsr ? ((*cpsr & BIT(29)) != 0) : false;
+    bool shifterCarry = arithmeticCarryIn;
     uint32_t operand2 = decoded.immediateValue;
     if (decoded.immediate)
     {
@@ -1039,6 +1048,12 @@ bool Ps2ArmAlu::execute(uint32_t opcode, uint32_t registers[16], uint32_t *cpsr)
         case 2:  result = operand1 - operand2; break;
         case 3:  result = operand2 - operand1; break;
         case 4:  result = operand1 + operand2; break;
+        case 5:  result = operand1 + operand2 +
+            static_cast<uint32_t>(arithmeticCarryIn); break;
+        case 6:  result = operand1 - operand2 -
+            static_cast<uint32_t>(!arithmeticCarryIn); break;
+        case 7:  result = operand2 - operand1 -
+            static_cast<uint32_t>(!arithmeticCarryIn); break;
         case 8:  result = operand1 & operand2; break;
         case 9:  result = operand1 ^ operand2; break;
         case 10: result = operand1 - operand2; break;
@@ -1069,6 +1084,50 @@ bool Ps2ArmAlu::execute(uint32_t opcode, uint32_t registers[16], uint32_t *cpsr)
         {
             if (operand2 >= left) flags |= BIT(29);
             if (((operand2 ^ left) & (operand2 ^ result)) & BIT(31))
+                flags |= BIT(28);
+        }
+        else if (decoded.operation == 5) // ADC
+        {
+            const uint64_t wide = static_cast<uint64_t>(left) +
+                operand2 + static_cast<uint32_t>(arithmeticCarryIn);
+            if (wide > 0xFFFFFFFFull)
+                flags |= BIT(29);
+            const int64_t signedWide =
+                static_cast<int64_t>(static_cast<int32_t>(left)) +
+                static_cast<int64_t>(static_cast<int32_t>(operand2)) +
+                static_cast<int64_t>(arithmeticCarryIn);
+            if (signedWide > 2147483647ll ||
+                signedWide < -2147483648ll)
+                flags |= BIT(28);
+        }
+        else if (decoded.operation == 6) // SBC
+        {
+            const uint64_t borrow =
+                arithmeticCarryIn ? 0ull : 1ull;
+            const uint64_t rhs = static_cast<uint64_t>(operand2) + borrow;
+            if (static_cast<uint64_t>(left) >= rhs)
+                flags |= BIT(29);
+            const int64_t signedWide =
+                static_cast<int64_t>(static_cast<int32_t>(left)) -
+                static_cast<int64_t>(static_cast<int32_t>(operand2)) -
+                static_cast<int64_t>(borrow);
+            if (signedWide > 2147483647ll ||
+                signedWide < -2147483648ll)
+                flags |= BIT(28);
+        }
+        else if (decoded.operation == 7) // RSC
+        {
+            const uint64_t borrow =
+                arithmeticCarryIn ? 0ull : 1ull;
+            const uint64_t rhs = static_cast<uint64_t>(left) + borrow;
+            if (static_cast<uint64_t>(operand2) >= rhs)
+                flags |= BIT(29);
+            const int64_t signedWide =
+                static_cast<int64_t>(static_cast<int32_t>(operand2)) -
+                static_cast<int64_t>(static_cast<int32_t>(left)) -
+                static_cast<int64_t>(borrow);
+            if (signedWide > 2147483647ll ||
+                signedWide < -2147483648ll)
                 flags |= BIT(28);
         }
         else if (decoded.operation == 4 || decoded.operation == 11) // ADD/CMN
@@ -1217,6 +1276,9 @@ void Ps2ArmAlu::inspect(uint32_t opcode, uint32_t pc, InstructionInfo *info)
         info->rd = static_cast<uint8_t>((opcode >> 12) & 0xFu);
         info->rm = static_cast<uint8_t>(opcode & 0xFu);
         info->writesFlags = (opcode & BIT(20)) != 0;
+        if (info->operation == 5 || info->operation == 6 ||
+            info->operation == 7)
+            info->readsFlags = true;
 
         bool usesRn = info->operation != 13 && info->operation != 15;
         bool writesRd = info->operation < 8 || info->operation > 11;
