@@ -41,6 +41,9 @@ inline uint16_t gpu3dLoad16(const uint8_t *data, size_t index)
 
 Gpu3DRenderer::Gpu3DRenderer(Core *core): core(core)
 {
+    textureSlots = core->memory.getTex3D();
+    paletteSlots = core->memory.getPal3D();
+
     // Mark the scanlines as ready to start
     // This is mainly in case 3D is requested before the threads have a chance to start
     for (int i = 0; i < 192; i++)
@@ -449,17 +452,17 @@ void Gpu3DRenderer::finishScanline(int line)
     }
 }
 
-uint8_t *Gpu3DRenderer::getTexture(uint32_t address)
+FORCE_INLINE uint8_t *Gpu3DRenderer::getTexture(uint32_t address)
 {
     // Get a pointer to texture data
-    uint8_t *slot = core->memory.getTex3D()[address >> 17];
+    uint8_t *slot = textureSlots[address >> 17];
     return slot ? &slot[address & 0x1FFFF] : nullptr;
 }
 
-uint8_t *Gpu3DRenderer::getPalette(uint32_t address)
+FORCE_INLINE uint8_t *Gpu3DRenderer::getPalette(uint32_t address)
 {
     // Get a pointer to palette data
-    uint8_t *slot = core->memory.getPal3D()[address >> 14];
+    uint8_t *slot = paletteSlots[address >> 14];
     return slot ? &slot[address & 0x3FFF] : nullptr;
 }
 
