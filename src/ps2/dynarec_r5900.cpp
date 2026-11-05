@@ -5549,6 +5549,17 @@ bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
             continue;
         }
 
+        if (decoded.kind == Ps2Thumb::ARM_LOAD)
+        {
+            size_t emitted = emitArmInstruction(decoded.armOpcode, pc,
+                code + words, true, true, memory, -1, false, 0xEu,
+                false, targetCpuId);
+            if (!emitted)
+                return false;
+            words += emitted;
+            continue;
+        }
+
         if (decoded.kind == Ps2Thumb::LITERAL_LOAD)
         {
             // Reuse the direct ARM literal-load emitter by choosing a synthetic
