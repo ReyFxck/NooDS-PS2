@@ -213,6 +213,30 @@ int main()
     assert(!Ps2Thumb::decode(0x8008u, 0x1000u, &d)); // STRH
     assert(!Ps2Thumb::decode(0x9000u, 0x1000u, &d)); // STR [SP]
 
+    // ARM7 Thumb long BL is two independently decodable halves. The
+    // setup half writes the signed high target to LR; the suffix reads LR,
+    // branches, and rewrites LR with the Thumb return address.
+    {
+        Ps2Thumb::Decoded bl;
+        assert(Ps2Thumb::decode(0xF001u, 0x2000u, &bl));
+        assert(bl.kind == Ps2Thumb::LONG_BRANCH_SETUP);
+        assert(bl.target == 0x00003004u);
+        assert(bl.writeMask == (1u << 14));
+        assert(bl.minCycles == 1 && bl.maxCycles == 1);
+
+        assert(Ps2Thumb::decode(0xF802u, 0x2002u, &bl));
+        assert(bl.kind == Ps2Thumb::LONG_BRANCH_LINK);
+        assert(bl.addend == 4);
+        assert(bl.target == 0x2005u);
+        assert(bl.readMask == (1u << 14));
+        assert(bl.writeMask == (1u << 14));
+        assert(bl.terminal && bl.minCycles == 3 && bl.maxCycles == 3);
+
+        assert(Ps2Thumb::decode(0xF7FFu, 0x3000u, &bl));
+        assert(bl.kind == Ps2Thumb::LONG_BRANCH_SETUP);
+        assert(bl.target == 0x00002004u); // signed -1 high half
+    }
+
     // Unconditional Thumb B uses PC+4 and signed halfword offset.
     assert(Ps2Thumb::decode(0xE7FEu, 0x2000u, &d));
     assert(d.kind == Ps2Thumb::BRANCH);
