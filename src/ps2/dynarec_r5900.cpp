@@ -3,6 +3,7 @@
 #include "arm_alu.h"
 #include "dynarec_r5900.h"
 #include "r5900_emitter.h"
+#include "thumb_alu.h"
 
 #include <algorithm>
 #include <cstring>
