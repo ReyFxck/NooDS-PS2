@@ -15,7 +15,9 @@ namespace Ps2Thumb
         LITERAL_LOAD,
         CONDITIONAL_BRANCH,
         BRANCH,
-        BRANCH_EXCHANGE
+        BRANCH_EXCHANGE,
+        LONG_BRANCH_SETUP,
+        LONG_BRANCH_LINK
     };
 
     struct Decoded
@@ -480,6 +482,38 @@ namespace Ps2Thumb
             out->target = pc + 4u + static_cast<uint32_t>(offset);
             out->minCycles = 1;
             out->maxCycles = 3;
+            return true;
+        }
+
+        // Format 19 long BL. The first half computes the signed high
+        // target into LR; the second half branches through LR and replaces it
+        // with the Thumb return address. ARM7 has no immediate BLX suffix, so
+        // only 0xF800 is admitted as the second half.
+        if ((opcode & 0xF800u) == 0xF000u)
+        {
+            int32_t high = static_cast<int32_t>(opcode & 0x07FFu);
+            if (high & 0x400)
+                high |= ~0x7FF;
+            out->kind = LONG_BRANCH_SETUP;
+            out->target = pc + 4u +
+                static_cast<uint32_t>(high << 12);
+            out->writeMask = static_cast<uint16_t>(1u << 14);
+            out->minCycles = out->maxCycles = 1;
+            return true;
+        }
+
+        if ((opcode & 0xF800u) == 0xF800u)
+        {
+            out->kind = LONG_BRANCH_LINK;
+            out->addend = static_cast<int16_t>(
+                static_cast<uint16_t>(opcode & 0x07FFu) << 1);
+            out->readMask = static_cast<uint16_t>(1u << 14);
+            out->writeMask = static_cast<uint16_t>(1u << 14);
+            out->terminal = true;
+            out->minCycles = out->maxCycles = 3;
+            // The architectural Thumb return address is the instruction after
+            // this suffix with bit 0 set: pc+2 | 1 == pc+3.
+            out->target = pc + 3u;
             return true;
         }
 
