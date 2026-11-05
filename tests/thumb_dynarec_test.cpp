@@ -44,9 +44,9 @@ int main()
 
     // Immediate shifts retain Thumb's special LSR/ASR #0 == #32 semantics
     // because ARM uses the same immediate-shift encoding.
-    requireArm(0x0008u, 0x1000u, 0xE1B00008u); // LSLS r0,r1,#0
-    requireArm(0x0808u, 0x1000u, 0xE1B00028u); // LSRS r0,r1,#32
-    requireArm(0x1008u, 0x1000u, 0xE1B00048u); // ASRS r0,r1,#32
+    requireArm(0x0008u, 0x1000u, 0xE1B00001u); // LSLS r0,r1,#0
+    requireArm(0x0808u, 0x1000u, 0xE1B00021u); // LSRS r0,r1,#32
+    requireArm(0x1008u, 0x1000u, 0xE1B00041u); // ASRS r0,r1,#32
 
     // Register and immediate arithmetic.
     requireArm(0x1888u, 0x1000u, 0xE0910002u); // ADDS r0,r1,r2
