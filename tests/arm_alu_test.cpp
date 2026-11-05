@@ -456,6 +456,48 @@ int main()
             value == 0xEEEEEEEEu);
     }
 
+    // CPSR register-transfer subset used by hot ARM7 IRQ code.
+    {
+        Ps2ArmAlu::DecodedPsrTransfer psr;
+        assert(Ps2ArmAlu::decodePsrTransfer(0xE10F1000u, &psr));
+        assert(!psr.write && psr.rd == 1 && psr.condition == 0xEu);
+
+        uint32_t psrRegs[16] = {};
+        uint32_t psrCpsr = 0x60000092u;
+        assert(Ps2ArmAlu::executePsrTransfer(
+            0xE10F1000u, psrRegs, &psrCpsr));
+        assert(psrRegs[1] == 0x60000092u &&
+            psrCpsr == 0x60000092u);
+
+        psrRegs[2] = 0xA5A50092u;
+        assert(Ps2ArmAlu::decodePsrTransfer(0xE121F002u, &psr));
+        assert(psr.write && psr.fieldMask == 1 && psr.rm == 2);
+        assert(Ps2ArmAlu::executePsrTransfer(
+            0xE121F002u, psrRegs, &psrCpsr));
+        assert(psrCpsr == 0x60000092u); // CPSR_c preserves upper bytes.
+
+        // Privileged control writes may change mode in the portable model;
+        // the live R5900 backend separately guards banked-mode transitions.
+        psrRegs[2] = 0x00000013u;
+        assert(Ps2ArmAlu::executePsrTransfer(
+            0xE121F002u, psrRegs, &psrCpsr));
+        assert((psrCpsr & 0xFFu) == 0x13u);
+
+        // User mode may only write I/F/T bits in the low CPSR byte.
+        psrCpsr = 0xA0000010u;
+        psrRegs[2] = 0x000000FFu;
+        assert(Ps2ArmAlu::executePsrTransfer(
+            0xE121F002u, psrRegs, &psrCpsr));
+        assert((psrCpsr & 0xFFu) == 0xF0u);
+
+        assert(Ps2ArmAlu::rejectionReason(0xE10F1000u) ==
+            Ps2ArmAlu::REJECT_NONE);
+        assert(Ps2ArmAlu::rejectionReason(0xE121F002u) ==
+            Ps2ArmAlu::REJECT_NONE);
+        assert(!Ps2ArmAlu::decodePsrTransfer(0xE14F1000u, &psr)); // SPSR
+        assert(!Ps2ArmAlu::decodePsrTransfer(0xE321F013u, &psr)); // immediate
+    }
+
     Ps2ArmAlu::DecodedBranch branch;
     assert(Ps2ArmAlu::decodeBranch(0xBAFFFFFAu, &branch));
     assert(branch.condition == 0xB && !branch.link && branch.offset == -24);
