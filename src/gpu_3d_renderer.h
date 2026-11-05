@@ -151,8 +151,8 @@ class Gpu3DRenderer
         void drawScanline1(int line);
         void finishScanline(int line);
 
-        FORCE_INLINE uint8_t *getTexture(uint32_t address);
-        FORCE_INLINE uint8_t *getPalette(uint32_t address);
+        uint8_t *getTexture(uint32_t address);
+        uint8_t *getPalette(uint32_t address);
 
         static uint32_t interpolateLinear(uint32_t v1, uint32_t v2, uint32_t x1, uint32_t x, uint32_t x2);
         static uint32_t interpolateLinRev(uint32_t v1, uint32_t v2, uint32_t x1, uint32_t x, uint32_t x2);
