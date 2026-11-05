@@ -7522,6 +7522,44 @@ bool DynarecR5900::runArmAluSelfTest()
     if (bxState.nextPc != 0x02000100u || !(bxState.cpsr & BIT(5)))
         return false;
 
+    // Gate ARM9 BLX register through the direct emitter too. Use BLX lr so
+    // target capture must happen before the generated code overwrites LR.
+    {
+        constexpr uint32_t blxPc = 0x02001000u;
+        uint32_t *blxCode = cache.reserveWords(48);
+        if (!blxCode)
+            return false;
+        size_t blxWords = emitArmBranchExchangeDirectInstruction(
+            0xE12FFF3Eu, blxPc, blxCode, false, false, 0);
+        if (!blxWords)
+            return false;
+        blxCode[blxWords++] = R5900::jr(R5900::R_RA);
+        blxCode[blxWords++] = R5900::nop();
+        cache.commitWords(blxWords);
+        cache.syncExecutable(blxCode, blxCode + blxWords);
+
+        ArmAluState blxState = {};
+        blxState.r[14] = 0x02002001u;
+        blxState.cpsr = 0x00000013u;
+        blxState.nextPc = blxPc + 4u;
+        typedef void (*ArmBlxFunction)(ArmAluState *);
+        ArmBlxFunction blxFunction =
+            reinterpret_cast<ArmBlxFunction>(blxCode);
+        blxFunction(&blxState);
+        if (blxState.r[14] != blxPc + 4u ||
+            blxState.nextPc != 0x02002000u ||
+            !(blxState.cpsr & BIT(5)) ||
+            blxState.cycles != 3u)
+            return false;
+
+        // The ARM7 target rejects BLX register even though BX shares the
+        // common decoder/emitter.
+        uint32_t rejected[16] = {};
+        if (emitArmBranchExchangeDirectInstruction(
+            0xE12FFF34u, blxPc, rejected, false, false, 1) != 0)
+            return false;
+    }
+
     // Exercise the non-leaf helper ABI and a real direct ARM9 page before any
     // live block may contain LDRH. This is read-only and therefore invisible
     // to the emulated guest.
