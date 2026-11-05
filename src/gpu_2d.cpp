@@ -177,7 +177,7 @@ void Gpu2D::drawGbaScanline(int line)
     // sprites observe the complete object-window mask.
     if (dispCnt & BIT(12))
         drawObjects(line, (dispCnt & BIT(15)) != 0);
-    if (dispCnt & 0x0000E000u)
+    if ((dispCnt & 0x0000E000u) && !windowMaskReady)
         buildWindowMask(line);
 
     // Draw the background layers depending on the BG mode
@@ -329,7 +329,7 @@ void Gpu2D::drawScanline(int line)
     // sprites observe the complete object-window mask.
     if (dispCnt & BIT(12))
         drawObjects(line, (dispCnt & BIT(15)) != 0);
-    if (dispCnt & 0x0000E000u)
+    if ((dispCnt & 0x0000E000u) && !windowMaskReady)
         buildWindowMask(line);
 
     // Draw the background layers depending on the BG mode
@@ -1630,13 +1630,31 @@ void Gpu2D::drawObjects(int line, bool window)
     const int objMosaicLine =
         (objMosaicSize > 1) ? (line - (line % objMosaicSize)) : line;
     uint32_t *frameLine = &framebuffer[line * 256];
+
+    // Win0/Win1 can be resolved before OBJ drawing when object-window is not
+    // active. With object-window enabled, render its sprites first and build
+    // the complete mask exactly at the boundary before normal OBJ pixels.
+    if (!noWindows && !window && !windowMaskReady)
+        buildWindowMask(line);
+
     auto putObjPixel = [&](int x, uint32_t pixel, int8_t priority)
     {
         GPU2D_DETAIL_INC(objDetail, pixelWrites, 1);
-        if (noWindows)
+        if (noWindows || (windowMaskReady && (windowAllMask & BIT(4))))
+        {
             drawObjPixelNoWindow(x, pixel, priority);
+        }
+        else if (windowMaskReady)
+        {
+            if (windowMask[x] & BIT(4))
+                drawObjPixelNoWindow(x, pixel, priority);
+        }
         else
+        {
+            // Only reachable while object-window sprites are still being
+            // generated; retain the original exact decision tree as fallback.
             drawObjPixel(line, x, pixel, priority);
+        }
     };
     Gpu2DDirectPageCache objectPageCache;
 
@@ -1757,6 +1775,12 @@ void Gpu2D::drawObjects(int line, bool window)
         static_cast<int>(windowCount) + static_cast<int>(normalCount);
     for (int order = 0; order < orderedCount; order++)
     {
+        if (!noWindows && window && !windowMaskReady &&
+            order == static_cast<int>(windowCount))
+        {
+            buildWindowMask(line);
+        }
+
         const int i = (order < windowCount)
             ? windowOrder[order]
             : normalOrder[order - windowCount];
@@ -2274,6 +2298,9 @@ void Gpu2D::drawObjects(int line, bool window)
             }
         }
     }
+
+    if (!noWindows && !windowMaskReady)
+        buildWindowMask(line);
 }
 
 void Gpu2D::writeDispCnt(uint32_t mask, uint32_t value)
