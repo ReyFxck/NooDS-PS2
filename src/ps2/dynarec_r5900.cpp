@@ -1613,8 +1613,9 @@ size_t emitArmFlags(const Ps2ArmAlu::Decoded &decoded, uint32_t *code,
     size_t words = 0;
     int cpsrReg = registerCpsr ? R5900::R_V1 : R5900::R_T5;
     bool arithmetic = decoded.operation == 2 || decoded.operation == 3 ||
-        decoded.operation == 4 || decoded.operation == 10 ||
-        decoded.operation == 11;
+        decoded.operation == 4 || decoded.operation == 5 ||
+        decoded.operation == 6 || decoded.operation == 7 ||
+        decoded.operation == 10 || decoded.operation == 11;
     if (!registerCpsr)
         code[words++] = R5900::lw(cpsrReg, 64, R5900::R_A0);
     uint16_t flagPreserveMaskHi = arithmetic
@@ -1640,7 +1641,22 @@ size_t emitArmFlags(const Ps2ArmAlu::Decoded &decoded, uint32_t *code,
 
     if (arithmetic)
     {
-        if (decoded.operation == 2 || decoded.operation == 10) // SUB/CMP: T0 - T1
+        // ADC/SBC/RSC precompute exact carry/no-borrow in A1 and signed
+        // overflow in V0 while their intermediate 32-bit result is still
+        // available. This avoids trying to reconstruct carry-in afterward.
+        if (decoded.operation == 5 || decoded.operation == 6 ||
+            decoded.operation == 7)
+        {
+            code[words++] = R5900::sll(R5900::R_A1,
+                R5900::R_A1, 29);
+            code[words++] = R5900::sll(R5900::R_V0,
+                R5900::R_V0, 28);
+            code[words++] = R5900::or_(cpsrReg,
+                cpsrReg, R5900::R_A1);
+            code[words++] = R5900::or_(cpsrReg,
+                cpsrReg, R5900::R_V0);
+        }
+        else if (decoded.operation == 2 || decoded.operation == 10) // SUB/CMP: T0 - T1
         {
             code[words++] = R5900::nor_(R5900::R_T3, R5900::R_T0, R5900::R_ZERO);
             code[words++] = R5900::and_(R5900::R_T3, R5900::R_T3, R5900::R_T1);
@@ -1678,12 +1694,22 @@ size_t emitArmFlags(const Ps2ArmAlu::Decoded &decoded, uint32_t *code,
             code[words++] = R5900::nor_(R5900::R_T4, R5900::R_T4, R5900::R_ZERO);
             code[words++] = R5900::xor_(R5900::R_T6, R5900::R_T0, R5900::R_T2);
         }
-        code[words++] = R5900::and_(R5900::R_T4, R5900::R_T4, R5900::R_T6);
-        code[words++] = R5900::srl(R5900::R_T4, R5900::R_T4, 31);
-        code[words++] = R5900::sll(R5900::R_T3, R5900::R_T3, 29);
-        code[words++] = R5900::sll(R5900::R_T4, R5900::R_T4, 28);
-        code[words++] = R5900::or_(cpsrReg, cpsrReg, R5900::R_T3);
-        code[words++] = R5900::or_(cpsrReg, cpsrReg, R5900::R_T4);
+        if (decoded.operation != 5 && decoded.operation != 6 &&
+            decoded.operation != 7)
+        {
+            code[words++] = R5900::and_(R5900::R_T4,
+                R5900::R_T4, R5900::R_T6);
+            code[words++] = R5900::srl(R5900::R_T4,
+                R5900::R_T4, 31);
+            code[words++] = R5900::sll(R5900::R_T3,
+                R5900::R_T3, 29);
+            code[words++] = R5900::sll(R5900::R_T4,
+                R5900::R_T4, 28);
+            code[words++] = R5900::or_(cpsrReg,
+                cpsrReg, R5900::R_T3);
+            code[words++] = R5900::or_(cpsrReg,
+                cpsrReg, R5900::R_T4);
+        }
     }
     if (!registerCpsr)
         code[words++] = R5900::sw(cpsrReg, 64, R5900::R_A0);
@@ -1721,6 +1747,25 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
     }
     if (decoded.registerShift)
         words += emitArmCycleAdd(1, code + words, registerCycles);
+
+    const bool carryInputOperation =
+        decoded.operation == 5 || decoded.operation == 6 ||
+        decoded.operation == 7;
+    if (carryInputOperation)
+    {
+        if (registerCpsr)
+            code[words++] = R5900::srl(R5900::R_T9,
+                R5900::R_V1, 29);
+        else
+        {
+            code[words++] = R5900::lw(R5900::R_T9,
+                64, R5900::R_A0);
+            code[words++] = R5900::srl(R5900::R_T9,
+                R5900::R_T9, 29);
+        }
+        code[words++] = R5900::andi(R5900::R_T9,
+            R5900::R_T9, 1u);
+    }
 
     if (decoded.operation != 13 && decoded.operation != 15)
     {
@@ -1961,7 +2006,104 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
         case 1:  code[words++] = R5900::xor_(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
         case 2:  code[words++] = R5900::subu(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
         case 3:  code[words++] = R5900::subu(R5900::R_T2, R5900::R_T1, R5900::R_T0); break;
-        case 4:  code[words++] = R5900::addu(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
+        case 4:
+            code[words++] = R5900::addu(R5900::R_T2,
+                R5900::R_T0, R5900::R_T1);
+            break;
+        case 5: // ADC
+        {
+            code[words++] = R5900::addu(R5900::R_T6,
+                R5900::R_T0, R5900::R_T1);
+            if (decoded.setFlags)
+            {
+                // Unsigned carry across both additions.
+                code[words++] = R5900::sltu(R5900::R_A1,
+                    R5900::R_T6, R5900::R_T0);
+            }
+            code[words++] = R5900::addu(R5900::R_T2,
+                R5900::R_T6, R5900::R_T9);
+            if (decoded.setFlags)
+            {
+                code[words++] = R5900::sltu(R5900::R_T3,
+                    R5900::R_T2, R5900::R_T6);
+                code[words++] = R5900::or_(R5900::R_A1,
+                    R5900::R_A1, R5900::R_T3);
+
+                // Overflow is the OR of the two exact 32-bit additions:
+                // (T0+T1), then (+carry).
+                code[words++] = R5900::xor_(R5900::R_T3,
+                    R5900::R_T0, R5900::R_T1);
+                code[words++] = R5900::nor_(R5900::R_T3,
+                    R5900::R_T3, R5900::R_ZERO);
+                code[words++] = R5900::xor_(R5900::R_T4,
+                    R5900::R_T0, R5900::R_T6);
+                code[words++] = R5900::and_(R5900::R_T3,
+                    R5900::R_T3, R5900::R_T4);
+                code[words++] = R5900::xor_(R5900::R_T4,
+                    R5900::R_T6, R5900::R_T9);
+                code[words++] = R5900::nor_(R5900::R_T4,
+                    R5900::R_T4, R5900::R_ZERO);
+                code[words++] = R5900::xor_(R5900::R_T5,
+                    R5900::R_T6, R5900::R_T2);
+                code[words++] = R5900::and_(R5900::R_T4,
+                    R5900::R_T4, R5900::R_T5);
+                code[words++] = R5900::or_(R5900::R_V0,
+                    R5900::R_T3, R5900::R_T4);
+                code[words++] = R5900::srl(R5900::R_V0,
+                    R5900::R_V0, 31);
+            }
+            break;
+        }
+        case 6: // SBC
+        case 7: // RSC
+        {
+            // T9 becomes the ARM borrow input (1-C).
+            code[words++] = R5900::xori(R5900::R_T9,
+                R5900::R_T9, 1u);
+            const int leftReg = decoded.operation == 6
+                ? R5900::R_T0 : R5900::R_T1;
+            const int rightReg = decoded.operation == 6
+                ? R5900::R_T1 : R5900::R_T0;
+            code[words++] = R5900::subu(R5900::R_T6,
+                leftReg, rightReg);
+            if (decoded.setFlags)
+            {
+                code[words++] = R5900::sltu(R5900::R_T3,
+                    leftReg, rightReg);
+                code[words++] = R5900::xori(R5900::R_A1,
+                    R5900::R_T3, 1u);
+            }
+            code[words++] = R5900::subu(R5900::R_T2,
+                R5900::R_T6, R5900::R_T9);
+            if (decoded.setFlags)
+            {
+                code[words++] = R5900::sltu(R5900::R_T3,
+                    R5900::R_T6, R5900::R_T9);
+                code[words++] = R5900::xori(R5900::R_T3,
+                    R5900::R_T3, 1u);
+                code[words++] = R5900::and_(R5900::R_A1,
+                    R5900::R_A1, R5900::R_T3);
+
+                // Overflow across the two exact subtractions.
+                code[words++] = R5900::xor_(R5900::R_T3,
+                    leftReg, rightReg);
+                code[words++] = R5900::xor_(R5900::R_T4,
+                    leftReg, R5900::R_T6);
+                code[words++] = R5900::and_(R5900::R_T3,
+                    R5900::R_T3, R5900::R_T4);
+                code[words++] = R5900::xor_(R5900::R_T4,
+                    R5900::R_T6, R5900::R_T9);
+                code[words++] = R5900::xor_(R5900::R_T5,
+                    R5900::R_T6, R5900::R_T2);
+                code[words++] = R5900::and_(R5900::R_T4,
+                    R5900::R_T4, R5900::R_T5);
+                code[words++] = R5900::or_(R5900::R_V0,
+                    R5900::R_T3, R5900::R_T4);
+                code[words++] = R5900::srl(R5900::R_V0,
+                    R5900::R_V0, 31);
+            }
+            break;
+        }
         case 8:  code[words++] = R5900::and_(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
         case 9:  code[words++] = R5900::xor_(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
         case 10: code[words++] = R5900::subu(R5900::R_T2, R5900::R_T0, R5900::R_T1); break;
@@ -4729,7 +4871,9 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         Ps2ArmAlu::Decoded decoded;
         if (Ps2ArmAlu::decode(opcodes[i], &decoded))
         {
-            if (decoded.condition != 0xEu || decoded.setFlags)
+            if (decoded.condition != 0xEu || decoded.setFlags ||
+                decoded.operation == 5 || decoded.operation == 6 ||
+                decoded.operation == 7)
                 registerCpsr = true;
             if (decoded.setFlags)
                 writesRegisterCpsr = true;
