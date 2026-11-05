@@ -271,28 +271,25 @@ void Gpu3DRenderer::drawScanline1(int line)
     uint32_t attrib = ((clearColor & BIT(15)) >> 2) | ((clearColor & 0x3F000000) >> 18) | ((clearColor & 0x3F000000) >> 24) |
         (0x3F << 15) | (((clearColor & 0x001F0000) && ((clearColor & 0x001F0000) >> 16) < 31) << 12);
 
-    // Clear the scanline buffers with the clear values. Keep line-local
-    // pointers and unroll four pixels at a time; older PS2 GCC does not
-    // reliably unroll this interleaved three-buffer loop at -O2.
+    // Clear two pixels per native 64-bit store. Buffers are 8-byte aligned
+    // and memcpy keeps the operation alias-safe while PS2 GCC lowers the
+    // fixed-size copies to wide stores.
     uint32_t *colorLine = &framebuffer[0][line * 256];
     int32_t *depthLine = &depthBuffer[0][line * 256];
     uint32_t *attribLine = &attribBuffer[0][line * 256];
-    for (int i = 0; i < 256; i += 4)
+    const uint64_t colorPair = static_cast<uint64_t>(color) |
+        (static_cast<uint64_t>(color) << 32);
+    const uint32_t depthBits = static_cast<uint32_t>(depth);
+    const uint64_t depthPair = static_cast<uint64_t>(depthBits) |
+        (static_cast<uint64_t>(depthBits) << 32);
+    const uint64_t attribPair = static_cast<uint64_t>(attrib) |
+        (static_cast<uint64_t>(attrib) << 32);
+
+    for (int i = 0; i < 256; i += 2)
     {
-        colorLine[i + 0] = color;
-        colorLine[i + 1] = color;
-        colorLine[i + 2] = color;
-        colorLine[i + 3] = color;
-
-        depthLine[i + 0] = depth;
-        depthLine[i + 1] = depth;
-        depthLine[i + 2] = depth;
-        depthLine[i + 3] = depth;
-
-        attribLine[i + 0] = attrib;
-        attribLine[i + 1] = attrib;
-        attribLine[i + 2] = attrib;
-        attribLine[i + 3] = attrib;
+        std::memcpy(&colorLine[i], &colorPair, sizeof(colorPair));
+        std::memcpy(&depthLine[i], &depthPair, sizeof(depthPair));
+        std::memcpy(&attribLine[i], &attribPair, sizeof(attribPair));
     }
 
     stencilClear[line] = false;
