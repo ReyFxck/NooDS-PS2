@@ -1,7 +1,7 @@
 CXX ?= g++
 
 TARGETS := cartridge_io_test arm_alu_test scheduler_queue_test gpu_2d_math_test \
-	gpu_color_test memory_page_cache_test
+	gpu_3d_math_test gpu_color_test memory_page_cache_test
 
 CXXFLAGS := -O2 -Wall -Wextra -std=gnu++11 -fno-rtti \
 	-DNOODS_PS2 -DNOODS_PS2_PORTABLE_TEST -DNOODS_PROFILE -ffunction-sections -fdata-sections -I../src
@@ -23,6 +23,9 @@ scheduler_queue_test: scheduler_queue_test.cpp
 gpu_2d_math_test: gpu_2d_math_test.cpp
 	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -o $@
 
+gpu_3d_math_test: gpu_3d_math_test.cpp
+	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -o $@
+
 gpu_color_test: gpu_color_test.cpp
 	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -o $@
 
@@ -34,6 +37,7 @@ test: $(TARGETS)
 	./arm_alu_test
 	./scheduler_queue_test
 	./gpu_2d_math_test
+	./gpu_3d_math_test
 	./memory_page_cache_test
 
 clean:
