@@ -173,6 +173,23 @@ inline uint32_t gpu2dExtendedPixelOffset(uint16_t tile, int x, int y)
         (localY << 3) | localX;
 }
 
+// Resolve clipping once per eight-pixel text tile. The tile still runs in
+// packed index order, which may go right-to-left when the h-flip bit is set.
+inline void gpu2dVisibleTextTile(int firstX, int step,
+    int &begin, int &end)
+{
+    if (step > 0)
+    {
+        begin = firstX < 0 ? -firstX : 0;
+        end = firstX + 8 > 256 ? 256 - firstX : 8;
+    }
+    else
+    {
+        begin = firstX > 255 ? firstX - 255 : 0;
+        end = firstX < 7 ? firstX + 1 : 8;
+    }
+}
+
 // Affine BG coordinates advance linearly across a scanline. Keeping the
 // fixed-point accumulators here avoids two multiplications for every pixel
 // while preserving the original 24.8 fixed-point result exactly.

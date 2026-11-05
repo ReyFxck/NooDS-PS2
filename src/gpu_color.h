@@ -56,4 +56,20 @@ inline uint32_t gpuRgb5ToRgb8(uint32_t color)
         gpuRgb6B[((color >> 10) & 0x1Fu) << 1];
 }
 
+// The GS CT16 texture format has the same RGB555 channel order as the DS.
+// Drop only the low bit of each 6-bit NDS channel and set the GS alpha bit.
+// This avoids three table lookups and halves the EE -> GS texture transfer.
+inline uint16_t gpuRgb6ToGsCt16(uint32_t color)
+{
+    return static_cast<uint16_t>(0x8000u |
+        ((color >> 1) & 0x001Fu) |
+        ((color >> 2) & 0x03E0u) |
+        ((color >> 3) & 0x7C00u));
+}
+
+inline uint16_t gpuRgb5ToGsCt16(uint32_t color)
+{
+    return static_cast<uint16_t>(0x8000u | (color & 0x7FFFu));
+}
+
 #endif // GPU_COLOR_H
