@@ -91,6 +91,7 @@ struct R5900DynarecProfile
     uint64_t rejectReason[Ps2ArmAlu::REJECT_REASON_COUNT] = {};
     uint32_t largestBlock = 0;
     R5900FallbackProfile topFallback[16] = {};
+    uint32_t activeFallbackSampleCounter = 0;
     R5900ActiveFallbackProfile topActiveFallback[16] = {};
 };
 
