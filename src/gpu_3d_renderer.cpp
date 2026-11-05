@@ -1300,6 +1300,9 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
         static_cast<uint32_t>(t1 + 0xFFFF),
         static_cast<uint32_t>(t2 + 0xFFFF), fillSpan);
     Gpu3DLinearStepper linearZ(z1, z2, fillSpan);
+    const bool linearZExact =
+        Gpu3DLinearStepper::matchesWrappedUint32Formula(
+            z1, z2, fillSpan);
     uint32_t linearX = x1;
 
     // Draw a line segment
@@ -1373,7 +1376,7 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
         }
         else
         {
-            depth = linearFill ?
+            depth = (linearFill && linearZExact) ?
                 static_cast<int32_t>(linearZ.current()) :
                 static_cast<int32_t>(
                     interpolateLinear(z1, z2, x1, x, x4));
