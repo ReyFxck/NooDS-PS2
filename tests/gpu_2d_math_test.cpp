@@ -33,6 +33,31 @@ bool testWrapPowerOfTwo()
     return true;
 }
 
+bool testBlendMath()
+{
+    for (uint32_t channel = 0; channel < 64; channel++)
+    {
+        for (uint32_t rawFactor = 0; rawFactor < 32; rawFactor++)
+        {
+            uint32_t factor = rawFactor > 16 ? 16 : rawFactor;
+            uint32_t expectedAlpha = channel * factor / 16;
+            uint32_t expectedUp =
+                channel + (63 - channel) * factor / 16;
+            uint32_t expectedDown =
+                channel - channel * factor / 16;
+
+            if (gpu2dAlphaTerm(static_cast<uint8_t>(channel),
+                    static_cast<uint8_t>(rawFactor)) != expectedAlpha ||
+                gpu2dBrightIncrease(static_cast<uint8_t>(channel),
+                    static_cast<uint8_t>(rawFactor)) != expectedUp ||
+                gpu2dBrightDecrease(static_cast<uint8_t>(channel),
+                    static_cast<uint8_t>(rawFactor)) != expectedDown)
+                return false;
+        }
+    }
+    return true;
+}
+
 bool testNativeLoads()
 {
     uint8_t data[128];
@@ -295,6 +320,11 @@ int main()
     if (!testWrapPowerOfTwo())
     {
         std::fprintf(stderr, "power-of-two wrap mismatch\n");
+        return 1;
+    }
+    if (!testBlendMath())
+    {
+        std::fprintf(stderr, "GPU2D blend math mismatch\n");
         return 1;
     }
     if (!testNativeLoads())
