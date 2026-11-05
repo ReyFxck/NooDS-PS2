@@ -277,7 +277,7 @@ class Gpu2D
         void drawObjPixelNoWindow(int x, uint32_t pixel,
             int8_t priority);
 
-        void drawText(int bg, int line);
+        void drawText(int bg, int line, int mosaicLine);
         void drawAffine(int bg, int line);
         void drawExtended(int bg, int line);
         void drawLarge(int bg, int line);
