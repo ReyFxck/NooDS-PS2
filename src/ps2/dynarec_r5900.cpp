@@ -4327,6 +4327,45 @@ size_t emitArmLongMultiplyInstruction(uint32_t opcode,
     return words;
 }
 
+size_t emitArmPsrTransferInstruction(uint32_t opcode, uint32_t *code,
+    bool registerCycles, bool registerCpsr)
+{
+    Ps2ArmAlu::DecodedPsrTransfer decoded;
+    if (!code || !Ps2ArmAlu::decodePsrTransfer(opcode, &decoded))
+        return 0;
+
+    size_t words = 0;
+    if (registerCpsr)
+        code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
+    if (registerCycles)
+        code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
+
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, -32);
+    code[words++] = R5900::sw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::sw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lui(R5900::R_A1,
+        static_cast<uint16_t>(opcode >> 16));
+    code[words++] = R5900::ori(R5900::R_A1, R5900::R_A1,
+        static_cast<uint16_t>(opcode));
+    uintptr_t helper =
+        reinterpret_cast<uintptr_t>(&applyArmPsrTransfer);
+    code[words++] = R5900::lui(R5900::R_T9,
+        static_cast<uint16_t>(helper >> 16));
+    code[words++] = R5900::ori(R5900::R_T9, R5900::R_T9,
+        static_cast<uint16_t>(helper));
+    code[words++] = R5900::jalr(R5900::R_RA, R5900::R_T9);
+    code[words++] = R5900::nop();
+    code[words++] = R5900::lw(R5900::R_A0, 24, R5900::R_SP);
+    code[words++] = R5900::lw(R5900::R_RA, 28, R5900::R_SP);
+    code[words++] = R5900::addiu(R5900::R_SP, R5900::R_SP, 32);
+
+    if (registerCycles)
+        code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
+    if (registerCpsr)
+        code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
+    return words;
+}
+
 size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
     bool registerCycles = false, bool registerCpsr = false,
     Memory *directMemory = nullptr, int forwardedGuestReg = -1,
@@ -4425,6 +4464,11 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
             forwardedGuestReg, forwardedCondition,
             reuseCondition, targetCpuId);
     }
+
+    Ps2ArmAlu::DecodedPsrTransfer psrTransfer;
+    if (Ps2ArmAlu::decodePsrTransfer(opcode, &psrTransfer))
+        return emitArmPsrTransferInstruction(opcode, code,
+            registerCycles, registerCpsr);
 
     Ps2ArmAlu::DecodedBranchExchange branchExchange;
     if (Ps2ArmAlu::decodeBranchExchange(opcode, &branchExchange))
