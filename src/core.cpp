@@ -240,8 +240,12 @@ void Core::runNdsFrame()
                 {
                     uint32_t guestPc =
                         CpuBackendAccess::nextInstructionAddress(interpreter[0]);
-                    size_t hotSlot = arm9BlockFilterSlot(guestPc);
-                    if (arm9BlockHotPc[hotSlot] == guestPc)
+                    const bool guestThumb =
+                        CpuBackendAccess::isThumb(interpreter[0]);
+                    const uint32_t guestKey =
+                        arm9BlockKey(guestPc, guestThumb);
+                    size_t hotSlot = arm9BlockFilterSlot(guestKey);
+                    if (arm9BlockHotPc[hotSlot] == guestKey)
                     {
 #ifdef NOODS_PROFILE
                         if (profileEnabled)
@@ -297,8 +301,13 @@ void Core::runNdsFrame()
                                     uint32_t nextPc =
                                         CpuBackendAccess::nextInstructionAddress(
                                             interpreter[0]);
-                                    size_t nextSlot = arm9BlockFilterSlot(nextPc);
-                                    if (arm9BlockHotPc[nextSlot] != nextPc)
+                                    const bool nextThumb =
+                                        CpuBackendAccess::isThumb(interpreter[0]);
+                                    const uint32_t nextKey =
+                                        arm9BlockKey(nextPc, nextThumb);
+                                    size_t nextSlot =
+                                        arm9BlockFilterSlot(nextKey);
+                                    if (arm9BlockHotPc[nextSlot] != nextKey)
                                         break;
 
 #ifdef NOODS_PROFILE
@@ -455,7 +464,8 @@ void Core::runNdsFrame()
                 else
                 {
                     sampleArm9HotPc(
-                        CpuBackendAccess::nextInstructionAddress(interpreter[0]));
+                        CpuBackendAccess::nextInstructionAddress(interpreter[0]),
+                        CpuBackendAccess::isThumb(interpreter[0]));
 #ifdef NOODS_PROFILE
                     if (profileEnabled)
                         runProfile.arm9Opcodes++;
@@ -795,17 +805,18 @@ void Core::runNdsFrame()
     }
 }
 
-void Core::sampleArm9HotPc(uint32_t pc)
+void Core::sampleArm9HotPc(uint32_t pc, bool thumb)
 {
     if (!pc || ++arm9HotSampleDivider != 64)
         return;
     arm9HotSampleDivider = 0;
 
-    size_t sampleSlot = arm9HotSampleSlot(pc);
-    uint32_t &samplePc = arm9HotSamplePc[sampleSlot];
+    const uint32_t key = arm9BlockKey(pc, thumb);
+    size_t sampleSlot = arm9HotSampleSlot(key);
+    uint32_t &sampleKey = arm9HotSamplePc[sampleSlot];
     uint8_t &score = arm9HotSampleScore[sampleSlot];
 
-    if (samplePc == pc)
+    if (sampleKey == key)
     {
         if (score < 0xFFu)
             score++;
@@ -822,26 +833,35 @@ void Core::sampleArm9HotPc(uint32_t pc)
     else
     {
 #ifdef NOODS_PROFILE
-        if (profileEnabled && samplePc)
+        if (profileEnabled && sampleKey)
             runProfile.arm9HotSampleCollisions++;
 #endif
-        samplePc = pc;
+        sampleKey = key;
         score = 1;
     }
 
-    // Eight matching 1/64 samples means roughly 512 observed interpreter
-    // opportunities at this entry. Promote it, then reset the score so a
-    // backend-rejected PC must prove hot again before another attempt.
     if (score < 8)
         return;
 
-    size_t hotSlot = arm9BlockFilterSlot(pc);
-    if (arm9BlockHotPc[hotSlot] != pc)
+    size_t hotSlot = arm9BlockFilterSlot(key);
+    if (arm9BlockHotPc[hotSlot] != key)
     {
-        addArm9BlockHotPcs(&pc, 1);
+        if (!arm9BlockHotPc[hotSlot])
+            arm9BlockHotCount++;
+#ifdef NOODS_PROFILE
+        else if (profileEnabled)
+            runProfile.arm9BlockFilterCollisions++;
+#endif
+        arm9BlockHotPc[hotSlot] = key;
+        arm9BlockHotFailures[hotSlot] = 0;
+        arm9BlockMinCycles[hotSlot] = 1;
 #ifdef NOODS_PROFILE
         if (profileEnabled)
+        {
             runProfile.arm9AutoHotPromotions++;
+            if (thumb)
+                runProfile.arm9ThumbAutoHotPromotions++;
+        }
 #endif
     }
     score = 0;
@@ -858,11 +878,12 @@ void Core::addArm9BlockHotPcs(const uint32_t *pcs, size_t count)
         if (!pc)
             continue;
 
-        size_t slot = arm9BlockFilterSlot(pc);
+        const uint32_t key = arm9BlockKey(pc, false);
+        size_t slot = arm9BlockFilterSlot(key);
         if (!arm9BlockHotPc[slot])
             arm9BlockHotCount++;
 
-        if (arm9BlockHotPc[slot] != pc)
+        if (arm9BlockHotPc[slot] != key)
         {
 #ifdef NOODS_PROFILE
             if (profileEnabled && arm9BlockHotPc[slot])
@@ -872,7 +893,7 @@ void Core::addArm9BlockHotPcs(const uint32_t *pcs, size_t count)
             arm9BlockMinCycles[slot] = 1;
         }
 
-        arm9BlockHotPc[slot] = pc;
+        arm9BlockHotPc[slot] = key;
     }
 }
 
