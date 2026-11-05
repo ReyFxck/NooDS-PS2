@@ -21,6 +21,17 @@ public:
 
     uint32_t current() const { return value; }
 
+    static bool matchesWrappedUint32Formula(uint32_t start,
+        uint32_t end, uint32_t span)
+    {
+        if (span <= 1)
+            return true;
+        const uint32_t delta =
+            (start <= end) ? (end - start) : (start - end);
+        return static_cast<uint64_t>(delta) *
+            static_cast<uint64_t>(span - 1) <= 0xFFFFFFFFull;
+    }
+
     void advance()
     {
         if (!span)
