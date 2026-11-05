@@ -17,6 +17,7 @@ namespace Ps2Thumb
         CONDITIONAL_BRANCH,
         BRANCH,
         BRANCH_EXCHANGE,
+        BRANCH_LINK_EXCHANGE,
         LONG_BRANCH_SETUP,
         LONG_BRANCH_LINK
     };
@@ -223,13 +224,15 @@ namespace Ps2Thumb
 
             if (op == 3u)
             {
-                // Bit 7 selects BLX-register on ARMv5. ARM7 (cpu=1) has no
-                // BLX, so reject it here; plain BX may switch ARM/Thumb.
-                if (opcode & 0x0080u || rs == 15u)
+                if (rs == 15u)
                     return false;
-                out->kind = BRANCH_EXCHANGE;
-                out->armOpcode = 0xE12FFF10u | rs;
+
+                const bool link = (opcode & 0x0080u) != 0;
+                out->kind = link ? BRANCH_LINK_EXCHANGE : BRANCH_EXCHANGE;
+                out->armOpcode = (link ? 0xE12FFF30u : 0xE12FFF10u) | rs;
                 out->readMask = static_cast<uint16_t>(1u << rs);
+                if (link)
+                    out->writeMask = static_cast<uint16_t>(1u << 14);
                 out->readsFlags = false;
                 out->writesFlags = true; // CPSR.T follows target bit 0.
                 out->terminal = true;
