@@ -1235,19 +1235,33 @@ bool applyArmSingleTransfer(ArmAluState *state, uint32_t opcode)
     return false;
 }
 
-bool applyArmBranchExchange(ArmAluState *state, uint32_t opcode)
+bool applyArmBranchExchangeAt(ArmAluState *state, uint32_t opcode,
+    uint32_t pc)
 {
     if (!state)
         return false;
     Ps2ArmAlu::DecodedBranchExchange decoded;
     if (!Ps2ArmAlu::decodeBranchExchange(opcode, &decoded))
         return false;
+    // BLX register is ARM9-only in NooDS. Never let the ARM7 portable shadow
+    // accidentally validate it just because the common decoder recognizes it.
+    if (decoded.link && state->cpuId)
+        return false;
+
     bool taken = Ps2ArmAlu::conditionPassed(decoded.condition, state->cpsr);
     if (!Ps2ArmAlu::executeBranchExchange(opcode, state->r,
-        &state->cpsr, &state->nextPc))
+        &state->cpsr, &state->nextPc, pc))
         return false;
     state->cycles += taken ? 3u : 1u;
     return true;
+}
+
+bool applyArmBranchExchange(ArmAluState *state, uint32_t opcode)
+{
+    Ps2ArmAlu::DecodedBranchExchange decoded;
+    if (!Ps2ArmAlu::decodeBranchExchange(opcode, &decoded) || decoded.link)
+        return false;
+    return applyArmBranchExchangeAt(state, opcode, 0);
 }
 
 bool applyArmBranch(ArmAluState *state, uint32_t opcode, uint32_t pc)
@@ -3904,10 +3918,12 @@ size_t emitArmSingleBlockTransferInstruction(uint32_t opcode,
 }
 
 size_t emitArmBranchExchangeDirectInstruction(uint32_t opcode,
-    uint32_t *code, bool registerCycles, bool registerCpsr)
+    uint32_t pc, uint32_t *code, bool registerCycles, bool registerCpsr,
+    uint8_t targetCpuId = 0)
 {
     Ps2ArmAlu::DecodedBranchExchange decoded;
-    if (!code || !Ps2ArmAlu::decodeBranchExchange(opcode, &decoded))
+    if (!code || !Ps2ArmAlu::decodeBranchExchange(opcode, &decoded) ||
+        (decoded.link && targetCpuId))
         return 0;
 
     size_t words = 0;
@@ -3930,8 +3946,18 @@ size_t emitArmBranchExchangeDirectInstruction(uint32_t opcode,
     // Taken BX costs three cycles total.
     words += emitArmCycleAdd(2, code + words, registerCycles);
 
+    // Read the branch target before updating LR so BLX lr uses the old LR.
     code[words++] = R5900::lw(R5900::R_T0,
         static_cast<int16_t>(decoded.rm * 4), R5900::R_A0);
+    if (decoded.link)
+    {
+        const uint32_t returnPc = pc + 4u;
+        code[words++] = R5900::lui(R5900::R_T2,
+            static_cast<uint16_t>(returnPc >> 16));
+        code[words++] = R5900::ori(R5900::R_T2, R5900::R_T2,
+            static_cast<uint16_t>(returnPc));
+        code[words++] = R5900::sw(R5900::R_T2, 14 * 4, R5900::R_A0);
+    }
     code[words++] = R5900::andi(R5900::R_T1, R5900::R_T0, 1);
     code[words++] = R5900::srl(R5900::R_T2, R5900::R_T0, 1);
     code[words++] = R5900::sll(R5900::R_T2, R5900::R_T2, 1);
@@ -3962,7 +3988,8 @@ size_t emitArmBranchExchangeDirectInstruction(uint32_t opcode,
 size_t emitArmBranchExchangeInstruction(uint32_t opcode, uint32_t *code)
 {
     Ps2ArmAlu::DecodedBranchExchange decoded;
-    if (!code || !Ps2ArmAlu::decodeBranchExchange(opcode, &decoded))
+    if (!code || !Ps2ArmAlu::decodeBranchExchange(opcode, &decoded) ||
+        decoded.link)
         return 0;
 
     uintptr_t helper = reinterpret_cast<uintptr_t>(&applyArmBranchExchange);
@@ -4636,8 +4663,8 @@ size_t emitArmInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
 
     Ps2ArmAlu::DecodedBranchExchange branchExchange;
     if (Ps2ArmAlu::decodeBranchExchange(opcode, &branchExchange))
-        return emitArmBranchExchangeDirectInstruction(opcode,
-            code, registerCycles, registerCpsr);
+        return emitArmBranchExchangeDirectInstruction(opcode, pc,
+            code, registerCycles, registerCpsr, targetCpuId);
 
     return emitArmBranchInstruction(opcode, pc, code,
         registerCycles, registerCpsr, reuseCondition);
@@ -5426,6 +5453,8 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             if (i + 1 != count)
                 return false;
             block.readMask |= static_cast<uint16_t>(1u << branchExchange.rm);
+            if (branchExchange.link)
+                block.writeMask |= static_cast<uint16_t>(1u << 14);
             block.readsFlags |= branchExchange.condition != 0xEu;
             continue;
         }
@@ -5654,7 +5683,9 @@ bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
         if (decoded.kind == Ps2Thumb::BRANCH_EXCHANGE)
         {
             size_t emitted = emitArmBranchExchangeDirectInstruction(
-                decoded.armOpcode, code + words, true, true);
+                decoded.armOpcode,
+                guestPc + static_cast<uint32_t>(i * 2),
+                code + words, true, true, 1);
             if (!emitted)
                 return false;
             words += emitted;
@@ -9225,7 +9256,8 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
         Ps2ArmAlu::DecodedBranchExchange branchExchange;
         if (Ps2ArmAlu::decodeBranchExchange(opcodes[i], &branchExchange))
         {
-            if (!applyArmBranchExchange(&expected, opcodes[i]))
+            if (!applyArmBranchExchangeAt(&expected, opcodes[i],
+                guestPc + static_cast<uint32_t>(i * 4)))
                 return -1;
             continue;
         }
@@ -9436,7 +9468,7 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
         Ps2ArmAlu::DecodedBranchExchange branchExchange;
         if (Ps2ArmAlu::decodeBranchExchange(opcode, &branchExchange))
         {
-            if (branchExchange.rm == 15)
+            if (branchExchange.rm == 15 || branchExchange.link)
                 break;
             opcodes[count++] = opcode;
             break;
@@ -9556,7 +9588,8 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
         Ps2ArmAlu::DecodedBranchExchange branchExchange;
         if (Ps2ArmAlu::decodeBranchExchange(opcodes[i], &branchExchange))
         {
-            if (!applyArmBranchExchange(&expected, opcodes[i]))
+            if (!applyArmBranchExchangeAt(&expected, opcodes[i],
+                guestPc + static_cast<uint32_t>(i * 4)))
                 return -1;
             continue;
         }
