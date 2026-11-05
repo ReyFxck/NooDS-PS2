@@ -264,6 +264,108 @@ int main()
     assert(Ps2ArmAlu::execute(0xE2910001u, registers, &cpsr)); // ADDS r0,r1,#1
     assert(registers[0] == 0 && cpsr == 0x60000013u);
 
+    // Carry-input ALU family: ADC/SBC/RSC must consume the old CPSR.C
+    // independently of Operand2 shifter carry and generate exact C/V.
+    {
+        Ps2ArmAlu::Decoded carryDecoded;
+        assert(Ps2ArmAlu::decode(0xE0A02001u, &carryDecoded)); // ADC
+        assert(carryDecoded.operation == 5);
+        assert(Ps2ArmAlu::decode(0xE0C02001u, &carryDecoded)); // SBC
+        assert(carryDecoded.operation == 6);
+        assert(Ps2ArmAlu::decode(0xE0E02001u, &carryDecoded)); // RSC
+        assert(carryDecoded.operation == 7);
+
+        for (int test = 0; test < 50000; test++)
+        {
+            const uint32_t left = nextRandom();
+            const uint32_t right = nextRandom();
+            const bool carryIn = (nextRandom() & 1u) != 0;
+            const uint32_t lowCpsr = nextRandom() & 0x0FFFFFFFu;
+            const uint32_t opcodes[] =
+                { 0xE0B02001u, 0xE0D02001u, 0xE0F02001u };
+
+            for (uint32_t operation = 0; operation < 3; operation++)
+            {
+                uint32_t state[16] = {};
+                state[0] = left;
+                state[1] = right;
+                uint32_t flags = lowCpsr |
+                    (carryIn ? 0x20000000u : 0u);
+                assert(Ps2ArmAlu::execute(
+                    opcodes[operation], state, &flags));
+
+                uint32_t expected = 0;
+                bool carry = false;
+                bool overflow = false;
+                if (operation == 0) // ADCS
+                {
+                    const uint64_t wide = static_cast<uint64_t>(left) +
+                        right + static_cast<uint32_t>(carryIn);
+                    expected = static_cast<uint32_t>(wide);
+                    carry = wide > 0xFFFFFFFFull;
+                    const int64_t signedWide =
+                        static_cast<int64_t>(static_cast<int32_t>(left)) +
+                        static_cast<int64_t>(static_cast<int32_t>(right)) +
+                        static_cast<int64_t>(carryIn);
+                    overflow = signedWide > 2147483647ll ||
+                        signedWide < -2147483648ll;
+                }
+                else if (operation == 1) // SBCS
+                {
+                    const uint64_t borrow = carryIn ? 0ull : 1ull;
+                    expected = left - right -
+                        static_cast<uint32_t>(borrow);
+                    carry = static_cast<uint64_t>(left) >=
+                        static_cast<uint64_t>(right) + borrow;
+                    const int64_t signedWide =
+                        static_cast<int64_t>(static_cast<int32_t>(left)) -
+                        static_cast<int64_t>(static_cast<int32_t>(right)) -
+                        static_cast<int64_t>(borrow);
+                    overflow = signedWide > 2147483647ll ||
+                        signedWide < -2147483648ll;
+                }
+                else // RSCS
+                {
+                    const uint64_t borrow = carryIn ? 0ull : 1ull;
+                    expected = right - left -
+                        static_cast<uint32_t>(borrow);
+                    carry = static_cast<uint64_t>(right) >=
+                        static_cast<uint64_t>(left) + borrow;
+                    const int64_t signedWide =
+                        static_cast<int64_t>(static_cast<int32_t>(right)) -
+                        static_cast<int64_t>(static_cast<int32_t>(left)) -
+                        static_cast<int64_t>(borrow);
+                    overflow = signedWide > 2147483647ll ||
+                        signedWide < -2147483648ll;
+                }
+
+                uint32_t expectedFlags = lowCpsr;
+                if (expected & 0x80000000u)
+                    expectedFlags |= 0x80000000u;
+                if (!expected)
+                    expectedFlags |= 0x40000000u;
+                if (carry)
+                    expectedFlags |= 0x20000000u;
+                if (overflow)
+                    expectedFlags |= 0x10000000u;
+                assert(state[2] == expected);
+                assert(flags == expectedFlags);
+            }
+        }
+
+        // Carry is an input even when S=0.
+        uint32_t carryState[16] = {};
+        carryState[0] = 0xFFFFFFFFu;
+        carryState[1] = 0u;
+        uint32_t carryCpsr = 0x20000013u;
+        assert(Ps2ArmAlu::execute(
+            0xE0A02001u, carryState, &carryCpsr));
+        assert(carryState[2] == 0u &&
+            carryCpsr == 0x20000013u);
+        assert(!Ps2ArmAlu::execute(
+            0xE0A02001u, carryState, nullptr));
+    }
+
     // The steady-state hot loop compares r12/r2 without modifying any GPR.
     uint32_t cmpState[16] = {};
     cmpState[12] = 3;
