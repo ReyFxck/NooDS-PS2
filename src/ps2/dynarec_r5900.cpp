@@ -5409,8 +5409,9 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             {
                 if (i + 1 != count)
                     return false;
-                block.readMask |= static_cast<uint16_t>(
-                    1u << psrTransfer.rm);
+                if (!psrTransfer.immediate)
+                    block.readMask |= static_cast<uint16_t>(
+                        1u << psrTransfer.rm);
                 block.writesFlags = true;
             }
             else
