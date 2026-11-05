@@ -872,42 +872,63 @@ void Core::addArm9BlockHotPcs(const uint32_t *pcs, size_t count)
 }
 
 
-void Core::sampleArm7HotPc(uint32_t pc)
+void Core::sampleArm7HotPc(uint32_t pc, bool thumb)
 {
     if (!pc || ++arm7HotSampleDivider != 64)
         return;
     arm7HotSampleDivider = 0;
 
-    size_t sampleSlot = arm7HotSampleSlot(pc);
-    uint32_t &samplePc = arm7HotSamplePc[sampleSlot];
+    const uint32_t key = arm7BlockKey(pc, thumb);
+    size_t sampleSlot = arm7HotSampleSlot(key);
+    uint32_t &sampleKey = arm7HotSamplePc[sampleSlot];
     uint8_t &score = arm7HotSampleScore[sampleSlot];
 
-    if (samplePc == pc)
+    if (sampleKey == key)
     {
         if (score < 0xFFu)
             score++;
     }
     else if (score)
     {
+#ifdef NOODS_PROFILE
+        if (profileEnabled)
+            runProfile.arm7HotSampleCollisions++;
+#endif
         score--;
         return;
     }
     else
     {
-        samplePc = pc;
+#ifdef NOODS_PROFILE
+        if (profileEnabled && sampleKey)
+            runProfile.arm7HotSampleCollisions++;
+#endif
+        sampleKey = key;
         score = 1;
     }
 
     if (score < 8)
         return;
 
-    size_t hotSlot = arm7BlockFilterSlot(pc);
-    if (arm7BlockHotPc[hotSlot] != pc)
+    size_t hotSlot = arm7BlockFilterSlot(key);
+    if (arm7BlockHotPc[hotSlot] != key)
     {
-        addArm7BlockHotPcs(&pc, 1);
+        if (!arm7BlockHotPc[hotSlot])
+            arm7BlockHotCount++;
+#ifdef NOODS_PROFILE
+        else if (profileEnabled)
+            runProfile.arm7BlockFilterCollisions++;
+#endif
+        arm7BlockHotPc[hotSlot] = key;
+        arm7BlockHotFailures[hotSlot] = 0;
+        arm7BlockMinCycles[hotSlot] = 1;
 #ifdef NOODS_PROFILE
         if (profileEnabled)
+        {
             runProfile.arm7AutoHotPromotions++;
+            if (thumb)
+                runProfile.arm7ThumbAutoHotPromotions++;
+        }
 #endif
     }
     score = 0;
@@ -924,16 +945,24 @@ void Core::addArm7BlockHotPcs(const uint32_t *pcs, size_t count)
         if (!pc)
             continue;
 
-        size_t slot = arm7BlockFilterSlot(pc);
+        // External hot-PC seeds predate the Thumb backend and are ARM
+        // addresses. Live Thumb PCs are promoted mode-aware by
+        // sampleArm7HotPc().
+        const uint32_t key = arm7BlockKey(pc, false);
+        size_t slot = arm7BlockFilterSlot(key);
         if (!arm7BlockHotPc[slot])
             arm7BlockHotCount++;
 
-        if (arm7BlockHotPc[slot] != pc)
+        if (arm7BlockHotPc[slot] != key)
         {
+#ifdef NOODS_PROFILE
+            if (profileEnabled && arm7BlockHotPc[slot])
+                runProfile.arm7BlockFilterCollisions++;
+#endif
             arm7BlockHotFailures[slot] = 0;
             arm7BlockMinCycles[slot] = 1;
         }
-        arm7BlockHotPc[slot] = pc;
+        arm7BlockHotPc[slot] = key;
     }
 }
 
