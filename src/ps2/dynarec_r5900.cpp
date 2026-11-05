@@ -10028,6 +10028,119 @@ int DynarecR5900::runArm7ThumbDifferentialSelfTest(Interpreter &cpu,
 }
 
 
+int DynarecR5900::runArm9ThumbDifferentialSelfTest(Interpreter &cpu,
+    uint32_t *guestPcOut, uint32_t *instructionCount,
+    uint32_t *stateHash, size_t maxInstructions)
+{
+    if (!CpuBackendAccess::isArm9(cpu) || !CpuBackendAccess::isThumb(cpu) ||
+        !memory || targetCpuId != 0)
+        return 0;
+
+    synchronizeMemoryMap();
+    const uint32_t guestPc =
+        CpuBackendAccess::nextInstructionAddress(cpu);
+    R5900CompiledBlock *block = findMutableBlock(guestPc, true);
+    if (!block)
+    {
+        if (!compileThumbBlock(cpu, maxInstructions))
+            return 0;
+        block = findMutableBlock(guestPc, true);
+    }
+
+    // First ARM9 Thumb live subset is intentionally read-only. Stores can be
+    // added later through the existing ARM9 transactional journal once the
+    // CPU0 Thumb timing/state gate has accumulated runtime coverage.
+    if (!block || !block->hostCode || !block->guestInstructions ||
+        block->writesMemory || block->maxMemoryWrites)
+        return 0;
+
+    uint32_t savedRegs[16] = {};
+    for (int i = 0; i < 16; i++)
+        savedRegs[i] = CpuBackendAccess::readReg(cpu, i);
+    const uint32_t savedCpsr = CpuBackendAccess::readCpsr(cpu);
+    const uint32_t savedPipeline0 =
+        CpuBackendAccess::pipelineOpcode(cpu, 0);
+    const uint32_t savedPipeline1 =
+        CpuBackendAccess::pipelineOpcode(cpu, 1);
+
+    ArmAluState generated = {};
+    for (int i = 0; i < 16; i++)
+        generated.r[i] = savedRegs[i];
+    generated.cpsr = savedCpsr;
+    generated.nextPc = block->guestEndPc;
+    generated.memory = memory;
+    generated.cpuId = 0;
+
+    typedef void (*ThumbDifferentialFunction)(ArmAluState *);
+    ThumbDifferentialFunction function =
+        reinterpret_cast<ThumbDifferentialFunction>(block->hostCode);
+    function(&generated);
+    if (generated.memoryFault || generated.writeCount)
+    {
+        CpuBackendAccess::restoreStraightLineState(cpu, savedRegs,
+            savedCpsr, savedPipeline0, savedPipeline1);
+        return 0;
+    }
+
+    MemoryWriteJournal interpreterWrites;
+    memory->beginWriteJournal(&interpreterWrites, false);
+    bool interpreterOk = true;
+    uint32_t interpreterCycles = 0;
+    for (uint32_t i = 0; i < block->guestInstructions; i++)
+    {
+        const int cycles = cpu.runOpcode();
+        if (cycles <= 0)
+        {
+            interpreterOk = false;
+            break;
+        }
+        interpreterCycles += static_cast<uint32_t>(cycles);
+    }
+    memory->endWriteJournal(&interpreterWrites);
+
+    bool match = interpreterOk && !interpreterWrites.overflow &&
+        interpreterWrites.count == 0 &&
+        CpuBackendAccess::readCpsr(cpu) == generated.cpsr &&
+        CpuBackendAccess::nextInstructionAddress(cpu) ==
+            generated.nextPc &&
+        interpreterCycles == generated.cycles;
+
+    uint32_t hash = 2166136261u;
+    for (int i = 0; i < 15; i++)
+    {
+        const uint32_t value = CpuBackendAccess::readReg(cpu, i);
+        if (value != generated.r[i])
+            match = false;
+        hash ^= value;
+        hash *= 16777619u;
+    }
+    hash ^= CpuBackendAccess::readCpsr(cpu);
+    hash *= 16777619u;
+    hash ^= CpuBackendAccess::nextInstructionAddress(cpu);
+    hash *= 16777619u;
+    hash ^= interpreterCycles;
+    hash *= 16777619u;
+    hash ^= block->guestInstructions;
+    hash *= 16777619u;
+
+    memory->rollbackWriteJournal(interpreterWrites);
+    CpuBackendAccess::restoreStraightLineState(cpu, savedRegs,
+        savedCpsr, savedPipeline0, savedPipeline1);
+
+    block = findMutableBlock(guestPc, true);
+    if (block)
+        block->differentialVerified = match;
+
+    if (guestPcOut)
+        *guestPcOut = guestPc;
+    if (instructionCount)
+        *instructionCount = block ? block->guestInstructions : 0;
+    if (stateHash)
+        *stateHash = hash;
+    return match ? 1 : -1;
+}
+
+
 int DynarecR5900::runArm7AluBranchDifferentialSelfTest(Interpreter &cpu,
     uint32_t *guestPcOut, uint32_t *instructionCount, uint32_t *stateHash)
 {
