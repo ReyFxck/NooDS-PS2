@@ -18,6 +18,9 @@
 */
 
 #include <cstring>
+#ifdef NOODS_PROFILE
+#include <ctime>
+#endif
 
 #include "gpu_3d_renderer.h"
 #include "core.h"
