@@ -9374,6 +9374,177 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
 }
 
 
+bool DynarecR5900::compileArm7ThumbBlock(const Interpreter &cpu,
+    size_t maxInstructions)
+{
+    if (CpuBackendAccess::isArm9(cpu) || !CpuBackendAccess::isThumb(cpu) ||
+        !memory || !maxInstructions)
+        return false;
+
+    synchronizeMemoryMap();
+    constexpr size_t MAX_THUMB_BLOCK_INSTRUCTIONS = 24;
+    maxInstructions =
+        std::min(maxInstructions, MAX_THUMB_BLOCK_INSTRUCTIONS);
+
+    uint16_t opcodes[MAX_THUMB_BLOCK_INSTRUCTIONS] = {};
+    size_t count = 0;
+    const uint32_t guestPc =
+        CpuBackendAccess::nextInstructionAddress(cpu);
+
+    for (size_t i = 0; i < maxInstructions; i++)
+    {
+        uint16_t opcode = 0;
+        if (i == 0)
+            opcode = static_cast<uint16_t>(
+                CpuBackendAccess::pipelineOpcode(cpu, 0));
+        else if (i == 1)
+            opcode = static_cast<uint16_t>(
+                CpuBackendAccess::pipelineOpcode(cpu, 1));
+        else
+        {
+            const uint32_t address =
+                guestPc + static_cast<uint32_t>(i * 2);
+            const uint32_t offset = address & 0xFFFu;
+            uint8_t *page = memory->getDirectReadPage(1, address);
+            if (!page || offset > 0xFFEu)
+                break;
+            opcode = static_cast<uint16_t>(
+                page[offset] |
+                (static_cast<uint16_t>(page[offset + 1]) << 8));
+        }
+
+        Ps2Thumb::Decoded decoded;
+        if (!Ps2Thumb::decode(opcode,
+            guestPc + static_cast<uint32_t>(i * 2), &decoded))
+            break;
+
+        opcodes[count++] = opcode;
+        if (decoded.terminal)
+            break;
+    }
+
+    if (!count)
+        return false;
+
+    uint32_t *entry = nullptr;
+    uint32_t hostWords = 0;
+    return emitThumbSequence(opcodes, count, guestPc,
+        &entry, &hostWords) && entry && hostWords;
+}
+
+
+int DynarecR5900::runArm7ThumbDifferentialSelfTest(Interpreter &cpu,
+    uint32_t *guestPcOut, uint32_t *instructionCount,
+    uint32_t *stateHash, size_t maxInstructions)
+{
+    if (CpuBackendAccess::isArm9(cpu) || !CpuBackendAccess::isThumb(cpu) ||
+        !memory)
+        return 0;
+
+    synchronizeMemoryMap();
+    const uint32_t guestPc =
+        CpuBackendAccess::nextInstructionAddress(cpu);
+    R5900CompiledBlock *block = findMutableBlock(guestPc, true);
+    if (!block)
+    {
+        if (!compileArm7ThumbBlock(cpu, maxInstructions))
+            return 0;
+        block = findMutableBlock(guestPc, true);
+    }
+    if (!block || !block->hostCode || !block->guestInstructions ||
+        block->writesMemory || block->maxMemoryWrites)
+        return 0;
+
+    uint32_t savedRegs[16] = {};
+    for (int i = 0; i < 16; i++)
+        savedRegs[i] = CpuBackendAccess::readReg(cpu, i);
+    const uint32_t savedCpsr = CpuBackendAccess::readCpsr(cpu);
+    const uint32_t savedPipeline0 =
+        CpuBackendAccess::pipelineOpcode(cpu, 0);
+    const uint32_t savedPipeline1 =
+        CpuBackendAccess::pipelineOpcode(cpu, 1);
+
+    ArmAluState generated = {};
+    for (int i = 0; i < 16; i++)
+        generated.r[i] = savedRegs[i];
+    generated.cpsr = savedCpsr;
+    generated.nextPc = block->guestEndPc;
+    generated.memory = memory;
+    generated.cpuId = 1;
+
+    typedef void (*ThumbDifferentialFunction)(ArmAluState *);
+    ThumbDifferentialFunction function =
+        reinterpret_cast<ThumbDifferentialFunction>(block->hostCode);
+    function(&generated);
+    if (generated.memoryFault || generated.writeCount)
+    {
+        CpuBackendAccess::restoreStraightLineState(cpu, savedRegs,
+            savedCpsr, savedPipeline0, savedPipeline1);
+        return 0;
+    }
+
+    MemoryWriteJournal interpreterWrites;
+    memory->beginWriteJournal(&interpreterWrites, false);
+    bool interpreterOk = true;
+    uint32_t interpreterCycles = 0;
+    for (uint32_t i = 0; i < block->guestInstructions; i++)
+    {
+        const int cycles = cpu.runOpcode();
+        if (cycles <= 0)
+        {
+            interpreterOk = false;
+            break;
+        }
+        interpreterCycles += static_cast<uint32_t>(cycles);
+    }
+    memory->endWriteJournal(&interpreterWrites);
+
+    bool match = interpreterOk && !interpreterWrites.overflow &&
+        interpreterWrites.count == 0 &&
+        CpuBackendAccess::readCpsr(cpu) == generated.cpsr &&
+        CpuBackendAccess::nextInstructionAddress(cpu) ==
+            generated.nextPc &&
+        interpreterCycles == generated.cycles;
+
+    uint32_t hash = 2166136261u;
+    for (int i = 0; i < 15; i++)
+    {
+        const uint32_t value = CpuBackendAccess::readReg(cpu, i);
+        if (value != generated.r[i])
+            match = false;
+        hash ^= value;
+        hash *= 16777619u;
+    }
+    hash ^= CpuBackendAccess::readCpsr(cpu);
+    hash *= 16777619u;
+    hash ^= CpuBackendAccess::nextInstructionAddress(cpu);
+    hash *= 16777619u;
+    hash ^= interpreterCycles;
+    hash *= 16777619u;
+    hash ^= block->guestInstructions;
+    hash *= 16777619u;
+
+    memory->rollbackWriteJournal(interpreterWrites);
+    CpuBackendAccess::restoreStraightLineState(cpu, savedRegs,
+        savedCpsr, savedPipeline0, savedPipeline1);
+
+    block = findMutableBlock(guestPc, true);
+    if (block)
+    {
+        block->differentialVerified = match;
+        block->arm7TimingSafe = match;
+    }
+
+    if (guestPcOut)
+        *guestPcOut = guestPc;
+    if (instructionCount)
+        *instructionCount = block ? block->guestInstructions : 0;
+    if (stateHash)
+        *stateHash = hash;
+    return match ? 1 : -1;
+}
+
+
 int DynarecR5900::runArm7AluBranchDifferentialSelfTest(Interpreter &cpu,
     uint32_t *guestPcOut, uint32_t *instructionCount, uint32_t *stateHash)
 {
