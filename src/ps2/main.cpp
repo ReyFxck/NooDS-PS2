@@ -731,7 +731,7 @@ void logActiveFallbackPcs(const char *label,
             profile.topActiveFallback[order[rank]];
         if (!entry.count)
             break;
-        PS2_LOG("[PS2][JIT-FALLBACK] cpu=%s rank=%u pc=%08lX reason=%s count=%lu\n",
+        PS2_LOG("[PS2][JIT-FALLBACK] cpu=%s rank=%u pc=%08lX reason=%s sample64=%lu\n",
             label,
             rank,
             static_cast<unsigned long>(entry.pc),
