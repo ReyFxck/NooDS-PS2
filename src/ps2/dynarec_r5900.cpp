@@ -6215,8 +6215,9 @@ bool DynarecR5900::runArmAluSelfTest()
 
         if (state.r[rd] != tests[i].expected)
         {
-            std::printf("[PS2][JIT-SELFTEST] opcode=%08X r%u expected=%08X actual=%08X\n",
-                tests[i].opcode, rd, tests[i].expected, state.r[rd]);
+            std::printf("[PS2][JIT-SELFTEST] opcode=%08lX r%u expected=%08lX actual=%08lX\n",
+                static_cast<unsigned long>(tests[i].opcode), static_cast<unsigned int>(rd),
+                static_cast<unsigned long>(tests[i].expected), static_cast<unsigned long>(state.r[rd]));
             return false;
         }
     }
