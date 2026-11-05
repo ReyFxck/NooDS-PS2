@@ -718,10 +718,15 @@ int main()
 
     Ps2ArmAlu::DecodedBranchExchange bx;
     assert(Ps2ArmAlu::decodeBranchExchange(0xE12FFF1Eu, &bx));
-    assert(bx.condition == 0xEu && bx.rm == 14);
+    assert(bx.condition == 0xEu && bx.rm == 14 && !bx.link);
+    assert(Ps2ArmAlu::decodeBranchExchange(0xE12FFF34u, &bx));
+    assert(bx.condition == 0xEu && bx.rm == 4 && bx.link);
     assert(!Ps2ArmAlu::decodeBranchExchange(0xE12FFF1Fu, &bx));
+    assert(!Ps2ArmAlu::decodeBranchExchange(0xE12FFF3Fu, &bx));
     assert(!Ps2ArmAlu::decodeBranchExchange(0xF12FFF1Eu, &bx));
     assert(Ps2ArmAlu::rejectionReason(0xE12FFF1Eu) ==
+        Ps2ArmAlu::REJECT_NONE);
+    assert(Ps2ArmAlu::rejectionReason(0xE12FFF34u) ==
         Ps2ArmAlu::REJECT_NONE);
 
     uint32_t bxRegs[16] = {};
@@ -744,6 +749,33 @@ int main()
     assert(Ps2ArmAlu::executeBranchExchange(0x012FFF1Eu, bxRegs,
         &bxCpsr, &bxNextPc));
     assert(bxNextPc == 0x02000004u && bxCpsr == 0x00000013u);
+
+    // ARM9 BLX register is BX plus LR=current+4. The target must be read
+    // before LR is updated so BLX lr remains well-defined.
+    bxRegs[4] = 0x02000401u;
+    bxRegs[14] = 0xDEADBEEFu;
+    bxCpsr = 0x00000013u;
+    bxNextPc = 0x02001004u;
+    assert(Ps2ArmAlu::executeBranchExchange(0xE12FFF34u, bxRegs,
+        &bxCpsr, &bxNextPc, 0x02001000u));
+    assert(bxRegs[14] == 0x02001004u);
+    assert(bxNextPc == 0x02000400u && (bxCpsr & BIT(5)));
+
+    bxRegs[14] = 0x02000501u;
+    bxCpsr = 0x00000013u;
+    bxNextPc = 0x02002004u;
+    assert(Ps2ArmAlu::executeBranchExchange(0xE12FFF3Eu, bxRegs,
+        &bxCpsr, &bxNextPc, 0x02002000u)); // BLX lr reads old LR first
+    assert(bxNextPc == 0x02000500u && bxRegs[14] == 0x02002004u);
+
+    bxRegs[4] = 0x02000601u;
+    bxRegs[14] = 0xA5A55A5Au;
+    bxCpsr = 0x00000013u; // EQ fails.
+    bxNextPc = 0x02003004u;
+    assert(Ps2ArmAlu::executeBranchExchange(0x012FFF34u, bxRegs,
+        &bxCpsr, &bxNextPc, 0x02003000u));
+    assert(bxRegs[14] == 0xA5A55A5Au &&
+        bxNextPc == 0x02003004u && bxCpsr == 0x00000013u);
 
     Ps2ArmAlu::DecodedHalfwordTransfer transfer;
     assert(Ps2ArmAlu::decodeHalfwordTransfer(0xE11190B8u, &transfer));
