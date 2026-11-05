@@ -7060,6 +7060,69 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
+    // Gate CMP -> B.CS/B.CC fusion with both taken and not-taken paths.
+    // This is the pattern used by bounded copy/scan loops: CMP's T0/T1 remain
+    // live after exact NZCV generation, so the fused branch may test borrow
+    // directly without changing any architectural result.
+    {
+        struct CompareCarryBranchTest
+        {
+            uint32_t branchOpcode;
+            uint32_t lhs;
+            uint32_t rhs;
+        };
+        const CompareCarryBranchTest tests[] =
+        {
+            { 0x3A000001u, 1u, 2u }, // B.CC taken (borrow)
+            { 0x3A000001u, 2u, 1u }, // B.CC not taken
+            { 0x2A000001u, 2u, 1u }, // B.CS taken (no borrow)
+            { 0x2A000001u, 1u, 2u }  // B.CS not taken
+        };
+        const uint32_t pairPc = 0x02001100u;
+        const uint32_t cmpOpcode = 0xE1500001u; // CMP r0,r1
+
+        for (const CompareCarryBranchTest &test : tests)
+        {
+            const uint32_t opcodes[] = { cmpOpcode, test.branchOpcode };
+            ArmAluState expected = {};
+            expected.r[0] = test.lhs;
+            expected.r[1] = test.rhs;
+            expected.cpsr = 0x00000013u;
+            expected.nextPc = pairPc + 8u;
+            if (!applyArmAlu(cmpOpcode, &expected) ||
+                !applyArmBranch(&expected, test.branchOpcode, pairPc + 4u))
+                return false;
+
+            size_t blockCountBefore = blocks.size();
+            uint32_t *entry = nullptr;
+            uint32_t hostWords = 0;
+            if (!emitArmAluSequence(opcodes, 2, pairPc,
+                &entry, &hostWords) || !entry || !hostWords)
+                return false;
+
+            ArmAluState actual = {};
+            actual.r[0] = test.lhs;
+            actual.r[1] = test.rhs;
+            actual.cpsr = 0x00000013u;
+            actual.nextPc = pairPc + 8u;
+            typedef void (*CompareCarryBranchFunction)(ArmAluState *);
+            CompareCarryBranchFunction function =
+                reinterpret_cast<CompareCarryBranchFunction>(entry);
+            function(&actual);
+
+            if (blocks.size() > blockCountBefore)
+                blocks.resize(blockCountBefore);
+            clearActiveLookups();
+
+            if (actual.r[0] != expected.r[0] ||
+                actual.r[1] != expected.r[1] ||
+                actual.cpsr != expected.cpsr ||
+                actual.nextPc != expected.nextPc ||
+                actual.cycles != expected.cycles)
+                return false;
+        }
+    }
+
     struct BranchTest
     {
         uint32_t opcode;
