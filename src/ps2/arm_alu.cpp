@@ -223,8 +223,6 @@ bool Ps2ArmAlu::decode(uint32_t opcode, Decoded *decoded)
         else
         {
             decoded->shiftAmount = static_cast<uint8_t>((opcode >> 7) & 0x1F);
-            if (decoded->shiftType == 3 && decoded->shiftAmount == 0)
-                return false; // RRX needs CPSR.C.
         }
     }
 
@@ -1007,8 +1005,10 @@ bool Ps2ArmAlu::execute(uint32_t opcode, uint32_t registers[16], uint32_t *cpsr)
     const bool carryInputOperation =
         decoded.operation == 5 || decoded.operation == 6 ||
         decoded.operation == 7;
+    const bool rrx = !decoded.immediate && !decoded.registerShift &&
+        decoded.shiftType == 3 && decoded.shiftAmount == 0;
     if ((decoded.condition != 0xEu || decoded.setFlags ||
-        carryInputOperation) && !cpsr)
+        carryInputOperation || rrx) && !cpsr)
         return false;
     if (cpsr && !conditionPassed(decoded.condition, *cpsr))
         return true;
@@ -1025,18 +1025,27 @@ bool Ps2ArmAlu::execute(uint32_t opcode, uint32_t registers[16], uint32_t *cpsr)
     else
     {
         uint32_t source = registers[decoded.rm];
-        bool shifted = decoded.registerShift
-            ? applyRegisterShift(source, decoded.shiftType,
-                registers[decoded.rs], &operand2)
-            : applyImmediateShift(source, decoded.shiftType,
-                decoded.shiftAmount, &operand2);
-        bool carryOk = decoded.registerShift
-            ? registerShiftCarry(source, decoded.shiftType,
-                registers[decoded.rs], shifterCarry, &shifterCarry)
-            : immediateShiftCarry(source, decoded.shiftType,
-                decoded.shiftAmount, shifterCarry, &shifterCarry);
-        if (!shifted || !carryOk)
-            return false;
+        if (rrx)
+        {
+            operand2 = (source >> 1) |
+                (arithmeticCarryIn ? 0x80000000u : 0u);
+            shifterCarry = (source & 1u) != 0;
+        }
+        else
+        {
+            bool shifted = decoded.registerShift
+                ? applyRegisterShift(source, decoded.shiftType,
+                    registers[decoded.rs], &operand2)
+                : applyImmediateShift(source, decoded.shiftType,
+                    decoded.shiftAmount, &operand2);
+            bool carryOk = decoded.registerShift
+                ? registerShiftCarry(source, decoded.shiftType,
+                    registers[decoded.rs], shifterCarry, &shifterCarry)
+                : immediateShiftCarry(source, decoded.shiftType,
+                    decoded.shiftAmount, shifterCarry, &shifterCarry);
+            if (!shifted || !carryOk)
+                return false;
+        }
     }
 
     uint32_t operand1 = registers[decoded.rn];
