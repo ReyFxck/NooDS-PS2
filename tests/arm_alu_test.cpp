@@ -458,7 +458,32 @@ int main()
     assert(Ps2ArmAlu::decode(0xE1B02001u, &decoded));  // MOVS, carry preserved
     assert(decoded.setFlags);
     assert(Ps2ArmAlu::decode(0xE1B02181u, &decoded)); // shifted MOVS carries shifter C
-    assert(!Ps2ArmAlu::decode(0xE1A02061u, &decoded)); // RRX needs carry
+    assert(Ps2ArmAlu::decode(0xE1A02061u, &decoded)); // MOV r2,r1,RRX
+    assert(decoded.shiftType == 3 && decoded.shiftAmount == 0 &&
+        !decoded.registerShift);
+    {
+        uint32_t rrxRegs[16] = {};
+        rrxRegs[1] = 0x00000002u;
+        uint32_t rrxCpsr = 0x20000013u; // C=1
+        assert(Ps2ArmAlu::execute(0xE1A02061u, rrxRegs, &rrxCpsr));
+        assert(rrxRegs[2] == 0x80000001u);
+        assert(rrxCpsr == 0x20000013u); // S=0 preserves CPSR
+
+        rrxRegs[1] = 0x00000001u;
+        rrxCpsr = 0x00000013u;
+        assert(Ps2ArmAlu::execute(0xE1B02061u, rrxRegs, &rrxCpsr));
+        assert(rrxRegs[2] == 0u);
+        assert((rrxCpsr & 0xF0000000u) == 0x60000000u); // Z=1,C=1
+
+        rrxRegs[1] = 0x00000002u;
+        rrxCpsr = 0x30000013u; // old C=1,V=1
+        assert(Ps2ArmAlu::execute(0xE1B02061u, rrxRegs, &rrxCpsr));
+        assert(rrxRegs[2] == 0x80000001u);
+        assert((rrxCpsr & 0xF0000000u) == 0x90000000u); // N=1,C=0,V preserved
+
+        // RRX consumes C even when S=0.
+        assert(!Ps2ArmAlu::execute(0xE1A02061u, rrxRegs, nullptr));
+    }
     assert(Ps2ArmAlu::decode(0xE1A02111u, &decoded));  // register-controlled LSL
     assert(decoded.registerShift && decoded.rs == 1);
     assert(Ps2ArmAlu::decode(0xE15C0002u, &decoded)); // hot CMP r12,r2
