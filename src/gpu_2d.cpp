@@ -50,6 +50,16 @@ Gpu2D::Gpu2D(Core *core, bool engine): core(core), engine(engine)
         oam = core->memory.getOam() + 0x400;
         extPalettes = core->memory.getEngBExtPal();
     }
+
+    // Zero BLDALPHA is already represented by the zero-initialized alpha
+    // tables. Brightness factor zero is identity.
+    for (int value = 0; value < 64; value++)
+    {
+        blendBrightUp[value] = static_cast<uint8_t>(value);
+        blendBrightDown[value] = static_cast<uint8_t>(value);
+        masterBrightUp[value] = static_cast<uint8_t>(value);
+        masterBrightDown[value] = static_cast<uint8_t>(value);
+    }
 }
 
 #ifdef NOODS_PROFILE
@@ -566,36 +576,36 @@ void Gpu2D::drawScanline(int line)
                     uint32_t blend = (layers[1][i] & BIT(26))
                         ? layers[1][i] : rgb5ToRgb6(layers[1][i]);
                     uint8_t r = std::min<uint32_t>(
-                        ((pixel >> 0) & 0x3F) * eva / 16 +
-                        ((blend >> 0) & 0x3F) * evb / 16, 63);
+                        alphaMulA[(pixel >> 0) & 0x3F] +
+                        alphaMulB[(blend >> 0) & 0x3F], 63);
                     uint8_t g = std::min<uint32_t>(
-                        ((pixel >> 6) & 0x3F) * eva / 16 +
-                        ((blend >> 6) & 0x3F) * evb / 16, 63);
+                        alphaMulA[(pixel >> 6) & 0x3F] +
+                        alphaMulB[(blend >> 6) & 0x3F], 63);
                     uint8_t b = std::min<uint32_t>(
-                        ((pixel >> 12) & 0x3F) * eva / 16 +
-                        ((blend >> 12) & 0x3F) * evb / 16, 63);
+                        alphaMulA[(pixel >> 12) & 0x3F] +
+                        alphaMulB[(blend >> 12) & 0x3F], 63);
                     pixel = (b << 12) | (g << 6) | r;
                 }
                 else if (mode == 2)
                 {
                     GPU2D_DETAIL_INC(composeDetail, brightUp, 1);
-                    uint8_t r = (pixel >> 0) & 0x3F;
-                    uint8_t g = (pixel >> 6) & 0x3F;
-                    uint8_t b = (pixel >> 12) & 0x3F;
-                    r += (63 - r) * bldY / 16;
-                    g += (63 - g) * bldY / 16;
-                    b += (63 - b) * bldY / 16;
+                    uint8_t r =
+                        blendBrightUp[(pixel >> 0) & 0x3F];
+                    uint8_t g =
+                        blendBrightUp[(pixel >> 6) & 0x3F];
+                    uint8_t b =
+                        blendBrightUp[(pixel >> 12) & 0x3F];
                     pixel = (b << 12) | (g << 6) | r;
                 }
                 else if (mode == 3)
                 {
                     GPU2D_DETAIL_INC(composeDetail, brightDown, 1);
-                    uint8_t r = (pixel >> 0) & 0x3F;
-                    uint8_t g = (pixel >> 6) & 0x3F;
-                    uint8_t b = (pixel >> 12) & 0x3F;
-                    r -= r * bldY / 16;
-                    g -= g * bldY / 16;
-                    b -= b * bldY / 16;
+                    uint8_t r =
+                        blendBrightDown[(pixel >> 0) & 0x3F];
+                    uint8_t g =
+                        blendBrightDown[(pixel >> 6) & 0x3F];
+                    uint8_t b =
+                        blendBrightDown[(pixel >> 12) & 0x3F];
                     pixel = (b << 12) | (g << 6) | r;
                 }
 
@@ -663,10 +673,14 @@ void Gpu2D::drawScanline(int line)
                 }
                 for (int i = 0; i < 256; i++)
                 {
-                    uint32_t *pixel = &framebuffer[line * 256 + i];
-                    uint8_t r = (*pixel >>  0) & 0x3F; r += (63 - r) * factor / 16;
-                    uint8_t g = (*pixel >>  6) & 0x3F; g += (63 - g) * factor / 16;
-                    uint8_t b = (*pixel >> 12) & 0x3F; b += (63 - b) * factor / 16;
+                    uint32_t *pixel =
+                        &framebuffer[line * 256 + i];
+                    uint8_t r =
+                        masterBrightUp[(*pixel >> 0) & 0x3F];
+                    uint8_t g =
+                        masterBrightUp[(*pixel >> 6) & 0x3F];
+                    uint8_t b =
+                        masterBrightUp[(*pixel >> 12) & 0x3F];
                     *pixel = (b << 12) | (g << 6) | r;
                 }
                 break;
@@ -684,10 +698,14 @@ void Gpu2D::drawScanline(int line)
                 }
                 for (int i = 0; i < 256; i++)
                 {
-                    uint32_t *pixel = &framebuffer[line * 256 + i];
-                    uint8_t r = (*pixel >>  0) & 0x3F; r -= r * factor / 16;
-                    uint8_t g = (*pixel >>  6) & 0x3F; g -= g * factor / 16;
-                    uint8_t b = (*pixel >> 12) & 0x3F; b -= b * factor / 16;
+                    uint32_t *pixel =
+                        &framebuffer[line * 256 + i];
+                    uint8_t r =
+                        masterBrightDown[(*pixel >> 0) & 0x3F];
+                    uint8_t g =
+                        masterBrightDown[(*pixel >> 6) & 0x3F];
+                    uint8_t b =
+                        masterBrightDown[(*pixel >> 12) & 0x3F];
                     *pixel = (b << 12) | (g << 6) | r;
                 }
                 break;
@@ -2363,6 +2381,17 @@ void Gpu2D::writeBldAlpha(uint16_t mask, uint16_t value)
     // Write to the BLDALPHA register
     mask &= 0x1F1F;
     bldAlpha = (bldAlpha & ~mask) | (value & mask);
+
+    const uint8_t eva = std::min<uint16_t>(bldAlpha & 0x1F, 16);
+    const uint8_t evb = std::min<uint16_t>((bldAlpha >> 8) & 0x1F, 16);
+    for (int channel = 0; channel < 64; channel++)
+    {
+        // Preserve the renderer's original per-term truncation.
+        alphaMulA[channel] =
+            static_cast<uint8_t>((channel * eva) >> 4);
+        alphaMulB[channel] =
+            static_cast<uint8_t>((channel * evb) >> 4);
+    }
 }
 
 void Gpu2D::writeBldY(uint8_t value)
@@ -2370,6 +2399,14 @@ void Gpu2D::writeBldY(uint8_t value)
     // Write to the BLDY register
     bldY = value & 0x1F;
     if (bldY > 16) bldY = 16;
+
+    for (int channel = 0; channel < 64; channel++)
+    {
+        blendBrightUp[channel] = static_cast<uint8_t>(
+            channel + (((63 - channel) * bldY) >> 4));
+        blendBrightDown[channel] = static_cast<uint8_t>(
+            channel - ((channel * bldY) >> 4));
+    }
 }
 
 void Gpu2D::writeMasterBright(uint16_t mask, uint16_t value)
@@ -2377,4 +2414,14 @@ void Gpu2D::writeMasterBright(uint16_t mask, uint16_t value)
     // Write to the MASTER_BRIGHT register
     mask &= 0xC01F;
     masterBright = (masterBright & ~mask) | (value & mask);
+
+    const uint8_t factor =
+        std::min<uint16_t>(masterBright & 0x1F, 16);
+    for (int channel = 0; channel < 64; channel++)
+    {
+        masterBrightUp[channel] = static_cast<uint8_t>(
+            channel + (((63 - channel) * factor) >> 4));
+        masterBrightDown[channel] = static_cast<uint8_t>(
+            channel - ((channel * factor) >> 4));
+    }
 }
