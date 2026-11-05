@@ -1752,7 +1752,9 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
     const bool carryInputOperation =
         decoded.operation == 5 || decoded.operation == 6 ||
         decoded.operation == 7;
-    if (carryInputOperation)
+    const bool rrx = !decoded.immediate && !decoded.registerShift &&
+        decoded.shiftType == 3 && decoded.shiftAmount == 0;
+    if (carryInputOperation || rrx)
     {
         if (registerCpsr)
             code[words++] = R5900::srl(R5900::R_T9,
@@ -1814,6 +1816,12 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
         {
             uint8_t carryShift = 0;
             bool hasCarry = false;
+            if (rrx)
+            {
+                code[words++] = R5900::andi(R5900::R_T7,
+                    R5900::R_T1, 1u);
+                logicalCarryValid = true;
+            }
             switch (decoded.shiftType)
             {
                 case 0: // LSL #0 preserves C; LSL #1..31 exports bit 32-n.
@@ -1831,10 +1839,13 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
                         : 31u;
                     hasCarry = true;
                     break;
-                case 3: // RRX (#0) is rejected by decode(); ROR #n exports n-1.
-                    carryShift = static_cast<uint8_t>(
-                        decoded.shiftAmount - 1u);
-                    hasCarry = true;
+                case 3: // RRX exports bit 0; ROR #n exports n-1.
+                    if (!rrx)
+                    {
+                        carryShift = static_cast<uint8_t>(
+                            decoded.shiftAmount - 1u);
+                        hasCarry = true;
+                    }
                     break;
                 default:
                     break;
@@ -1842,8 +1853,8 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
 
             if (hasCarry)
             {
-                code[words++] = R5900::srl(R5900::R_T7, R5900::R_T1,
-                    carryShift);
+                code[words++] = R5900::srl(R5900::R_T7,
+                    R5900::R_T1, carryShift);
                 code[words++] = R5900::andi(R5900::R_T7,
                     R5900::R_T7, 1u);
                 logicalCarryValid = true;
@@ -1988,12 +1999,24 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
                         decoded.shiftAmount ? decoded.shiftAmount : 31);
                     break;
                 case 3:
-                    code[words++] = R5900::srl(R5900::R_T2, R5900::R_T1,
-                        decoded.shiftAmount);
-                    code[words++] = R5900::sll(R5900::R_T3, R5900::R_T1,
-                        32u - decoded.shiftAmount);
-                    code[words++] = R5900::or_(R5900::R_T1,
-                        R5900::R_T2, R5900::R_T3);
+                    if (rrx)
+                    {
+                        code[words++] = R5900::srl(R5900::R_T1,
+                            R5900::R_T1, 1);
+                        code[words++] = R5900::sll(R5900::R_T6,
+                            R5900::R_T9, 31);
+                        code[words++] = R5900::or_(R5900::R_T1,
+                            R5900::R_T1, R5900::R_T6);
+                    }
+                    else
+                    {
+                        code[words++] = R5900::srl(R5900::R_T2,
+                            R5900::R_T1, decoded.shiftAmount);
+                        code[words++] = R5900::sll(R5900::R_T3,
+                            R5900::R_T1, 32u - decoded.shiftAmount);
+                        code[words++] = R5900::or_(R5900::R_T1,
+                            R5900::R_T2, R5900::R_T3);
+                    }
                     break;
                 default:
                     return 0;
@@ -4872,9 +4895,12 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         Ps2ArmAlu::Decoded decoded;
         if (Ps2ArmAlu::decode(opcodes[i], &decoded))
         {
+            const bool rrx = !decoded.immediate &&
+                !decoded.registerShift && decoded.shiftType == 3 &&
+                decoded.shiftAmount == 0;
             if (decoded.condition != 0xEu || decoded.setFlags ||
                 decoded.operation == 5 || decoded.operation == 6 ||
-                decoded.operation == 7)
+                decoded.operation == 7 || rrx)
                 registerCpsr = true;
             if (decoded.setFlags)
                 writesRegisterCpsr = true;
