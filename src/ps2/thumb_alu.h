@@ -11,7 +11,8 @@ namespace Ps2Thumb
         ARM_ALU,
         LITERAL_LOAD,
         CONDITIONAL_BRANCH,
-        BRANCH
+        BRANCH,
+        BRANCH_EXCHANGE
     };
 
     struct Decoded
@@ -170,6 +171,58 @@ namespace Ps2Thumb
                 out->readMask |= static_cast<uint16_t>(1u << rd);
             if (op != 8 && op != 10 && op != 11)
                 out->writeMask = static_cast<uint16_t>(1u << rd);
+            return true;
+        }
+
+        // Format 5: high-register ADD/CMP/MOV and BX. Keep PC as a
+        // general ALU operand/destination outside this conservative subset;
+        // BX is the only control-flow form admitted here.
+        if ((opcode & 0xFC00u) == 0x4400u)
+        {
+            const uint8_t op = static_cast<uint8_t>((opcode >> 8) & 3u);
+            const uint8_t rs = static_cast<uint8_t>((opcode >> 3) & 0xFu);
+            const uint8_t rd = static_cast<uint8_t>(
+                ((opcode >> 4) & 8u) | (opcode & 7u));
+
+            if (op == 3u)
+            {
+                // Bit 7 selects BLX-register on ARMv5. ARM7 (cpu=1) has no
+                // BLX, so reject it here; plain BX may switch ARM/Thumb.
+                if (opcode & 0x0080u || rs == 15u)
+                    return false;
+                out->kind = BRANCH_EXCHANGE;
+                out->armOpcode = 0xE12FFF10u | rs;
+                out->readMask = static_cast<uint16_t>(1u << rs);
+                out->readsFlags = false;
+                out->writesFlags = true; // CPSR.T follows target bit 0.
+                out->terminal = true;
+                out->minCycles = out->maxCycles = 3;
+                return true;
+            }
+
+            if (rd == 15u || rs == 15u)
+                return false;
+
+            out->kind = ARM_ALU;
+            out->rd = rd;
+            out->readMask = static_cast<uint16_t>(1u << rs);
+            if (op == 0u) // ADD Rd,Rs (no flags)
+            {
+                out->armOpcode = armDataReg(4, false, rd, rd, rs);
+                out->readMask |= static_cast<uint16_t>(1u << rd);
+                out->writeMask = static_cast<uint16_t>(1u << rd);
+            }
+            else if (op == 1u) // CMP Rd,Rs
+            {
+                out->armOpcode = armDataReg(10, true, rd, 0, rs);
+                out->readMask |= static_cast<uint16_t>(1u << rd);
+                out->writesFlags = true;
+            }
+            else // MOV Rd,Rs (no flags)
+            {
+                out->armOpcode = armDataReg(13, false, 0, rd, rs);
+                out->writeMask = static_cast<uint16_t>(1u << rd);
+            }
             return true;
         }
 
