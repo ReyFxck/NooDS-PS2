@@ -10210,6 +10210,8 @@ int DynarecR5900::runArm9ThumbDifferentialSelfTest(Interpreter &cpu,
         *instructionCount = block ? block->guestInstructions : 0;
     if (stateHash)
         *stateHash = hash;
+    if (match)
+        DYNAREC_PROFILE(profile.activeThumbDifferentialPasses++);
     return match ? 1 : -1;
 }
 
@@ -10849,6 +10851,7 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
 
     uint32_t guestPc = CpuBackendAccess::nextInstructionAddress(cpu);
     const bool thumb = CpuBackendAccess::isThumb(cpu);
+    DYNAREC_PROFILE(if (thumb) profile.activeThumbAttempts++);
     const uint32_t rejectKey = guestPc | (thumb ? 1u : 0u);
     constexpr uint32_t MIN_ACTIVE_GUEST_INSTRUCTIONS = 3;
     auto activeBlockUseful = [](const R5900CompiledBlock *candidate)
@@ -11289,6 +11292,10 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
     DYNAREC_PROFILE(profile.activeExecutions += executedBlocks);
     DYNAREC_PROFILE(profile.activeGuestInstructions += executedGuestInstructions);
     DYNAREC_PROFILE(profile.activeCycles += totalCycles);
+    DYNAREC_PROFILE(if (thumb) profile.activeThumbExecutions += executedBlocks);
+    DYNAREC_PROFILE(if (thumb) profile.activeThumbGuestInstructions +=
+        executedGuestInstructions);
+    DYNAREC_PROFILE(if (thumb) profile.activeThumbCycles += totalCycles);
     if (guestInstructions)
         *guestInstructions = executedGuestInstructions;
 
