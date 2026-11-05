@@ -5821,6 +5821,95 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
+    // Thumb register shifts reuse the ARM data path but are one-cycle
+    // operations on ARM7. Gate the cycle override in generated R5900 code,
+    // not only in the portable decoder.
+    {
+        const uint32_t opcode = 0xE1B00110u; // MOVS r0,r0,LSL r1
+        ArmAluState expected = {};
+        expected.r[0] = 0x80000001u;
+        expected.r[1] = 1u;
+        expected.cpsr = 0x10000092u;
+        if (!applyArmAlu(opcode, &expected))
+            return false;
+        expected.cycles = 1u;
+
+        uint32_t *code = cache.reserveWords(96);
+        if (!code)
+            return false;
+        size_t words = emitArmAluInstruction(opcode, code,
+            true, true, -1, false, true);
+        if (!words)
+            return false;
+        code[words++] = R5900::jr(R5900::R_RA);
+        code[words++] = R5900::nop();
+        cache.commitWords(words);
+        cache.syncExecutable(code, code + words);
+
+        ArmAluState actual = {};
+        actual.r[0] = 0x80000001u;
+        actual.r[1] = 1u;
+        actual.cpsr = 0x10000092u;
+        typedef void (*ThumbShiftFunction)(ArmAluState *);
+        ThumbShiftFunction function =
+            reinterpret_cast<ThumbShiftFunction>(code);
+        function(&actual);
+
+        if (actual.r[0] != expected.r[0] ||
+            actual.cpsr != expected.cpsr ||
+            actual.cycles != expected.cycles)
+            return false;
+    }
+
+    // Thumb MUL maps old Rd onto ARM Rs so ARM7's variable multiplier timing
+    // is identical to Interpreter::mulDpT(). Exercise all four timing buckets.
+    {
+        const uint32_t opcode = 0xE0100091u; // MULS r0,r1,r0
+        const uint32_t multipliers[] =
+            { 0x0000007Fu, 0x00000100u, 0x00010000u, 0x01000000u };
+        const uint32_t expectedCycles[] = { 2u, 3u, 4u, 5u };
+
+        for (size_t i = 0;
+            i < sizeof(multipliers) / sizeof(multipliers[0]); i++)
+        {
+            ArmAluState expected = {};
+            expected.r[0] = multipliers[i];
+            expected.r[1] = 3u;
+            expected.cpsr = 0x30000092u;
+            expected.cpuId = 1;
+            if (!applyArmMultiply(opcode, &expected) ||
+                expected.cycles != expectedCycles[i])
+                return false;
+
+            uint32_t *code = cache.reserveWords(96);
+            if (!code)
+                return false;
+            size_t words = emitArmMultiplyInstruction(opcode, code,
+                true, true, false, 1);
+            if (!words)
+                return false;
+            code[words++] = R5900::jr(R5900::R_RA);
+            code[words++] = R5900::nop();
+            cache.commitWords(words);
+            cache.syncExecutable(code, code + words);
+
+            ArmAluState actual = {};
+            actual.r[0] = multipliers[i];
+            actual.r[1] = 3u;
+            actual.cpsr = 0x30000092u;
+            actual.cpuId = 1;
+            typedef void (*ThumbMulFunction)(ArmAluState *);
+            ThumbMulFunction function =
+                reinterpret_cast<ThumbMulFunction>(code);
+            function(&actual);
+
+            if (actual.r[0] != expected.r[0] ||
+                actual.cpsr != expected.cpsr ||
+                actual.cycles != expected.cycles)
+                return false;
+        }
+    }
+
     // A failed ARM condition is resolved before operand2/register-shift
     // decoding in Interpreter::runOpcode(), so the extra shift cycle must not
     // be charged on the not-taken path.
