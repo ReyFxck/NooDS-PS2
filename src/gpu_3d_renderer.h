@@ -53,6 +53,12 @@ struct Gpu3DDetailProfile
     uint64_t blendOps = 0;
     uint64_t fogPixels = 0;
     uint64_t edgePixels = 0;
+
+    uint64_t scanlineTimingSamples = 0;
+    uint64_t clearTicks = 0;
+    uint64_t polygonTicks = 0;
+    uint64_t finishTicks = 0;
+    uint64_t finishTimingSamples = 0;
 };
 #endif
 
@@ -74,6 +80,7 @@ class Gpu3DRenderer
             detailProfile = Gpu3DDetailProfile();
             detailSampleState = 0;
             finishSampleState = 0;
+            scanlineTimingState = 0;
 #endif
         }
 #if NOODS_PROFILE_LEVEL >= 2
@@ -109,6 +116,7 @@ class Gpu3DRenderer
         Gpu3DDetailProfile detailProfile;
         uint32_t detailSampleState = 0;
         uint32_t finishSampleState = 0;
+        uint32_t scanlineTimingState = 0;
 #endif
 #endif
 
