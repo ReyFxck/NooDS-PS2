@@ -9842,10 +9842,11 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
 }
 
 
-bool DynarecR5900::compileArm7ThumbBlock(const Interpreter &cpu,
+bool DynarecR5900::compileThumbBlock(const Interpreter &cpu,
     size_t maxInstructions)
 {
-    if (CpuBackendAccess::isArm9(cpu) || !CpuBackendAccess::isThumb(cpu) ||
+    const bool arm9 = CpuBackendAccess::isArm9(cpu);
+    if (arm9 != (targetCpuId == 0) || !CpuBackendAccess::isThumb(cpu) ||
         !memory || !maxInstructions)
         return false;
 
@@ -9873,7 +9874,8 @@ bool DynarecR5900::compileArm7ThumbBlock(const Interpreter &cpu,
             const uint32_t address =
                 guestPc + static_cast<uint32_t>(i * 2);
             const uint32_t offset = address & 0xFFFu;
-            uint8_t *page = memory->getDirectReadPage(1, address);
+            uint8_t *page = memory->getDirectReadPage(targetCpuId != 0,
+                address);
             if (!page || offset > 0xFFEu)
                 break;
             opcode = static_cast<uint16_t>(
@@ -9884,6 +9886,12 @@ bool DynarecR5900::compileArm7ThumbBlock(const Interpreter &cpu,
         Ps2Thumb::Decoded decoded;
         if (!Ps2Thumb::decode(opcode,
             guestPc + static_cast<uint32_t>(i * 2), &decoded))
+            break;
+
+        // First ARM9 Thumb live subset deliberately excludes POP {...,pc}.
+        // NooDS' ARM9 POP may clear T from the loaded PC; admit it only after
+        // a dedicated mode-switch commit path is differential-gated.
+        if (targetCpuId == 0 && decoded.kind == Ps2Thumb::POP_PC)
             break;
 
         opcodes[count++] = opcode;
@@ -9900,6 +9908,13 @@ bool DynarecR5900::compileArm7ThumbBlock(const Interpreter &cpu,
         &entry, &hostWords) && entry && hostWords;
 }
 
+bool DynarecR5900::compileArm7ThumbBlock(const Interpreter &cpu,
+    size_t maxInstructions)
+{
+    if (targetCpuId != 1)
+        return false;
+    return compileThumbBlock(cpu, maxInstructions);
+}
 
 int DynarecR5900::runArm7ThumbDifferentialSelfTest(Interpreter &cpu,
     uint32_t *guestPcOut, uint32_t *instructionCount,
