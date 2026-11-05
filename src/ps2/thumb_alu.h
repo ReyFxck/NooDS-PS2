@@ -11,6 +11,7 @@ namespace Ps2Thumb
         ARM_ALU,
         ARM_MULTIPLY,
         ARM_LOAD,
+        POP_PC,
         ADDRESS_ADD,
         LITERAL_LOAD,
         CONDITIONAL_BRANCH,
@@ -410,20 +411,33 @@ namespace Ps2Thumb
         if ((opcode & 0xFE00u) == 0xBC00u)
         {
             const uint16_t list = static_cast<uint16_t>(opcode & 0x00FFu);
-            if (!list || (opcode & 0x0100u))
+            const bool popPc = (opcode & 0x0100u) != 0;
+            if (!list && !popPc)
                 return false;
 
             uint8_t count = 0;
             for (uint16_t bits = list; bits; bits >>= 1)
                 count += static_cast<uint8_t>(bits & 1u);
 
-            out->kind = ARM_LOAD;
-            out->armOpcode = 0xE8BD0000u | list; // LDMIA sp!,{rlist}
             out->readMask = static_cast<uint16_t>(1u << 13);
             out->writeMask = static_cast<uint16_t>(
                 list | (1u << 13));
-            out->minCycles = out->maxCycles =
-                static_cast<uint8_t>(count + 2u);
+            out->armOpcode = list
+                ? (0xE8BD0000u | list) : 0u; // LDMIA sp!,{rlist}
+
+            if (popPc)
+            {
+                out->kind = POP_PC;
+                out->terminal = true;
+                out->minCycles = out->maxCycles =
+                    static_cast<uint8_t>(count + 5u);
+            }
+            else
+            {
+                out->kind = ARM_LOAD;
+                out->minCycles = out->maxCycles =
+                    static_cast<uint8_t>(count + 2u);
+            }
             return true;
         }
 
