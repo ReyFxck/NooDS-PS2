@@ -5740,7 +5740,58 @@ bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
             if (!emitted)
                 return false;
             words += emitted;
-            code[words++] = R5900::sw(R5900::R_T2, 68, R5900::R_A0);
+
+            if (targetCpuId == 0)
+            {
+                // ARM9 POP {...,pc}: an odd target stays in Thumb and aligns
+                // to two bytes; an even target clears CPSR.T and refills the
+                // ARM pipeline from a four-byte-aligned address.
+                code[words++] = R5900::andi(R5900::R_T4,
+                    R5900::R_T2, 1u);
+                size_t thumbTargetBranch = words;
+                code[words++] = R5900::bne(R5900::R_T4,
+                    R5900::R_ZERO, 0);
+                code[words++] = R5900::nop();
+
+                code[words++] = R5900::srl(R5900::R_T2,
+                    R5900::R_T2, 2);
+                code[words++] = R5900::sll(R5900::R_T2,
+                    R5900::R_T2, 2);
+                code[words++] = R5900::sw(R5900::R_T2, 68,
+                    R5900::R_A0);
+                code[words++] = R5900::addiu(R5900::R_T3,
+                    R5900::R_ZERO, -33);
+                code[words++] = R5900::and_(R5900::R_V1,
+                    R5900::R_V1, R5900::R_T3);
+                size_t doneBranch = words;
+                code[words++] = R5900::beq(R5900::R_ZERO,
+                    R5900::R_ZERO, 0);
+                code[words++] = R5900::nop();
+
+                const size_t thumbTarget = words;
+                code[words++] = R5900::srl(R5900::R_T2,
+                    R5900::R_T2, 1);
+                code[words++] = R5900::sll(R5900::R_T2,
+                    R5900::R_T2, 1);
+                code[words++] = R5900::sw(R5900::R_T2, 68,
+                    R5900::R_A0);
+                const size_t done = words;
+
+                size_t thumbDistance =
+                    thumbTarget - (thumbTargetBranch + 1);
+                size_t doneDistance = done - (doneBranch + 1);
+                if (thumbDistance > 0x7FFFu || doneDistance > 0x7FFFu)
+                    return false;
+                code[thumbTargetBranch] = R5900::bne(R5900::R_T4,
+                    R5900::R_ZERO, static_cast<int16_t>(thumbDistance));
+                code[doneBranch] = R5900::beq(R5900::R_ZERO,
+                    R5900::R_ZERO, static_cast<int16_t>(doneDistance));
+            }
+            else
+            {
+                code[words++] = R5900::sw(R5900::R_T2, 68,
+                    R5900::R_A0);
+            }
             continue;
         }
 
@@ -10078,11 +10129,10 @@ bool DynarecR5900::compileThumbBlock(const Interpreter &cpu,
         // ARM7 has no BLX-register. ARM9 POP {...,pc} remains outside the
         // first live subset until its mode-switch commit path is separately
         // differential-gated.
-        if ((targetCpuId != 0 &&
-                (decoded.kind == Ps2Thumb::BRANCH_LINK_EXCHANGE ||
-                 decoded.kind == Ps2Thumb::LONG_BRANCH_LINK_EXCHANGE ||
-                 decoded.kind == Ps2Thumb::ARM_STORE)) ||
-            (targetCpuId == 0 && decoded.kind == Ps2Thumb::POP_PC))
+        if (targetCpuId != 0 &&
+            (decoded.kind == Ps2Thumb::BRANCH_LINK_EXCHANGE ||
+             decoded.kind == Ps2Thumb::LONG_BRANCH_LINK_EXCHANGE ||
+             decoded.kind == Ps2Thumb::ARM_STORE))
             break;
 
         opcodes[count++] = opcode;
