@@ -251,9 +251,12 @@ class DynarecR5900
         uint64_t compiledPhysicalPageBloom[4] = {};
         R5900DynarecProfile profile;
 
-        size_t activeLookupSlot(uint32_t pc) const
+        size_t activeLookupSlot(uint32_t key) const
         {
-            return ((pc >> 2) ^ (pc >> 13)) & (ACTIVE_CACHE_SLOTS - 1);
+            // key bit 0 distinguishes ARM/Thumb entries. Fold it explicitly
+            // because the guest-address hash otherwise starts at >>2.
+            return ((key >> 2) ^ (key >> 13) ^ key) &
+                (ACTIVE_CACHE_SLOTS - 1);
         }
         void clearActiveLookups();
         void cacheActiveReject(uint32_t pc, ActiveRejectKind kind);
