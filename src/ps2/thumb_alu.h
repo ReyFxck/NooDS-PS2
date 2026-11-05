@@ -10,6 +10,7 @@ namespace Ps2Thumb
         UNSUPPORTED = 0,
         ARM_ALU,
         ARM_LOAD,
+        ADDRESS_ADD,
         LITERAL_LOAD,
         CONDITIONAL_BRANCH,
         BRANCH,
@@ -25,6 +26,8 @@ namespace Ps2Thumb
         uint16_t writeMask = 0;
         uint8_t rd = 0xFF;
         uint8_t condition = 0xE;
+        uint8_t baseReg = 0xFF;
+        int16_t addend = 0;
         bool readsFlags = false;
         bool writesFlags = false;
         bool terminal = false;
@@ -325,6 +328,96 @@ namespace Ps2Thumb
             out->armOpcode = 0xE59D0000u |
                 (static_cast<uint32_t>(rd) << 12) | offset;
             out->minCycles = out->maxCycles = 3;
+            return true;
+        }
+
+        // Format 12: ADD Rd,PC/SP,#imm8*4. These are pure address
+        // calculations and do not touch flags. PC uses Thumb's aligned
+        // architectural PC+4 value; SP stays a normal live register input.
+        if ((opcode & 0xF000u) == 0xA000u)
+        {
+            const bool useSp = (opcode & 0x0800u) != 0;
+            const uint8_t rd = static_cast<uint8_t>((opcode >> 8) & 7u);
+            const uint32_t offset =
+                static_cast<uint32_t>(opcode & 0xFFu) << 2;
+            out->kind = ADDRESS_ADD;
+            out->rd = rd;
+            out->writeMask = static_cast<uint16_t>(1u << rd);
+            if (useSp)
+            {
+                out->baseReg = 13;
+                out->addend = static_cast<int16_t>(offset);
+                out->readMask = static_cast<uint16_t>(1u << 13);
+            }
+            else
+            {
+                out->target = ((pc + 4u) & ~3u) + offset;
+            }
+            return true;
+        }
+
+        // Format 13: ADD/SUB SP,#imm7*4. No flags are modified.
+        if ((opcode & 0xFF00u) == 0xB000u)
+        {
+            const bool subtract = (opcode & 0x0080u) != 0;
+            const int16_t offset = static_cast<int16_t>(
+                static_cast<uint16_t>(opcode & 0x7Fu) << 2);
+            out->kind = ADDRESS_ADD;
+            out->rd = 13;
+            out->baseReg = 13;
+            out->addend = subtract
+                ? static_cast<int16_t>(-offset) : offset;
+            out->readMask = static_cast<uint16_t>(1u << 13);
+            out->writeMask = static_cast<uint16_t>(1u << 13);
+            return true;
+        }
+
+        // Format 14 POP without PC. PUSH and POP {...,pc} stay outside the
+        // first read-only live backend. Reuse the already differential-gated
+        // ARM7 LDMIA sp! emitter.
+        if ((opcode & 0xFE00u) == 0xBC00u)
+        {
+            const uint16_t list = static_cast<uint16_t>(opcode & 0x00FFu);
+            if (!list || (opcode & 0x0100u))
+                return false;
+
+            uint8_t count = 0;
+            for (uint16_t bits = list; bits; bits >>= 1)
+                count += static_cast<uint8_t>(bits & 1u);
+
+            out->kind = ARM_LOAD;
+            out->armOpcode = 0xE8BD0000u | list; // LDMIA sp!,{rlist}
+            out->readMask = static_cast<uint16_t>(1u << 13);
+            out->writeMask = static_cast<uint16_t>(
+                list | (1u << 13));
+            out->minCycles = out->maxCycles =
+                static_cast<uint8_t>(count + 2u);
+            return true;
+        }
+
+        // Format 15 LDMIA Rb!,{rlist}. Store-multiple and base-in-list are
+        // intentionally left to the interpreter; both complicate the first
+        // read-only Thumb live path.
+        if ((opcode & 0xF000u) == 0xC000u)
+        {
+            const bool load = (opcode & 0x0800u) != 0;
+            const uint8_t rb = static_cast<uint8_t>((opcode >> 8) & 7u);
+            const uint16_t list = static_cast<uint16_t>(opcode & 0x00FFu);
+            if (!load || !list || (list & (1u << rb)))
+                return false;
+
+            uint8_t count = 0;
+            for (uint16_t bits = list; bits; bits >>= 1)
+                count += static_cast<uint8_t>(bits & 1u);
+
+            out->kind = ARM_LOAD;
+            out->armOpcode = 0xE8B00000u |
+                (static_cast<uint32_t>(rb) << 16) | list;
+            out->readMask = static_cast<uint16_t>(1u << rb);
+            out->writeMask = static_cast<uint16_t>(
+                list | (1u << rb));
+            out->minCycles = out->maxCycles =
+                static_cast<uint8_t>(count + 2u);
             return true;
         }
 
