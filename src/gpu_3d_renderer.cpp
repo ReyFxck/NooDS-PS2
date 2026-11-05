@@ -23,6 +23,7 @@
 #endif
 
 #include "gpu_3d_renderer.h"
+#include "gpu_3d_math.h"
 #include "core.h"
 #include "settings.h"
 
@@ -1284,6 +1285,22 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
     // and reuse it for W/color/texture coordinates. Preserve the old linear
     // path verbatim because its per-channel integer rounding is observable.
     const bool linearFill = (w1 == w2 && !(w1 & 0x007F));
+    const uint32_t fillSpan = x4 - x1;
+
+    // The linear-fill path dominated the PS2 profile. Build exact incremental
+    // interpolators once per polygon scanline so R/G/B/S/T/Z no longer each
+    // execute an integer division for every pixel.
+    Gpu3DLinearStepper linearR(r1, r2, fillSpan);
+    Gpu3DLinearStepper linearG(g1, g2, fillSpan);
+    Gpu3DLinearStepper linearB(b1, b2, fillSpan);
+    Gpu3DLinearStepper linearS(
+        static_cast<uint32_t>(s1 + 0xFFFF),
+        static_cast<uint32_t>(s2 + 0xFFFF), fillSpan);
+    Gpu3DLinearStepper linearT(
+        static_cast<uint32_t>(t1 + 0xFFFF),
+        static_cast<uint32_t>(t2 + 0xFFFF), fillSpan);
+    Gpu3DLinearStepper linearZ(z1, z2, fillSpan);
+    uint32_t linearX = x1;
 
     // Draw a line segment
     for (uint32_t x = x1; x < x4; x++)
@@ -1328,6 +1345,18 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
         // Invalid viewports can cause out-of-bounds vertices, so only draw within bounds
         if (x >= 256) break;
 
+        if (linearFill && x > linearX)
+        {
+            const uint32_t advance = x - linearX;
+            linearR.advanceBy(advance);
+            linearG.advanceBy(advance);
+            linearB.advanceBy(advance);
+            linearS.advanceBy(advance);
+            linearT.advanceBy(advance);
+            linearZ.advanceBy(advance);
+            linearX = x;
+        }
+
         bool layer = 0;
         int i = line * 256 + x;
 
@@ -1335,7 +1364,8 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
         int32_t depth;
         if (polygon->wBuffer)
         {
-            depth = fillValue(w1, w2);
+            depth = linearFill ? static_cast<int32_t>(w1) :
+                static_cast<int32_t>(fillValue(w1, w2));
             if (polygon->wShift > 0)
                 depth <<= polygon->wShift;
             else if (polygon->wShift < 0)
@@ -1343,7 +1373,10 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
         }
         else
         {
-            depth = interpolateLinear(z1, z2, x1, x, x4);
+            depth = linearFill ?
+                static_cast<int32_t>(linearZ.current()) :
+                static_cast<int32_t>(
+                    interpolateLinear(z1, z2, x1, x, x4));
         }
 
         // Depth test the pixel on the front layer, and on the back layer if under an anti-aliased edge
@@ -1402,21 +1435,26 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
         }
 
         // Interpolate the vertex color at the current pixel
-        uint32_t r = fillValue(r1, r2) >> 3;
-        uint32_t g = fillValue(g1, g2) >> 3;
-        uint32_t b = fillValue(b1, b2) >> 3;
+        uint32_t r = (linearFill ? linearR.current() :
+            fillValue(r1, r2)) >> 3;
+        uint32_t g = (linearFill ? linearG.current() :
+            fillValue(g1, g2)) >> 3;
+        uint32_t b = (linearFill ? linearB.current() :
+            fillValue(b1, b2)) >> 3;
         uint32_t color = ((polygon->alpha ? polygon->alpha : 0x3F) << 18) | (b << 12) | (g << 6) | r;
 
         // Blend the texture with the vertex color
         if (polygon->textureFmt != 0)
         {
             // Interpolate the texture coordinates at the current pixel
-            int s = static_cast<int>(fillValue(
-                static_cast<uint32_t>(s1 + 0xFFFF),
-                static_cast<uint32_t>(s2 + 0xFFFF))) - 0xFFFF;
-            int t = static_cast<int>(fillValue(
-                static_cast<uint32_t>(t1 + 0xFFFF),
-                static_cast<uint32_t>(t2 + 0xFFFF))) - 0xFFFF;
+            int s = static_cast<int>(linearFill ?
+                linearS.current() :
+                fillValue(static_cast<uint32_t>(s1 + 0xFFFF),
+                    static_cast<uint32_t>(s2 + 0xFFFF))) - 0xFFFF;
+            int t = static_cast<int>(linearFill ?
+                linearT.current() :
+                fillValue(static_cast<uint32_t>(t1 + 0xFFFF),
+                    static_cast<uint32_t>(t2 + 0xFFFF))) - 0xFFFF;
 
             // Read a texel from the texture
             uint32_t texel = readTexture(polygon, s >> 4, t >> 4, basePalette,
