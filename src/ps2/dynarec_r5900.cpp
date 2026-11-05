@@ -43,6 +43,18 @@ void recordFallback(R5900DynarecProfile &profile, uint32_t pc, uint32_t opcode)
 void recordActiveFallback(R5900DynarecProfile &profile, uint32_t pc,
     R5900ActiveFallbackReason reason)
 {
+#if NOODS_PROFILE_LEVEL < 2
+    (void)profile;
+    (void)pc;
+    (void)reason;
+    return;
+#else
+    // Heavy-hitter attribution is diagnostic, not an exact counter. Sample
+    // one fallback in 64 so pathological loops cannot make profiling itself
+    // dominate the JIT dispatch path.
+    if ((++profile.activeFallbackSampleCounter & 63u) != 0)
+        return;
+
     for (size_t i = 0; i < 16; i++)
     {
         R5900ActiveFallbackProfile &entry = profile.topActiveFallback[i];
@@ -63,6 +75,7 @@ void recordActiveFallback(R5900DynarecProfile &profile, uint32_t pc,
     // Bounded heavy-hitter reduction, matching topFallback[].
     for (size_t i = 0; i < 16; i++)
         profile.topActiveFallback[i].count--;
+#endif
 }
 #endif
 }
