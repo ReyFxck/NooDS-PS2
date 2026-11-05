@@ -5778,12 +5778,24 @@ bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
             continue;
         }
 
-        if (decoded.kind == Ps2Thumb::BRANCH_EXCHANGE)
+        if (decoded.kind == Ps2Thumb::BRANCH_EXCHANGE ||
+            decoded.kind == Ps2Thumb::BRANCH_LINK_EXCHANGE)
         {
+            const bool link =
+                decoded.kind == Ps2Thumb::BRANCH_LINK_EXCHANGE;
+            if (link && targetCpuId != 0)
+                return false;
+
+            uint32_t branchPc =
+                guestPc + static_cast<uint32_t>(i * 2);
+            // ARM BLX stores pc+4 in LR; Thumb BLX-register stores
+            // architectural next-PC|1 == thumbPc+3.
+            if (link)
+                branchPc -= 1u;
+
             size_t emitted = emitArmBranchExchangeDirectInstruction(
-                decoded.armOpcode,
-                guestPc + static_cast<uint32_t>(i * 2),
-                code + words, true, true, targetCpuId);
+                decoded.armOpcode, branchPc, code + words,
+                true, true, targetCpuId);
             if (!emitted)
                 return false;
             words += emitted;
@@ -9961,10 +9973,13 @@ bool DynarecR5900::compileThumbBlock(const Interpreter &cpu,
             guestPc + static_cast<uint32_t>(i * 2), &decoded))
             break;
 
-        // First ARM9 Thumb live subset deliberately excludes POP {...,pc}.
-        // NooDS' ARM9 POP may clear T from the loaded PC; admit it only after
-        // a dedicated mode-switch commit path is differential-gated.
-        if (targetCpuId == 0 && decoded.kind == Ps2Thumb::POP_PC)
+        // CPU-specific Thumb control-flow restrictions.
+        // ARM7 has no BLX-register. ARM9 POP {...,pc} remains outside the
+        // first live subset until its mode-switch commit path is separately
+        // differential-gated.
+        if ((targetCpuId != 0 &&
+                decoded.kind == Ps2Thumb::BRANCH_LINK_EXCHANGE) ||
+            (targetCpuId == 0 && decoded.kind == Ps2Thumb::POP_PC))
             break;
 
         opcodes[count++] = opcode;
