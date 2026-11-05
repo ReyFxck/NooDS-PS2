@@ -467,8 +467,6 @@ void Gpu2D::drawScanline(int line)
             directLayerOutput = true;
             uint32_t *output = &framebuffer[line * 256];
             const uint8_t mode = (bldCnt >> 6) & 0x3;
-            const uint8_t eva = std::min((bldAlpha >> 0) & 0x1F, 16);
-            const uint8_t evb = std::min((bldAlpha >> 8) & 0x1F, 16);
             const bool noWindows = (dispCnt & 0x0000E000u) == 0;
             GPU2D_DETAIL_INC(composeDetail, windowedCalls,
                 noWindows ? 0 : 1);
