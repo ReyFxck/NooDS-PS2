@@ -5228,6 +5228,26 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             continue;
         }
 
+        Ps2ArmAlu::DecodedPsrTransfer psrTransfer;
+        if (Ps2ArmAlu::decodePsrTransfer(opcodes[i], &psrTransfer))
+        {
+            block.readsFlags = true;
+            if (psrTransfer.write)
+            {
+                if (i + 1 != count)
+                    return false;
+                block.readMask |= static_cast<uint16_t>(
+                    1u << psrTransfer.rm);
+                block.writesFlags = true;
+            }
+            else
+            {
+                block.writeMask |= static_cast<uint16_t>(
+                    1u << psrTransfer.rd);
+            }
+            continue;
+        }
+
         Ps2ArmAlu::DecodedBranchExchange branchExchange;
         if (Ps2ArmAlu::decodeBranchExchange(opcodes[i], &branchExchange))
         {
