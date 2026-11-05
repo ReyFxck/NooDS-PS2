@@ -221,18 +221,43 @@ int main()
         assert(!Ps2Thumb::decode(0xC313u, 0x1000u, &load)); // STMIA
     }
 
-    // Initial subset intentionally rejects operations whose Thumb timing
-    // differs from the ARM emitter or that mutate memory/stack state.
+    // Scalar stores now translate to the transactional ARM backend. ARM9
+    // admits them live only after journal differential verification; ARM7
+    // compilation still blocks stores at the CPU-specific gate.
     Ps2Thumb::Decoded d;
     assert(!Ps2Thumb::decode(0x46F8u, 0x1000u, &d)); // MOV pc,r15/PC write
-    assert(!Ps2Thumb::decode(0xB500u, 0x1000u, &d)); // PUSH
-    assert(!Ps2Thumb::decode(0x5008u, 0x1000u, &d)); // STR register
-    assert(!Ps2Thumb::decode(0x5208u, 0x1000u, &d)); // STRH register
-    assert(!Ps2Thumb::decode(0x5408u, 0x1000u, &d)); // STRB register
-    assert(!Ps2Thumb::decode(0x6008u, 0x1000u, &d)); // STR word
-    assert(!Ps2Thumb::decode(0x7008u, 0x1000u, &d)); // STRB
-    assert(!Ps2Thumb::decode(0x8008u, 0x1000u, &d)); // STRH
-    assert(!Ps2Thumb::decode(0x9000u, 0x1000u, &d)); // STR [SP]
+    assert(!Ps2Thumb::decode(0xB500u, 0x1000u, &d)); // PUSH stays later
+
+    assert(Ps2Thumb::decode(0x5008u, 0x1000u, &d)); // STR r0,[r1,r0]
+    assert(d.kind == Ps2Thumb::ARM_STORE);
+    assert(d.armOpcode == 0xE7810000u);
+    assert(d.readMask == ((1u << 0) | (1u << 1)));
+    assert(d.writeMask == 0 && d.minCycles == 2 && d.maxCycles == 2);
+
+    assert(Ps2Thumb::decode(0x5248u, 0x1000u, &d)); // STRH r0,[r1,r1]
+    assert(d.kind == Ps2Thumb::ARM_STORE);
+    assert(d.armOpcode == 0xE18100B1u);
+
+    assert(Ps2Thumb::decode(0x5488u, 0x1000u, &d)); // STRB r0,[r1,r2]
+    assert(d.kind == Ps2Thumb::ARM_STORE);
+    assert(d.armOpcode == 0xE7C10002u);
+
+    assert(Ps2Thumb::decode(0x6048u, 0x1000u, &d)); // STR r0,[r1,#4]
+    assert(d.kind == Ps2Thumb::ARM_STORE);
+    assert(d.armOpcode == 0xE5810004u);
+
+    assert(Ps2Thumb::decode(0x7148u, 0x1000u, &d)); // STRB r0,[r1,#5]
+    assert(d.kind == Ps2Thumb::ARM_STORE);
+    assert(d.armOpcode == 0xE5C10005u);
+
+    assert(Ps2Thumb::decode(0x8088u, 0x1000u, &d)); // STRH r0,[r1,#4]
+    assert(d.kind == Ps2Thumb::ARM_STORE);
+    assert(d.armOpcode == 0xE1C100B4u);
+
+    assert(Ps2Thumb::decode(0x9003u, 0x1000u, &d)); // STR r0,[sp,#12]
+    assert(d.kind == Ps2Thumb::ARM_STORE);
+    assert(d.armOpcode == 0xE58D000Cu);
+    assert(d.readMask == ((1u << 13) | (1u << 0)));
 
     // ARM7 Thumb long BL is two independently decodable halves. The
     // setup half writes the signed high target to LR; the suffix reads LR,
