@@ -8375,6 +8375,15 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
             continue;
         }
 
+        Ps2ArmAlu::DecodedPsrTransfer psrTransfer;
+        if (Ps2ArmAlu::decodePsrTransfer(opcode, &psrTransfer))
+        {
+            opcodes[count++] = opcode;
+            if (psrTransfer.write)
+                break;
+            continue;
+        }
+
         Ps2ArmAlu::DecodedBranchExchange branchExchange;
         if (Ps2ArmAlu::decodeBranchExchange(opcode, &branchExchange))
         {
@@ -8473,6 +8482,14 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
         {
             if (!applyArmSingleBlockTransfer(&expected, opcodes[i]))
                 return 0;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedPsrTransfer psrTransfer;
+        if (Ps2ArmAlu::decodePsrTransfer(opcodes[i], &psrTransfer))
+        {
+            if (!applyArmPsrTransfer(opcodes[i], &expected))
+                return -1;
             continue;
         }
 
@@ -8678,6 +8695,15 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
             continue;
         }
 
+        Ps2ArmAlu::DecodedPsrTransfer psrTransfer;
+        if (Ps2ArmAlu::decodePsrTransfer(opcode, &psrTransfer))
+        {
+            opcodes[count++] = opcode;
+            if (psrTransfer.write)
+                break;
+            continue;
+        }
+
         Ps2ArmAlu::DecodedBranchExchange branchExchange;
         if (Ps2ArmAlu::decodeBranchExchange(opcode, &branchExchange))
         {
@@ -8787,6 +8813,14 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
         {
             if (!applyArmMultiBlockTransfer(&expected, opcodes[i]))
                 return 0;
+            continue;
+        }
+
+        Ps2ArmAlu::DecodedPsrTransfer psrTransfer;
+        if (Ps2ArmAlu::decodePsrTransfer(opcodes[i], &psrTransfer))
+        {
+            if (!applyArmPsrTransfer(opcodes[i], &expected))
+                return -1;
             continue;
         }
 
