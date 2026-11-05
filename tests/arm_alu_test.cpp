@@ -759,7 +759,7 @@ int main()
     assert(Ps2ArmAlu::executeBranchExchange(0xE12FFF34u, bxRegs,
         &bxCpsr, &bxNextPc, 0x02001000u));
     assert(bxRegs[14] == 0x02001004u);
-    assert(bxNextPc == 0x02000400u && (bxCpsr & BIT(5)));
+    assert(bxNextPc == 0x02000400u && (bxCpsr & (1u << 5)));
 
     bxRegs[14] = 0x02000501u;
     bxCpsr = 0x00000013u;
