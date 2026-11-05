@@ -120,6 +120,56 @@ int main()
         assert(load.minCycles == 3 && load.maxCycles == 3);
     }
 
+    // Address-generation forms are direct Thumb semantics rather than
+    // synthetic ARM PC reads. PC is Thumb PC+4 aligned; SP forms preserve
+    // flags and use a signed immediate addend.
+    {
+        Ps2Thumb::Decoded addr;
+        assert(Ps2Thumb::decode(0xA001u, 0x1002u, &addr)); // ADD r0,pc,#4
+        assert(addr.kind == Ps2Thumb::ADDRESS_ADD);
+        assert(addr.rd == 0 && addr.baseReg == 0xFFu);
+        assert(addr.target == 0x1008u);
+        assert(addr.writeMask == (1u << 0) && addr.readMask == 0);
+
+        assert(Ps2Thumb::decode(0xAA03u, 0x1000u, &addr)); // ADD r2,sp,#12
+        assert(addr.kind == Ps2Thumb::ADDRESS_ADD);
+        assert(addr.rd == 2 && addr.baseReg == 13 && addr.addend == 12);
+        assert(addr.readMask == (1u << 13) &&
+            addr.writeMask == (1u << 2));
+
+        assert(Ps2Thumb::decode(0xB004u, 0x1000u, &addr)); // ADD sp,#16
+        assert(addr.rd == 13 && addr.baseReg == 13 && addr.addend == 16);
+        assert(addr.readMask == (1u << 13) &&
+            addr.writeMask == (1u << 13));
+
+        assert(Ps2Thumb::decode(0xB084u, 0x1000u, &addr)); // SUB sp,#16
+        assert(addr.addend == -16);
+    }
+
+    // Read-only stack/multiple loads reuse the gated ARM7 LDM backend.
+    {
+        Ps2Thumb::Decoded load;
+        assert(Ps2Thumb::decode(0xBC85u, 0x1000u, &load)); // POP {r0,r2,r7}
+        assert(load.kind == Ps2Thumb::ARM_LOAD);
+        assert(load.armOpcode == 0xE8BD0085u);
+        assert(load.readMask == (1u << 13));
+        assert(load.writeMask ==
+            static_cast<uint16_t>(0x0085u | (1u << 13)));
+        assert(load.minCycles == 5 && load.maxCycles == 5);
+
+        assert(Ps2Thumb::decode(0xCB13u, 0x1000u, &load)); // LDMIA r3!,{r0,r1,r4}
+        assert(load.kind == Ps2Thumb::ARM_LOAD);
+        assert(load.armOpcode == 0xE8B30013u);
+        assert(load.readMask == (1u << 3));
+        assert(load.writeMask ==
+            static_cast<uint16_t>(0x0013u | (1u << 3)));
+        assert(load.minCycles == 5 && load.maxCycles == 5);
+
+        assert(!Ps2Thumb::decode(0xBD01u, 0x1000u, &load)); // POP {r0,pc}
+        assert(!Ps2Thumb::decode(0xCB08u, 0x1000u, &load)); // base in list
+        assert(!Ps2Thumb::decode(0xC313u, 0x1000u, &load)); // STMIA
+    }
+
     // Initial subset intentionally rejects operations whose Thumb timing
     // differs from the ARM emitter or that mutate memory/stack state.
     Ps2Thumb::Decoded d;
