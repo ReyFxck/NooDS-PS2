@@ -215,7 +215,6 @@ class Gpu2D
         int8_t priorities[2][256] = {};
         int8_t blendBits[2][256] = {};
         uint8_t windowMask[256] = {};
-        bool windowMaskValid = false;
 
         int internalX[2] = {};
         int internalY[2] = {};
