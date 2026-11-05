@@ -131,6 +131,7 @@ class Gpu3DRenderer
         // 2048 polygon bits per scanline. Built once at line 0 so the
         // renderer doesn't rescan every polygon for all 192 scanlines.
         uint32_t polygonLineMask[192][64] = {};
+        uint8_t polygonMaskWords = 0;
 
         int activeThreads = 0;
         std::thread *threads[3] = {};
