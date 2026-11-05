@@ -6265,13 +6265,23 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
         expected.cycles = 1u;
 
-        uint32_t *code = cache.reserveWords(96);
+        // This emitter form is used inside a Thumb block: CPSR is resident
+        // in v1 and the cycle delta in t8. Match the real block prologue and
+        // epilogue instead of calling its body with uninitialized host regs.
+        uint32_t *code = cache.reserveWords(104);
         if (!code)
             return false;
-        size_t words = emitArmAluInstruction(opcode, code,
+        size_t words = 0;
+        code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
+        code[words++] = R5900::or_(R5900::R_T8,
+            R5900::R_ZERO, R5900::R_ZERO);
+        size_t emitted = emitArmAluInstruction(opcode, code + words,
             true, true, -1, false, true);
-        if (!words)
+        if (!emitted)
             return false;
+        words += emitted;
+        code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
+        code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
         code[words++] = R5900::jr(R5900::R_RA);
         code[words++] = R5900::nop();
         cache.commitWords(words);
@@ -6289,7 +6299,16 @@ bool DynarecR5900::runArmAluSelfTest()
         if (actual.r[0] != expected.r[0] ||
             actual.cpsr != expected.cpsr ||
             actual.cycles != expected.cycles)
+        {
+            std::printf("[PS2][JIT-SELFTEST] Thumb shift r0=%08lX/%08lX cpsr=%08lX/%08lX cycles=%lu/%lu (actual/expected)\n",
+                static_cast<unsigned long>(actual.r[0]),
+                static_cast<unsigned long>(expected.r[0]),
+                static_cast<unsigned long>(actual.cpsr),
+                static_cast<unsigned long>(expected.cpsr),
+                static_cast<unsigned long>(actual.cycles),
+                static_cast<unsigned long>(expected.cycles));
             return false;
+        }
     }
 
     stage = "Thumb ARM7 multiply timing";
@@ -6315,13 +6334,21 @@ bool DynarecR5900::runArmAluSelfTest()
                 expected.cycles != expectedCycles[i])
                 return false;
 
-            uint32_t *code = cache.reserveWords(96);
+            // Exercise the same resident CPSR/cycle ABI as a Thumb sequence.
+            uint32_t *code = cache.reserveWords(104);
             if (!code)
                 return false;
-            size_t words = emitArmMultiplyInstruction(opcode, code,
+            size_t words = 0;
+            code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
+            code[words++] = R5900::or_(R5900::R_T8,
+                R5900::R_ZERO, R5900::R_ZERO);
+            size_t emitted = emitArmMultiplyInstruction(opcode, code + words,
                 true, true, false, 1);
-            if (!words)
+            if (!emitted)
                 return false;
+            words += emitted;
+            code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
+            code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
             code[words++] = R5900::jr(R5900::R_RA);
             code[words++] = R5900::nop();
             cache.commitWords(words);
@@ -6340,7 +6367,17 @@ bool DynarecR5900::runArmAluSelfTest()
             if (actual.r[0] != expected.r[0] ||
                 actual.cpsr != expected.cpsr ||
                 actual.cycles != expected.cycles)
+            {
+                std::printf("[PS2][JIT-SELFTEST] Thumb MUL case=%lu r0=%08lX/%08lX cpsr=%08lX/%08lX cycles=%lu/%lu (actual/expected)\n",
+                    static_cast<unsigned long>(i),
+                    static_cast<unsigned long>(actual.r[0]),
+                    static_cast<unsigned long>(expected.r[0]),
+                    static_cast<unsigned long>(actual.cpsr),
+                    static_cast<unsigned long>(expected.cpsr),
+                    static_cast<unsigned long>(actual.cycles),
+                    static_cast<unsigned long>(expected.cycles));
                 return false;
+            }
         }
     }
 
