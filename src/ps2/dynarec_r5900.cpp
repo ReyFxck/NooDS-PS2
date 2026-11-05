@@ -5661,6 +5661,41 @@ bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
             continue;
         }
 
+        if (decoded.kind == Ps2Thumb::LONG_BRANCH_SETUP)
+        {
+            words += emitArmCycleAdd(1, code + words, true);
+            code[words++] = R5900::lui(R5900::R_T2,
+                static_cast<uint16_t>(decoded.target >> 16));
+            code[words++] = R5900::ori(R5900::R_T2,
+                R5900::R_T2, static_cast<uint16_t>(decoded.target));
+            code[words++] = R5900::sw(R5900::R_T2, 14 * 4,
+                R5900::R_A0);
+            continue;
+        }
+
+        if (decoded.kind == Ps2Thumb::LONG_BRANCH_LINK)
+        {
+            words += emitArmCycleAdd(3, code + words, true);
+            code[words++] = R5900::lw(R5900::R_T2, 14 * 4,
+                R5900::R_A0);
+            if (decoded.addend)
+            {
+                code[words++] = R5900::addiu(R5900::R_T2,
+                    R5900::R_T2, decoded.addend);
+            }
+            code[words++] = R5900::sw(R5900::R_T2, 68,
+                R5900::R_A0);
+
+            // LR becomes the Thumb return address (next instruction | 1).
+            code[words++] = R5900::lui(R5900::R_T2,
+                static_cast<uint16_t>(decoded.target >> 16));
+            code[words++] = R5900::ori(R5900::R_T2,
+                R5900::R_T2, static_cast<uint16_t>(decoded.target));
+            code[words++] = R5900::sw(R5900::R_T2, 14 * 4,
+                R5900::R_A0);
+            continue;
+        }
+
         return false;
     }
 
