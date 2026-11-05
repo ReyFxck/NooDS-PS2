@@ -5544,8 +5544,37 @@ void thumbInstructionCycleRange(const Ps2Thumb::Decoded &decoded,
                 break;
 
             case Ps2Thumb::ARM_STORE:
-                minValue = maxValue = 1;
+            {
+                Ps2ArmAlu::DecodedMultiBlockTransfer multi;
+                Ps2ArmAlu::DecodedSingleBlockTransfer singleBlock;
+                Ps2ArmAlu::DecodedSingleTransfer single;
+                if (Ps2ArmAlu::decodeMultiBlockTransfer(
+                    decoded.armOpcode, &multi))
+                {
+                    // ARM9 Thumb STMIA/PUSH with multiple registers costs
+                    // exactly one cycle per transferred register.
+                    minValue = maxValue = multi.count;
+                }
+                else if (Ps2ArmAlu::decodeSingleBlockTransfer(
+                    decoded.armOpcode, &singleBlock))
+                {
+                    // One-register STMIA is two cycles in both the Thumb
+                    // interpreter and the existing ARM block emitter.
+                    minValue = maxValue = 2;
+                }
+                else if (Ps2ArmAlu::decodeSingleTransfer(
+                    decoded.armOpcode, &single) && single.writeBack)
+                {
+                    // A one-register PUSH is represented as STR [sp,#-4]!
+                    // and needs Thumb's extra cycle over scalar ARM STR.
+                    minValue = maxValue = 2;
+                }
+                else
+                {
+                    minValue = maxValue = 1;
+                }
                 break;
+            }
 
             case Ps2Thumb::ARM_LOAD:
             {
@@ -5657,13 +5686,26 @@ bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
 
             // Thumb LDMIA/POP with a single low register costs two cycles on
             // ARM9, one more than the equivalent ARM LDM emitter. Multi-reg
-            // forms already match exactly. Scalar stores already match the
-            // ARM emitter timing (ARM9=1, ARM7=2).
+            // forms already match exactly.
             if (decoded.kind == Ps2Thumb::ARM_LOAD && targetCpuId == 0)
             {
                 Ps2ArmAlu::DecodedMultiBlockTransfer multi;
                 if (Ps2ArmAlu::decodeMultiBlockTransfer(
                     decoded.armOpcode, &multi) && multi.count == 1)
+                {
+                    words += emitArmCycleAdd(1, code + words, true);
+                }
+            }
+
+            // Multi-register PUSH/STMIA timing already matches the ARM9 ARM
+            // emitter, as does one-register STMIA. Only the synthetic
+            // pre-decrement STR used for a one-register PUSH needs one extra
+            // Thumb cycle.
+            if (decoded.kind == Ps2Thumb::ARM_STORE && targetCpuId == 0)
+            {
+                Ps2ArmAlu::DecodedSingleTransfer single;
+                if (Ps2ArmAlu::decodeSingleTransfer(
+                    decoded.armOpcode, &single) && single.writeBack)
                 {
                     words += emitArmCycleAdd(1, code + words, true);
                 }
@@ -5881,8 +5923,17 @@ bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
         if (decoded.kind == Ps2Thumb::ARM_STORE)
         {
             block.writesMemory = true;
-            if (block.maxMemoryWrites != 0xFFu)
-                block.maxMemoryWrites++;
+
+            uint32_t writes = 1;
+            Ps2ArmAlu::DecodedMultiBlockTransfer multi;
+            if (Ps2ArmAlu::decodeMultiBlockTransfer(
+                decoded.armOpcode, &multi))
+                writes = multi.count;
+
+            uint32_t maxWrites =
+                static_cast<uint32_t>(block.maxMemoryWrites) + writes;
+            block.maxMemoryWrites = static_cast<uint8_t>(
+                std::min<uint32_t>(maxWrites, 0xFFu));
         }
     }
 
