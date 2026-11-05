@@ -5560,6 +5560,32 @@ bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
             continue;
         }
 
+        if (decoded.kind == Ps2Thumb::ADDRESS_ADD)
+        {
+            words += emitArmCycleAdd(1, code + words, true);
+            if (decoded.baseReg == 0xFFu)
+            {
+                code[words++] = R5900::lui(R5900::R_T2,
+                    static_cast<uint16_t>(decoded.target >> 16));
+                code[words++] = R5900::ori(R5900::R_T2,
+                    R5900::R_T2, static_cast<uint16_t>(decoded.target));
+            }
+            else
+            {
+                code[words++] = R5900::lw(R5900::R_T2,
+                    static_cast<int16_t>(decoded.baseReg * 4),
+                    R5900::R_A0);
+                if (decoded.addend)
+                {
+                    code[words++] = R5900::addiu(R5900::R_T2,
+                        R5900::R_T2, decoded.addend);
+                }
+            }
+            code[words++] = R5900::sw(R5900::R_T2,
+                static_cast<int16_t>(decoded.rd * 4), R5900::R_A0);
+            continue;
+        }
+
         if (decoded.kind == Ps2Thumb::LITERAL_LOAD)
         {
             // Reuse the direct ARM literal-load emitter by choosing a synthetic
