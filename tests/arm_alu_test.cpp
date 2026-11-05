@@ -637,7 +637,7 @@ int main()
         psrCpsr = 0x00000013u;
         assert(Ps2ArmAlu::executePsrTransfer(
             0xE328F4A5u, psrRegs, &psrCpsr));
-        assert(psrCpsr == 0xA0000013u);
+        assert(psrCpsr == 0xA5000013u);
 
         assert(Ps2ArmAlu::rejectionReason(0xE321F013u) ==
             Ps2ArmAlu::REJECT_NONE);
