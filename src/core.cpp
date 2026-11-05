@@ -807,11 +807,19 @@ void Core::sampleArm9HotPc(uint32_t pc)
     }
     else if (score)
     {
+#ifdef NOODS_PROFILE
+        if (profileEnabled)
+            runProfile.arm9HotSampleCollisions++;
+#endif
         score--;
         return;
     }
     else
     {
+#ifdef NOODS_PROFILE
+        if (profileEnabled && samplePc)
+            runProfile.arm9HotSampleCollisions++;
+#endif
         samplePc = pc;
         score = 1;
     }
@@ -851,6 +859,10 @@ void Core::addArm9BlockHotPcs(const uint32_t *pcs, size_t count)
 
         if (arm9BlockHotPc[slot] != pc)
         {
+#ifdef NOODS_PROFILE
+            if (profileEnabled && arm9BlockHotPc[slot])
+                runProfile.arm9BlockFilterCollisions++;
+#endif
             arm9BlockHotFailures[slot] = 0;
             arm9BlockMinCycles[slot] = 1;
         }
