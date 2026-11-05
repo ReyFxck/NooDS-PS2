@@ -61,6 +61,35 @@ int main()
     requireArm(0x4148u, 0x1000u, 0xE0B00001u); // ADCS r0,r1
     requireArm(0x4188u, 0x1000u, 0xE0D00001u); // SBCS r0,r1
 
+    // Register shifts reuse ARM's exact carry semantics but mark the emitter
+    // as one-cycle Thumb operations. MUL uses old Rd as ARM Rs so ARM7's
+    // variable multiply timing is based on the same value as mulDpT().
+    {
+        Ps2Thumb::Decoded d;
+        assert(Ps2Thumb::decode(0x4088u, 0x1000u, &d)); // LSL r0,r1
+        assert(d.kind == Ps2Thumb::ARM_ALU);
+        assert(d.armOpcode == 0xE1B00110u);
+        assert(d.oneCycleRegisterShift);
+        assert(d.readMask == ((1u << 0) | (1u << 1)));
+        assert(d.writeMask == (1u << 0));
+
+        assert(Ps2Thumb::decode(0x40C8u, 0x1000u, &d)); // LSR r0,r1
+        assert(d.armOpcode == 0xE1B00130u && d.oneCycleRegisterShift);
+
+        assert(Ps2Thumb::decode(0x4108u, 0x1000u, &d)); // ASR r0,r1
+        assert(d.armOpcode == 0xE1B00150u && d.oneCycleRegisterShift);
+
+        assert(Ps2Thumb::decode(0x41C8u, 0x1000u, &d)); // ROR r0,r1
+        assert(d.armOpcode == 0xE1B00170u && d.oneCycleRegisterShift);
+
+        assert(Ps2Thumb::decode(0x4348u, 0x1000u, &d)); // MUL r0,r1
+        assert(d.kind == Ps2Thumb::ARM_MULTIPLY);
+        assert(d.armOpcode == 0xE0100091u);
+        assert(d.readMask == ((1u << 0) | (1u << 1)));
+        assert(d.writeMask == (1u << 0));
+        assert(d.minCycles == 2 && d.maxCycles == 5);
+    }
+
     // High-register ALU and BX stay read-only/terminal in the first live
     // backend. PC-writing ADD/MOV and ARM7-invalid BLX remain rejected.
     requireArm(0x4488u, 0x1000u, 0xE0888001u); // ADD r8,r1
@@ -173,8 +202,6 @@ int main()
     // Initial subset intentionally rejects operations whose Thumb timing
     // differs from the ARM emitter or that mutate memory/stack state.
     Ps2Thumb::Decoded d;
-    assert(!Ps2Thumb::decode(0x4088u, 0x1000u, &d)); // LSL r0,r1 (reg)
-    assert(!Ps2Thumb::decode(0x4348u, 0x1000u, &d)); // MUL r0,r1
     assert(!Ps2Thumb::decode(0x4788u, 0x1000u, &d)); // BLX r1 (ARM9-only)
     assert(!Ps2Thumb::decode(0x46F8u, 0x1000u, &d)); // MOV pc,r15/PC write
     assert(!Ps2Thumb::decode(0xB500u, 0x1000u, &d)); // PUSH
