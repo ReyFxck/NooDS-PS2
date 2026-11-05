@@ -1545,6 +1545,58 @@ size_t emitArmEqNeBranchFromResult(uint32_t opcode, uint32_t pc,
     return words;
 }
 
+size_t emitArmCcCsBranchFromCompare(uint32_t opcode, uint32_t pc,
+    uint32_t *code, bool registerCycles)
+{
+    Ps2ArmAlu::DecodedBranch decoded;
+    if (!code || !Ps2ArmAlu::decodeBranch(opcode, &decoded) ||
+        decoded.link ||
+        (decoded.condition != 0x2u && decoded.condition != 0x3u))
+        return 0;
+
+    uint32_t fallthrough = pc + 4u;
+    uint32_t target = pc + 8u + static_cast<uint32_t>(decoded.offset);
+    size_t words = 0;
+
+    // CMP has already produced the exact architectural flags, so CPSR stays
+    // correct for later observation. T0 and T1 still hold CMP's unsigned
+    // operands here: T0 < T1 is precisely the borrow condition (C == 0).
+    words += emitArmCycleAdd(1, code + words, registerCycles);
+    code[words++] = R5900::lui(R5900::R_T3,
+        static_cast<uint16_t>(fallthrough >> 16));
+    code[words++] = R5900::ori(R5900::R_T3, R5900::R_T3,
+        static_cast<uint16_t>(fallthrough));
+    code[words++] = R5900::sw(R5900::R_T3, 68, R5900::R_A0);
+    code[words++] = R5900::sltu(R5900::R_T7,
+        R5900::R_T0, R5900::R_T1);
+
+    size_t notTakenBranch = words;
+    // CS/HS is taken when there is no borrow; CC/LO is taken on borrow.
+    code[words++] = (decoded.condition == 0x2u)
+        ? R5900::bne(R5900::R_T7, R5900::R_ZERO, 0)
+        : R5900::beq(R5900::R_T7, R5900::R_ZERO, 0);
+    code[words++] = R5900::nop();
+
+    // Taken B costs three cycles total.
+    words += emitArmCycleAdd(2, code + words, registerCycles);
+    code[words++] = R5900::lui(R5900::R_T3,
+        static_cast<uint16_t>(target >> 16));
+    code[words++] = R5900::ori(R5900::R_T3, R5900::R_T3,
+        static_cast<uint16_t>(target));
+    code[words++] = R5900::sw(R5900::R_T3, 68, R5900::R_A0);
+
+    size_t done = words;
+    size_t distance = done - (notTakenBranch + 1);
+    if (distance > 0x7FFFu)
+        return 0;
+    code[notTakenBranch] = (decoded.condition == 0x2u)
+        ? R5900::bne(R5900::R_T7, R5900::R_ZERO,
+            static_cast<int16_t>(distance))
+        : R5900::beq(R5900::R_T7, R5900::R_ZERO,
+            static_cast<int16_t>(distance));
+    return words;
+}
+
 size_t emitArmBranchInstruction(uint32_t opcode, uint32_t pc, uint32_t *code,
     bool registerCycles = false, bool registerCpsr = false,
     bool reuseCondition = false)
@@ -5145,10 +5197,10 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
         forwardedGuestReg = producedGuestReg;
         forwardedCondition = producedCondition;
 
-        // Generic ALU-S -> B.EQ/B.NE fusion. The ALU emitter has already
-        // committed architectural NZCV to v1/state, but its result is still
-        // live in t2. Test that value directly for Z and skip the redundant
-        // CPSR condition extraction in the following branch.
+        // Fuse common flag-producing ALU/compare + branch pairs while still
+        // committing the exact architectural NZCV above. EQ/NE can use the
+        // arithmetic result directly; CMP + CS/CC can use the still-live
+        // unsigned operands instead of decoding CPSR.C again.
         if (i + 1 < count)
         {
             Ps2ArmAlu::Decoded alu;
@@ -5156,18 +5208,31 @@ bool DynarecR5900::emitArmAluSequence(const uint32_t *opcodes, size_t count,
             if (Ps2ArmAlu::decode(opcodes[i], &alu) &&
                 alu.condition == 0xEu && alu.setFlags &&
                 Ps2ArmAlu::decodeBranch(opcodes[i + 1], &branch) &&
-                !branch.link &&
-                (branch.condition == 0x0u || branch.condition == 0x1u))
+                !branch.link)
             {
-                size_t fused = emitArmEqNeBranchFromResult(opcodes[i + 1],
-                    guestPc + static_cast<uint32_t>((i + 1) * 4),
-                    code + words, true);
-                if (!fused)
-                    return false;
-                words += fused;
-                i++;
-                forwardedGuestReg = -1;
-                forwardedCondition = 0xFFu;
+                size_t fused = 0;
+                if (branch.condition == 0x0u || branch.condition == 0x1u)
+                {
+                    fused = emitArmEqNeBranchFromResult(opcodes[i + 1],
+                        guestPc + static_cast<uint32_t>((i + 1) * 4),
+                        code + words, true);
+                }
+                else if (alu.operation == 10u &&
+                    (branch.condition == 0x2u ||
+                     branch.condition == 0x3u))
+                {
+                    fused = emitArmCcCsBranchFromCompare(opcodes[i + 1],
+                        guestPc + static_cast<uint32_t>((i + 1) * 4),
+                        code + words, true);
+                }
+
+                if (fused)
+                {
+                    words += fused;
+                    i++;
+                    forwardedGuestReg = -1;
+                    forwardedCondition = 0xFFu;
+                }
             }
         }
 
