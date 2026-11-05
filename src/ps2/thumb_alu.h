@@ -419,9 +419,50 @@ namespace Ps2Thumb
             return true;
         }
 
-        // Format 14 POP without PC. PUSH and POP {...,pc} stay outside the
-        // first read-only live backend. Reuse the already differential-gated
-        // ARM7 LDMIA sp! emitter.
+        // Format 14 PUSH. Map the ordinary multi-register form to STMDB
+        // sp!,{rlist}. A one-register PUSH uses an equivalent pre-decrement
+        // STR because the generic multi-transfer decoder deliberately starts
+        // at two registers. ARM9 live admission is protected by the same
+        // transactional write journal as scalar Thumb stores.
+        if ((opcode & 0xFE00u) == 0xB400u)
+        {
+            const uint16_t lowList =
+                static_cast<uint16_t>(opcode & 0x00FFu);
+            const bool pushLr = (opcode & 0x0100u) != 0;
+            const uint16_t list = static_cast<uint16_t>(
+                lowList | (pushLr ? (1u << 14) : 0u));
+            if (!list)
+                return false;
+
+            uint8_t count = 0;
+            for (uint16_t bits = list; bits; bits >>= 1)
+                count += static_cast<uint8_t>(bits & 1u);
+
+            out->kind = ARM_STORE;
+            out->readMask = static_cast<uint16_t>(
+                list | (1u << 13));
+            out->writeMask = static_cast<uint16_t>(1u << 13);
+            if (count == 1)
+            {
+                const uint8_t reg =
+                    static_cast<uint8_t>(__builtin_ctz(list));
+                // STR reg,[sp,#-4]!
+                out->armOpcode = 0xE52D0004u |
+                    (static_cast<uint32_t>(reg) << 12);
+            }
+            else
+            {
+                // STMDB sp!,{rlist}
+                out->armOpcode = 0xE92D0000u | list;
+            }
+            out->minCycles = out->maxCycles =
+                static_cast<uint8_t>(count + 1u);
+            return true;
+        }
+
+        // Format 14 POP without PC. POP {...,pc} remains a separate
+        // control-flow case. Reuse the already differential-gated LDMIA sp!
+        // emitter for the ordinary form.
         if ((opcode & 0xFE00u) == 0xBC00u)
         {
             const uint16_t list = static_cast<uint16_t>(opcode & 0x00FFu);
@@ -455,29 +496,42 @@ namespace Ps2Thumb
             return true;
         }
 
-        // Format 15 LDMIA Rb!,{rlist}. Store-multiple and base-in-list are
-        // intentionally left to the interpreter; both complicate the first
-        // read-only Thumb live path.
+        // Format 15 LDMIA/STMIA Rb!,{rlist}. Keep base-in-list outside
+        // the generated subset because NooDS models CPU-specific writeback
+        // ordering there. With Rb excluded, the existing ARM block-transfer
+        // emitter has identical register ordering and writeback semantics.
         if ((opcode & 0xF000u) == 0xC000u)
         {
             const bool load = (opcode & 0x0800u) != 0;
             const uint8_t rb = static_cast<uint8_t>((opcode >> 8) & 7u);
             const uint16_t list = static_cast<uint16_t>(opcode & 0x00FFu);
-            if (!load || !list || (list & (1u << rb)))
+            if (!list || (list & (1u << rb)))
                 return false;
 
             uint8_t count = 0;
             for (uint16_t bits = list; bits; bits >>= 1)
                 count += static_cast<uint8_t>(bits & 1u);
 
-            out->kind = ARM_LOAD;
-            out->armOpcode = 0xE8B00000u |
+            out->kind = load ? ARM_LOAD : ARM_STORE;
+            out->armOpcode =
+                (load ? 0xE8B00000u : 0xE8A00000u) |
                 (static_cast<uint32_t>(rb) << 16) | list;
             out->readMask = static_cast<uint16_t>(1u << rb);
-            out->writeMask = static_cast<uint16_t>(
-                list | (1u << rb));
-            out->minCycles = out->maxCycles =
-                static_cast<uint8_t>(count + 2u);
+            if (load)
+            {
+                out->writeMask = static_cast<uint16_t>(
+                    list | (1u << rb));
+                out->minCycles = out->maxCycles =
+                    static_cast<uint8_t>(count + 2u);
+            }
+            else
+            {
+                out->readMask = static_cast<uint16_t>(
+                    out->readMask | list);
+                out->writeMask = static_cast<uint16_t>(1u << rb);
+                out->minCycles = out->maxCycles =
+                    static_cast<uint8_t>(count + 1u);
+            }
             return true;
         }
 
