@@ -6443,14 +6443,14 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
-    stage = "Thumb ARM7 POP PC";
+    stage = "Thumb ARM9 POP PC";
     caseNumber = 0;
-    // Gate Thumb POP {r0,r2,pc} through generated R5900 code. This is
-    // read-only and uses whatever words are already present in direct ARM7 RAM,
-    // so the self-test leaves guest memory untouched.
+    // This ARM9 dynarec must be checked against ARM9 POP semantics: an even
+    // target switches to ARM, whereas an odd target stays in Thumb. Use the
+    // existing mapped RAM contents without changing guest memory.
     {
         const uint32_t stackBase = 0x02000000u;
-        uint8_t *page = memory ? memory->getDirectReadPage(1, stackBase) :
+        uint8_t *page = memory ? memory->getDirectReadPage(0, stackBase) :
             nullptr;
         if (!page)
             return false;
@@ -6465,7 +6465,11 @@ bool DynarecR5900::runArmAluSelfTest()
         };
         const uint32_t expectedR0 = readWord(0);
         const uint32_t expectedR2 = readWord(4);
-        const uint32_t expectedPc = readWord(8);
+        const uint32_t loadedPc = readWord(8);
+        const uint32_t expectedPc = loadedPc &
+            ((loadedPc & 1u) ? ~1u : ~3u);
+        const uint32_t expectedCpsr = (loadedPc & 1u)
+            ? 0x00000032u : 0x00000012u;
 
         const uint16_t thumbOpcode = 0xBD05u; // POP {r0,r2,pc}
         uint32_t *entry = nullptr;
@@ -6481,7 +6485,7 @@ bool DynarecR5900::runArmAluSelfTest()
         state.cpsr = 0x00000032u; // Thumb, IRQ mode
         state.nextPc = 0x0F000002u;
         state.memory = memory;
-        state.cpuId = 1;
+        state.cpuId = 0;
         typedef void (*ThumbPopPcFunction)(ArmAluState *);
         ThumbPopPcFunction function =
             reinterpret_cast<ThumbPopPcFunction>(entry);
@@ -6492,9 +6496,25 @@ bool DynarecR5900::runArmAluSelfTest()
             state.r[2] != expectedR2 ||
             state.r[13] != stackBase + 12u ||
             state.nextPc != expectedPc ||
-            state.cpsr != 0x00000032u ||
+            state.cpsr != expectedCpsr ||
             state.cycles != 7u)
+        {
+            std::printf("[PS2][JIT-SELFTEST] POP PC fault=%u r0=%08lX/%08lX r2=%08lX/%08lX sp=%08lX/%08lX pc=%08lX/%08lX (loaded=%08lX) cpsr=%08lX/%08lX cycles=%lu/7 (actual/expected)\n",
+                state.memoryFault ? 1u : 0u,
+                static_cast<unsigned long>(state.r[0]),
+                static_cast<unsigned long>(expectedR0),
+                static_cast<unsigned long>(state.r[2]),
+                static_cast<unsigned long>(expectedR2),
+                static_cast<unsigned long>(state.r[13]),
+                static_cast<unsigned long>(stackBase + 12u),
+                static_cast<unsigned long>(state.nextPc),
+                static_cast<unsigned long>(expectedPc),
+                static_cast<unsigned long>(loadedPc),
+                static_cast<unsigned long>(state.cpsr),
+                static_cast<unsigned long>(expectedCpsr),
+                static_cast<unsigned long>(state.cycles));
             return false;
+        }
     }
 
     stage = "conditional ARM register shift";
