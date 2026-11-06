@@ -313,6 +313,55 @@ bool testDirectPageCache()
     }
     return pageLookups == 1;
 }
+
+bool testVisibleTextTile()
+{
+    // Compare actual pixel placement, transparency, and clipping with the
+    // original per-pixel bounds check at both edges of every scrolled line.
+    for (int bits : { 4, 8 })
+        for (int fineX = 0; fineX < 8; fineX++)
+            for (int tile = 0; tile < 33; tile++)
+                for (int step : { -1, 1 })
+                    for (int trial = 0; trial < 20; trial++)
+                    {
+                        uint8_t reference[256] = {};
+                        uint8_t actual[256] = {};
+                        uint64_t packed = nextRandom();
+                        if (bits == 8)
+                            packed |= static_cast<uint64_t>(nextRandom()) << 32;
+                        const uint64_t mask = (1u << bits) - 1u;
+                        const int firstX = tile * 8 - fineX +
+                            (step < 0 ? 7 : 0);
+
+                        uint64_t oldIndices = packed;
+                        for (int x = firstX; oldIndices;
+                            x += step, oldIndices >>= bits)
+                        {
+                            uint8_t index = oldIndices & mask;
+                            if (x >= 0 && x < 256 && index)
+                                reference[x] = index;
+                        }
+
+                        int begin, end;
+                        gpu2dVisibleTextTile(firstX, step, begin, end);
+                        if (begin < end)
+                        {
+                            uint64_t indices = packed >> (begin * bits);
+                            int x = firstX + begin * step;
+                            for (int j = begin; j < end && indices;
+                                j++, x += step, indices >>= bits)
+                            {
+                                uint8_t index = indices & mask;
+                                if (index)
+                                    actual[x] = index;
+                            }
+                        }
+
+                        if (std::memcmp(reference, actual, sizeof(actual)))
+                            return false;
+                    }
+    return true;
+}
 }
 
 int main()
@@ -365,6 +414,11 @@ int main()
     if (!testDirectPageCache())
     {
         std::fprintf(stderr, "direct-page cache mismatch\n");
+        return 1;
+    }
+    if (!testVisibleTextTile())
+    {
+        std::fprintf(stderr, "text tile clipping mismatch\n");
         return 1;
     }
     return 0;

@@ -62,6 +62,11 @@ class Gpu
         void gbaScheduleInit();
 
         bool getFrame(uint32_t *out, bool gbaCrop);
+#ifdef NOODS_PS2
+        // Native GS CT16 output for the PS2 frontend. The queued emulated
+        // framebuffer is still kept in full precision for capture and effects.
+        bool getFrame16(uint16_t *out);
+#endif
 
         void invalidate3D() { dirty3D |= BIT(0); }
 
@@ -82,6 +87,8 @@ class Gpu
 
     private:
         Core *core;
+
+        void recycleFrame();
 
         std::queue<uint32_t*> framebuffers;
         std::queue<uint32_t*> recycledFramebuffers;

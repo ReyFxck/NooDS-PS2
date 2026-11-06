@@ -17,6 +17,7 @@
     along with NooDS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+#include <algorithm>
 #include <cstring>
 
 #include "gpu.h"
@@ -173,16 +174,63 @@ bool Gpu::getFrame(uint32_t *out, bool gbaCrop)
         }
     }
 
-    // Recycle the used framebuffer instead of returning ~384 KiB to the
-    // heap every frame. The producer will reuse it on the next V-blank.
+    recycleFrame();
+    return true;
+}
+
+#ifdef NOODS_PS2
+bool Gpu::getFrame16(uint16_t *out)
+{
+    if (!ready.load())
+        return false;
+
+    uint32_t *source = framebuffers.front();
+    if (core->isGbaMode())
+    {
+        const int offset = (powCnt1 & BIT(15)) ? 0 : (256 * 192);
+        const uint32_t base = 0x6800000 + gbaBlock * 0x20000;
+        gbaBlock = !gbaBlock;
+        for (int y = 0; y < 192; y++)
+        {
+            for (int x = 0; x < 256; x++)
+            {
+                const uint32_t color = (x >= 8 && x < 248 &&
+                    y >= 16 && y < 176)
+                    ? source[(y - 16) * 256 + x - 8]
+                    : core->memory.read<uint16_t>(0,
+                        base + (y * 256 + x) * 2);
+                out[offset + y * 256 + x] = gpuRgb5ToGsCt16(color);
+            }
+        }
+        // GS textures require alpha=1 even on the empty GBA display.
+        std::fill_n(&out[256 * 192 - offset], 256 * 192, 0x8000u);
+    }
+    else
+    {
+        // Four source pixels per iteration, no intermediate RGB8888 buffer.
+        for (int i = 0; i < 256 * 192 * 2; i += 4)
+        {
+            out[i + 0] = gpuRgb6ToGsCt16(source[i + 0]);
+            out[i + 1] = gpuRgb6ToGsCt16(source[i + 1]);
+            out[i + 2] = gpuRgb6ToGsCt16(source[i + 2]);
+            out[i + 3] = gpuRgb6ToGsCt16(source[i + 3]);
+        }
+    }
+
+    recycleFrame();
+    return true;
+}
+#endif
+
+void Gpu::recycleFrame()
+{
+    // The producer reuses this buffer on the next V-blank.
     mutex.lock();
     uint32_t *usedFramebuffer = framebuffers.front();
     framebuffers.pop();
     recycledFramebuffers.push(usedFramebuffer);
     ready.store(!framebuffers.empty());
     mutex.unlock();
-
-    return true;
 }
 
 void Gpu::gbaScanline240()
