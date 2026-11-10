@@ -933,12 +933,39 @@ void Gpu2D::drawText(int bg, int line, int mosaicLine)
         noWindows || (windowAllMask & BIT(bg));
     GPU2D_DETAIL_INC(textDetail, windowed, noWindows ? 0 : 1);
     const int8_t bgPriority = bgCnt[bg] & 0x3;
-    auto putBgPixel = [&](int x, uint32_t pixel)
+    // Resolve visibility and priority before reading the palette. The text
+    // renderer often draws several opaque backgrounds, and pixels behind both
+    // compositing layers cannot contribute to the scanline.
+    auto putTextPixel = [&](int x, const uint8_t *pal, uint8_t index)
     {
-        if (layerUnmasked)
-            drawBgPixelNoWindow(bg, x, pixel, bgPriority);
+        GPU2D_DETAIL_INC(textDetail, writes, 1);
+        if (!layerUnmasked && !(windowMask[x] & BIT(bg)))
+        {
+            GPU2D_DETAIL_INC(textDetail, rejected, 1);
+            return;
+        }
+        if (bgPriority <= priorities[0][x])
+        {
+            if (bldCnt != 0)
+            {
+                layers[1][x] = layers[0][x];
+                priorities[1][x] = priorities[0][x];
+                blendBits[1][x] = blendBits[0][x];
+            }
+            GPU2D_DETAIL_INC(textDetail, paletteReads, 1);
+            layers[0][x] = gpu2dLoad16(pal, index * 2) | BIT(15);
+            priorities[0][x] = bgPriority;
+            blendBits[0][x] = bg;
+        }
+        else if (bldCnt != 0 && bgPriority <= priorities[1][x])
+        {
+            GPU2D_DETAIL_INC(textDetail, paletteReads, 1);
+            layers[1][x] = gpu2dLoad16(pal, index * 2) | BIT(15);
+            priorities[1][x] = bgPriority;
+            blendBits[1][x] = bg;
+        }
         else
-            drawBgPixel(bg, line, x, pixel);
+            GPU2D_DETAIL_INC(textDetail, rejected, 1);
     };
     Gpu2DDirectPageCache tilePageCache;
     Gpu2DDirectPageCache indexPageCache;
@@ -1067,9 +1094,7 @@ void Gpu2D::drawText(int bg, int line, int mosaicLine)
                 }
                 else
                 {
-                    GPU2D_DETAIL_INC(textDetail, paletteReads, 1);
-                    GPU2D_DETAIL_INC(textDetail, writes, 1);
-                    putBgPixel(x, gpu2dLoad16(pal, index * 2) | BIT(15));
+                    putTextPixel(x, pal, index);
                 }
             }
 #if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
@@ -1182,9 +1207,7 @@ void Gpu2D::drawText(int bg, int line, int mosaicLine)
                 }
                 else
                 {
-                    GPU2D_DETAIL_INC(textDetail, paletteReads, 1);
-                    GPU2D_DETAIL_INC(textDetail, writes, 1);
-                    putBgPixel(x, gpu2dLoad16(pal, index * 2) | BIT(15));
+                    putTextPixel(x, pal, index);
                 }
             }
 #if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2

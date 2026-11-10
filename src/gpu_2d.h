@@ -84,6 +84,7 @@ struct Gpu2DTextDetailCounters
     uint64_t transparent = 0;
     uint64_t clipped = 0;
     uint64_t paletteReads = 0;
+    uint64_t rejected = 0;
     uint64_t writes = 0;
 };
 

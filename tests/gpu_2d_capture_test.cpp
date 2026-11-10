@@ -87,4 +87,46 @@ int main()
             assert((gpu.getRawLine()[x] & 0x3FFFFu) == expected);
         }
     }
+
+    // Three opaque backgrounds overlap. BG1 is hidden by the other two on
+    // the right, but contributes to alpha blending where window 0 hides BG3.
+    palette[2] = 0x1F; palette[3] = 0;       // red
+    palette[4] = 0xE0; palette[5] = 0x03;   // green
+    palette[6] = 0x00; palette[7] = 0x7C;   // blue
+    for (int bg = 1; bg <= 3; ++bg)
+    {
+        const int screenBase = 4 + bg;
+        const int charBase = 4 - bg;
+        const int priority = (bg == 3) ? 0 : ((bg == 2) ? 1 : 3);
+        gpu.writeBgCnt(bg, 0xFFFFu, (screenBase << 8) | (charBase << 2) | priority);
+        gpu.writeBgHOfs(bg, 0xFFFFu, 0);
+        gpu.writeBgVOfs(bg, 0xFFFFu, 0);
+        for (int tile = 0; tile < 32; ++tile)
+            core->memory.write<uint16_t>(0, 0x6000000u + screenBase * 0x800u + tile * 2, 0);
+        const uint32_t index = static_cast<uint32_t>(4 - bg);
+        core->memory.write<uint32_t>(0, 0x6000000u + charBase * 0x4000u, index * 0x11111111u);
+    }
+    gpu.writeDispCnt(0xFFFFFFFFu, (1u << 16) | (1u << 13) | (0xEu << 8));
+    gpu.writeWinH(0, 0xFFFFu, 0x0080u);
+    gpu.writeWinV(0, 0xFFFFu, 0x00C0u);
+    gpu.writeWinIn(0xFFFFu, 0x37u);  // hide BG3 inside window 0
+    gpu.writeWinOut(0xFFFFu, 0x3Fu);
+    gpu.writeBldCnt(0xFFFFu, (1u << 3) | (1u << 2) | (1u << 6) | (1u << 9) | (1u << 10));
+    gpu.writeBldAlpha(0xFFFFu, 8u | (8u << 8));
+    gpu.drawScanline(0);
+    for (int x = 0; x < 256; ++x)
+    {
+        const uint32_t expected = x < 128 ? ((31u << 6) | (31u << 12)) : (31u | (31u << 6));
+        assert((gpu.getFramebuffer()[x] & 0x3FFFFu) == expected);
+        assert((gpu.getRawLine()[x] & 0x3FFFFu) == expected);
+    }
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+    gpu.resetProfile();
+    gpu.setProfileEnabled(true);
+    for (int i = 0; i < 512; ++i)
+        gpu.drawScanline(0);
+    const Gpu2DTextDetailCounters &detail = gpu.getProfile().textDetail;
+    assert(detail.rejected > 0);
+    assert(detail.paletteReads + detail.rejected == detail.writes);
+#endif
 }

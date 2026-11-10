@@ -1137,7 +1137,7 @@ void logGpu2DProfile(const char *label, const Gpu2DRunProfile &profile)
             static_cast<unsigned long long>(d.tiles),
             static_cast<unsigned long long>(d.hFlipTiles),
             static_cast<unsigned long long>(d.vFlipTiles));
-        PS2_LOG("[PS2][PROF] %s text-memory: tileHit=%llu tileMap=%llu tileFallback=%llu indexHit=%llu indexMap=%llu indexFallback=%llu pixels=%llu transparent=%llu clipped=%llu palette=%llu writes=%llu\n",
+        PS2_LOG("[PS2][PROF] %s text-memory: tileHit=%llu tileMap=%llu tileFallback=%llu indexHit=%llu indexMap=%llu indexFallback=%llu pixels=%llu transparent=%llu clipped=%llu palette=%llu rejected=%llu writes=%llu\n",
             label,
             static_cast<unsigned long long>(d.tilePageHits),
             static_cast<unsigned long long>(d.tilePageMaps),
@@ -1149,6 +1149,7 @@ void logGpu2DProfile(const char *label, const Gpu2DRunProfile &profile)
             static_cast<unsigned long long>(d.transparent),
             static_cast<unsigned long long>(d.clipped),
             static_cast<unsigned long long>(d.paletteReads),
+            static_cast<unsigned long long>(d.rejected),
             static_cast<unsigned long long>(d.writes));
     }
 
