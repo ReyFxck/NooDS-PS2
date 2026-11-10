@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <type_traits>
 
 #ifdef NOODS_PROFILE
 #define DYNAREC_PROFILE(statement) do { statement; } while (0)
@@ -597,7 +598,8 @@ uint32_t arm7MultiplyM(int32_t value)
     return 4u;
 }
 
-bool applyArmPsrTransfer(uint32_t opcode, ArmAluState *state)
+// Generated non-leaf calls pass the state in a0 and the opcode in a1.
+bool applyArmPsrTransfer(ArmAluState *state, uint32_t opcode)
 {
     Ps2ArmAlu::DecodedPsrTransfer decoded;
     if (!state || !Ps2ArmAlu::decodePsrTransfer(opcode, &decoded))
@@ -4582,6 +4584,9 @@ size_t emitArmPsrTransferInstruction(uint32_t opcode, uint32_t *code,
         static_cast<uint16_t>(opcode >> 16));
     code[words++] = R5900::ori(R5900::R_A1, R5900::R_A1,
         static_cast<uint16_t>(opcode));
+    static_assert(std::is_same<decltype(&applyArmPsrTransfer),
+        bool (*)(ArmAluState *, uint32_t)>::value,
+        "R5900 PSR helper must receive state in a0 and opcode in a1");
     uintptr_t helper =
         reinterpret_cast<uintptr_t>(&applyArmPsrTransfer);
     code[words++] = R5900::lui(R5900::R_T9,
@@ -6600,15 +6605,28 @@ bool DynarecR5900::runArmAluSelfTest()
         };
 
         for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+        for (unsigned int abi = 0; abi < 4; abi++)
         {
-            caseNumber = static_cast<unsigned int>(i);
+            caseNumber = static_cast<unsigned int>(i * 4 + abi);
+            const bool registerCycles = (abi & 1u) != 0;
+            const bool registerCpsr = (abi & 2u) != 0;
             uint32_t *code = cache.reserveWords(96);
             if (!code)
                 return false;
-            size_t words = emitArmPsrTransferInstruction(
-                cases[i].opcode, code, false, false);
-            if (!words)
+            size_t words = 0;
+            if (registerCycles)
+                code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
+            if (registerCpsr)
+                code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
+            size_t bodyWords = emitArmPsrTransferInstruction(
+                cases[i].opcode, code + words, registerCycles, registerCpsr);
+            if (!bodyWords)
                 return false;
+            words += bodyWords;
+            if (registerCycles)
+                code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
+            if (registerCpsr)
+                code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
             code[words++] = R5900::jr(R5900::R_RA);
             code[words++] = R5900::nop();
             cache.commitWords(words);
@@ -6619,15 +6637,32 @@ bool DynarecR5900::runArmAluSelfTest()
             state.r[1] = 0u;
             state.r[2] = cases[i].r2;
             state.cpuId = cases[i].cpuId;
+            // Nonzero initial cycles catch accidental resets at the helper
+            // boundary, as well as a wrong ARM7/ARM9 MRS timing increment.
+            state.cycles = 7u;
             typedef void (*PsrFunction)(ArmAluState *);
             PsrFunction function = reinterpret_cast<PsrFunction>(code);
             function(&state);
 
             if (state.cpsr != cases[i].expectedCpsr ||
                 state.r[1] != cases[i].expectedR1 ||
-                state.cycles != cases[i].expectedCycles ||
+                state.cycles != 7u + cases[i].expectedCycles ||
                 state.memoryFault != cases[i].expectedFault)
+            {
+                std::printf("[PS2][JIT-SELFTEST] PSR opcode=%08lX cpu=%u abi=%u "
+                    "cpsr=%08lX/%08lX r1=%08lX/%08lX cycles=%lu/%lu fault=%lu/%lu\n",
+                    static_cast<unsigned long>(cases[i].opcode),
+                    static_cast<unsigned int>(cases[i].cpuId), abi,
+                    static_cast<unsigned long>(state.cpsr),
+                    static_cast<unsigned long>(cases[i].expectedCpsr),
+                    static_cast<unsigned long>(state.r[1]),
+                    static_cast<unsigned long>(cases[i].expectedR1),
+                    static_cast<unsigned long>(state.cycles),
+                    static_cast<unsigned long>(7u + cases[i].expectedCycles),
+                    static_cast<unsigned long>(state.memoryFault),
+                    static_cast<unsigned long>(cases[i].expectedFault));
                 return false;
+            }
         }
     }
 
@@ -9911,7 +9946,7 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
         Ps2ArmAlu::DecodedPsrTransfer psrTransfer;
         if (Ps2ArmAlu::decodePsrTransfer(opcodes[i], &psrTransfer))
         {
-            if (!applyArmPsrTransfer(opcodes[i], &expected))
+            if (!applyArmPsrTransfer(&expected, opcodes[i]))
                 return -1;
             continue;
         }
@@ -10243,7 +10278,7 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
         Ps2ArmAlu::DecodedPsrTransfer psrTransfer;
         if (Ps2ArmAlu::decodePsrTransfer(opcodes[i], &psrTransfer))
         {
-            if (!applyArmPsrTransfer(opcodes[i], &expected))
+            if (!applyArmPsrTransfer(&expected, opcodes[i]))
                 return -1;
             continue;
         }

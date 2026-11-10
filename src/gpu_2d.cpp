@@ -608,7 +608,9 @@ void Gpu2D::drawScanline(int line)
             case 0: // Display off
             {
                 // Fill the display with white
-                memset(&framebuffer[line * 256], 0xFF, 256 * sizeof(uint32_t));
+                // Use the aligned wide-store path already used by backdrop
+                // clears. Keep all bits set, including renderer metadata.
+                gpu2dFill32(&framebuffer[line * 256], 256, 0xFFFFFFFFu);
                 break;
             }
 

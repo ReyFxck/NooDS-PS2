@@ -1367,10 +1367,10 @@ int main(int argc, char **argv)
     PS2_LOG(" Instrumentation: disabled\n");
 #endif
 #ifdef NOODS_PROFILE
-    PS2_LOG(" Dynarec: ARM-ALU-v54 dual-CPU-inline-multi (profile L%d)\n",
+    PS2_LOG(" Dynarec: ARM-ALU-v55 psr-helper-abi (profile L%d)\n",
         NOODS_PROFILE_LEVEL);
 #else
-    PS2_LOG(" Dynarec: ARM-ALU-v54 dual-CPU-inline-multi\n");
+    PS2_LOG(" Dynarec: ARM-ALU-v55 psr-helper-abi\n");
 #endif
     PS2_LOG("============================================================\n");
 
@@ -1510,7 +1510,7 @@ int main(int argc, char **argv)
 
                 if (dynarec.runArmAluSelfTest())
                 {
-                    PS2_LOG("[PS2][OK] ARM->R5900 self-test: 23 base operations + 11 condition/NZCV + 3 branch + 2 direct LDRH/STRH cases passed.\n");
+                    PS2_LOG("[PS2][OK] ARM->R5900 self-test: all groups passed (PSR: 8 cases x 4 register ABIs).\n");
 
                     uint32_t arm9StateHash = 0;
                     if (dynarec.runArm9StateSelfTest(core->interpreter[0], &arm9StateHash))
