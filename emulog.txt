@@ -1,114 +1,144 @@
-[    0.0237] NetherSX2 1.7.0-20230313210151- compiled on Mar 13 2023
-[    0.0240] Savestate version: 0x9a340000
-[    0.0242] 
-[    0.0243] Host Machine Init:
-[    0.0245] 	Operating System =  Android
-[    0.0245] 	Physical RAM     =  3407 MB
-[    0.0260] 	CPU name         =  
-[    0.0260] 	Vendor/Model     =   (stepping 00)
-[    0.0260] 	CPU speed        =  0.000 ghz (8 logical threads)
-[    0.0260] 	
-[    0.0267] 
-[    0.0298] Reserving memory for recompilers...
-[    0.0368] 	Fastmem area: 0x7346fc8000 - 0x7446fc7fff
-[    0.0992] Lazily allocating JNI environment for thread 0x7346bbff80
-[    0.1038] Scanning content://com.android.externalstorage.documents/tree/primary%3APS2 (recursively)
-[    0.1423] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FBIOS9.BIN") -> "BIOS9.BIN"
-[    0.1594] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FBIOS9.BIN") -> "BIOS9.BIN"
-[    0.1943] Unable to identify the ISO image type for ''
-[    0.2627] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fnoods-ps2-profile.elf") -> "noods-ps2-profile.elf"
-[    0.3267] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fnoods-ps2-profile.elf") -> "noods-ps2-profile.elf"
-[    0.3576] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fps2-0220a-20060905.bin") -> "ps2-0220a-20060905.bin"
-[    0.3731] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fps2-0220a-20060905.bin") -> "ps2-0220a-20060905.bin"
-[    0.3915] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fps2-0220a-20060905.bin") -> "ps2-0220a-20060905.bin"
-[    0.4289] isoFile open ok: content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fps2-0220a-20060905.bin
-[    0.4289] 	Image type  = Audio CD
-[    0.4290] isoFile: Invalid layer0 Primary Volume Descriptor
-[    0.4290]  * CDVD Disk Open: DVD, Single layer or unknown:
-[    0.4290]  * * Track 1: Data (Mode 1) (1713 sectors)
-[    0.4312] (IsoFS) Invalid partition descriptor encountered at block 0x10: ''
-[    0.4409] (IsoFS) Invalid partition descriptor encountered at block 0x10: ''
-[    0.4962] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FFIRMWARE.BIN") -> "FIRMWARE.BIN"
-[    0.5045] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FFIRMWARE.BIN") -> "FIRMWARE.BIN"
-[    0.5208] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FFIRMWARE.BIN") -> "FIRMWARE.BIN"
-[    0.5516] isoFile open ok: content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FFIRMWARE.BIN
-[    0.5516] 	Image type  = Audio CD
-[    0.5517] isoFile: Invalid layer0 Primary Volume Descriptor
-[    0.5517]  * CDVD Disk Open: DVD, Single layer or unknown:
-[    0.5517]  * * Track 1: Data (Mode 1) (107 sectors)
-[    0.5517] (IsoFS) Invalid partition descriptor encountered at block 0x10: 'YBùfžó‡w'
-[    0.5518] (IsoFS) Invalid partition descriptor encountered at block 0x10: 'YBùfžó‡w'
-[    0.5929] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FBIOS7.BIN") -> "BIOS7.BIN"
-[    0.6039] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FBIOS7.BIN") -> "BIOS7.BIN"
-[    0.6225] Unable to identify the ISO image type for ''
-[    0.7017] Scanning /storage/emulated/0/Android/data/xyz.aethersx2.tturnip/files/games (recursively)
-[    1.9222] Searching for a BIOS image in '/storage/emulated/0/Android/data/xyz.aethersx2.tturnip/files/bios'...
-[    1.9246] Bios Found: USA     v02.20(05/09/2006)  Devel 20060905-125924
-[    1.9246] Using BIOS '/storage/emulated/0/Android/data/xyz.aethersx2.tturnip/files/bios/431D9B7F.bin' (USA     v02.20(05/09/2006)  Devel 20060905-125924 USA)
-[    1.9933] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fnoods-ps2-profile.elf") -> "noods-ps2-profile.elf"
-[    2.0054] Preparing for a 720x1514 window
-[    2.0244] HLE Host: Set 'host:' root path to: content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2
-[    2.0244] 
-[    2.0245] Searching for a BIOS image in '/storage/emulated/0/Android/data/xyz.aethersx2.tturnip/files/bios'...
-[    2.0247] Bios Found: USA     v02.20(05/09/2006)  Devel 20060905-125924
-[    2.0248] Using BIOS '/storage/emulated/0/Android/data/xyz.aethersx2.tturnip/files/bios/431D9B7F.bin' (USA     v02.20(05/09/2006)  Devel 20060905-125924 USA)
-[    2.0248] Opening CDVD...
-[    2.0248] Opening GS...
-[    2.0467] EGL Version: 1.5
-[    2.0470] EGL Extensions: EGL_ANDROID_front_buffer_auto_refresh EGL_ANDROID_get_native_client_buffer EGL_ANDROID_presentation_time EGL_EXT_surface_CTA861_3_metadata EGL_EXT_surface_SMPTE2086_metadata EGL_KHR_get_all_proc_addresses EGL_KHR_swap_buffers_with_damage EGL_ANDROID_get_frame_timestamps EGL_EXT_gl_colorspace_scrgb EGL_EXT_gl_colorspace_scrgb_linear EGL_EXT_gl_colorspace_display_p3_linear EGL_EXT_gl_colorspace_display_p3 EGL_EXT_gl_colorspace_display_p3_passthrough EGL_EXT_gl_colorspace_bt2020_hlg EGL_EXT_gl_colorspace_bt2020_linear EGL_EXT_gl_colorspace_bt2020_pq EGL_ANDROID_image_native_buffer EGL_ANDROID_native_fence_sync EGL_ANDROID_recordable EGL_EXT_create_context_robustness EGL_EXT_image_gl_colorspace EGL_EXT_pixel_format_float EGL_EXT_protected_content EGL_EXT_yuv_surface EGL_IMG_context_priority EGL_KHR_create_context EGL_KHR_create_context_no_error EGL_KHR_fence_sync EGL_KHR_gl_colorspace EGL_KHR_gl_renderbuffer_image EGL_KHR_gl_texture_2D_image EGL_KHR_gl_texture_3D_image EGL_KHR_gl_texture_cubemap_image EGL_KHR_image EGL_KHR_image_base EGL_KHR_lock_surface EGL_KHR_mutable_render_buffer EGL_KHR_no_config_context EGL_KHR_partial_update EGL_KHR_reusable_sync EGL_KHR_surfaceless_context EGL_KHR_wait_sync 
-[    2.0474] Trying version 3.2 (ES)
-[    2.0487] Got version 3.2 (ES)
-[    2.0490] Created an OpenGL ES context
-[    2.0598] Lazily allocating JNI environment for thread 0x733e5a4f80
-[    2.0950] GL_ARB_viewport_array is not supported! Function pointer will be replaced.
-[    2.0950] GL_ARB_direct_state_access is not supported, this will reduce performance.
-[    2.0950] Not using PBOs for texture uploads because buffer_storage is unavailable or driver is buggy.
-[    2.0952] Not using PBOs for texture downloads, this may reduce performance.
-[    2.0954] Your GL driver does not support program binaries. Hopefully it has a built-in cache.
-[    2.2388] Opening SPU2...
-[    2.2415] Initializing SndBuffer at sample rate of 48000...
-[    2.2456] (AAudioMod) Creating stream...
-[    2.3710] (AAudioMod) Starting stream...
-[    2.4539] Opening PAD...
-[    2.4539] Opening DEV9...
-[    2.4585] Opening USB...
-[    2.4589] Opening FW...
-[    2.4631] McdSlot 0 [File]: /storage/emulated/0/Android/data/xyz.aethersx2.tturnip/files/memcards/Mcd001.ps2
-[    2.4644] McdSlot 1 [File]: /storage/emulated/0/Android/data/xyz.aethersx2.tturnip/files/memcards/Mcd002.ps2
-[    2.4666] EE/iR5900-ARM64 Recompiler Reset
-[    2.6326] Vsync is OFF
-[    2.9339] 	Searching for a BIOS image in '/storage/emulated/0/Android/data/xyz.aethersx2.tturnip/files/bios'...
-[    2.9344] 	Bios Found: USA     v02.20(05/09/2006)  Devel 20060905-125924
-[    2.9347] 	Using BIOS '/storage/emulated/0/Android/data/xyz.aethersx2.tturnip/files/bios/431D9B7F.bin' (USA     v02.20(05/09/2006)  Devel 20060905-125924 USA)
-[    2.9350] 	Bios Found: USA     v02.20(05/09/2006)  Devel 20060905-125924
-[    2.9693] 	BIOS rom1 module not found, skipping...
-[    2.9696] 	BIOS rom2 module not found, skipping...
-[    2.9899] VM subsystems initialized in 1006.05 ms
-[    2.9920] GameDB cache file does not exist or failed validation, recreating
-[    3.0833] [GameDB] 12847 games on record (loaded in 92.98ms)
-[    3.0835] [GameDB] Searching for '20060905-125924' in GameDB
-[    3.0837] [GameDB] Could not find '20060905-125924' in GameDB
-[    3.0838] Game Changed:
-[    3.0840]   Name: 
-[    3.0841]   Serial: 20060905-125924
-[    3.0843]   CRC: 00000000
-[    3.0844] Applying settings...
-[    3.0860] [GameDB] Searching for '20060905-125924' in GameDB
-[    3.0862] [GameDB] Could not find '20060905-125924' in GameDB
-[    3.0863] Updating CPU configuration...
-[    3.1092] Processor count: 8 cores, 8 processors
-[    3.1095] Cluster count: 1
-[    3.1123] Ordered processor list: 0, 1, 2, 3, 4, 5, 6, 7
-[    3.1125] Performance core list:  (mask 0x0)
-[    3.1128] Updating GS configuration...
-[    3.1130] Vsync is OFF
+[    0.0221] NetherSX2 1.7.0-20230313210151- compiled on Mar 13 2023
+[    0.0223] Savestate version: 0x9a340000
+[    0.0224] 
+[    0.0224] Host Machine Init:
+[    0.0225] 	Operating System =  Android
+[    0.0225] 	Physical RAM     =  3407 MB
+[    0.0225] 	CPU name         =  
+[    0.0225] 	Vendor/Model     =   (stepping 00)
+[    0.0225] 	CPU speed        =  0.000 ghz (8 logical threads)
+[    0.0225] 	
+[    0.0225] 
+[    0.0262] Reserving memory for recompilers...
+[    0.0308] 	Fastmem area: 0x7347f87000 - 0x7447f86fff
+[    0.0713] Lazily allocating JNI environment for thread 0x747ebfaf80
+[    0.0719] Scanning content://com.android.externalstorage.documents/tree/primary%3APS2 (recursively)
+[    0.1072] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FBIOS9.BIN") -> "BIOS9.BIN"
+[    0.1183] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FBIOS9.BIN") -> "BIOS9.BIN"
+[    0.1610] Unable to identify the ISO image type for ''
+[    0.2045] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fnoods-ps2-release.elf") -> "noods-ps2-release.elf"
+[    0.2676] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fnoods-ps2-release.elf") -> "noods-ps2-release.elf"
+[    0.2946] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fps2-0220a-20060905.bin") -> "ps2-0220a-20060905.bin"
+[    0.3018] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fps2-0220a-20060905.bin") -> "ps2-0220a-20060905.bin"
+[    0.3149] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fps2-0220a-20060905.bin") -> "ps2-0220a-20060905.bin"
+[    0.3552] isoFile open ok: content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fps2-0220a-20060905.bin
+[    0.3552] 	Image type  = Audio CD
+[    0.3552] isoFile: Invalid layer0 Primary Volume Descriptor
+[    0.3552]  * CDVD Disk Open: DVD, Single layer or unknown:
+[    0.3552]  * * Track 1: Data (Mode 1) (1713 sectors)
+[    0.3578] (IsoFS) Invalid partition descriptor encountered at block 0x10: ''
+[    0.3646] (IsoFS) Invalid partition descriptor encountered at block 0x10: ''
+[    0.4036] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FFIRMWARE.BIN") -> "FIRMWARE.BIN"
+[    0.4111] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FFIRMWARE.BIN") -> "FIRMWARE.BIN"
+[    0.4271] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FFIRMWARE.BIN") -> "FIRMWARE.BIN"
+[    0.4582] isoFile open ok: content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FFIRMWARE.BIN
+[    0.4583] 	Image type  = Audio CD
+[    0.4583] isoFile: Invalid layer0 Primary Volume Descriptor
+[    0.4583]  * CDVD Disk Open: DVD, Single layer or unknown:
+[    0.4583]  * * Track 1: Data (Mode 1) (107 sectors)
+[    0.4583] (IsoFS) Invalid partition descriptor encountered at block 0x10: 'YBùfžó‡w'
+[    0.4585] (IsoFS) Invalid partition descriptor encountered at block 0x10: 'YBùfžó‡w'
+[    0.4992] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FBIOS7.BIN") -> "BIOS7.BIN"
+[    0.5110] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FBIOS7.BIN") -> "BIOS7.BIN"
+[    0.5235] Unable to identify the ISO image type for ''
+[    0.5601] Scanning /storage/emulated/0/Android/data/xyz.aethersx2.tturnip/files/games (recursively)
+[    1.5541] Scanning content://com.android.externalstorage.documents/tree/primary%3APS2 (recursively)
+[    1.5678] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FBIOS9.BIN") -> "BIOS9.BIN"
+[    1.5747] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FBIOS9.BIN") -> "BIOS9.BIN"
+[    1.5832] Unable to identify the ISO image type for ''
+[    1.6185] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fps2-0220a-20060905.bin") -> "ps2-0220a-20060905.bin"
+[    1.6276] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fps2-0220a-20060905.bin") -> "ps2-0220a-20060905.bin"
+[    1.6414] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fps2-0220a-20060905.bin") -> "ps2-0220a-20060905.bin"
+[    1.6696] isoFile open ok: content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fps2-0220a-20060905.bin
+[    1.6696] 	Image type  = Audio CD
+[    1.6697] isoFile: Invalid layer0 Primary Volume Descriptor
+[    1.6697]  * CDVD Disk Open: DVD, Single layer or unknown:
+[    1.6697]  * * Track 1: Data (Mode 1) (1713 sectors)
+[    1.6697] (IsoFS) Invalid partition descriptor encountered at block 0x10: ''
+[    1.6698] (IsoFS) Invalid partition descriptor encountered at block 0x10: ''
+[    1.6995] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FFIRMWARE.BIN") -> "FIRMWARE.BIN"
+[    1.7080] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FFIRMWARE.BIN") -> "FIRMWARE.BIN"
+[    1.7250] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FFIRMWARE.BIN") -> "FIRMWARE.BIN"
+[    1.7517] isoFile open ok: content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FFIRMWARE.BIN
+[    1.7518] 	Image type  = Audio CD
+[    1.7518] isoFile: Invalid layer0 Primary Volume Descriptor
+[    1.7518]  * CDVD Disk Open: DVD, Single layer or unknown:
+[    1.7518]  * * Track 1: Data (Mode 1) (107 sectors)
+[    1.7518] (IsoFS) Invalid partition descriptor encountered at block 0x10: 'YBùfžó‡w'
+[    1.7521] (IsoFS) Invalid partition descriptor encountered at block 0x10: 'YBùfžó‡w'
+[    1.7827] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FBIOS7.BIN") -> "BIOS7.BIN"
+[    1.7910] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2FBIOS7.BIN") -> "BIOS7.BIN"
+[    1.7988] Unable to identify the ISO image type for ''
+[    1.8241] Scanning /storage/emulated/0/Android/data/xyz.aethersx2.tturnip/files/games (recursively)
+[    2.2740] Searching for a BIOS image in '/storage/emulated/0/Android/data/xyz.aethersx2.tturnip/files/bios'...
+[    2.2760] Bios Found: USA     v02.20(05/09/2006)  Devel 20060905-125924
+[    2.2762] Using BIOS '/storage/emulated/0/Android/data/xyz.aethersx2.tturnip/files/bios/431D9B7F.bin' (USA     v02.20(05/09/2006)  Devel 20060905-125924 USA)
+[    2.3296] GetDisplayNameForUriPath("content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fnoods-ps2-profile.elf") -> "noods-ps2-profile.elf"
+[    2.3505] Preparing for a 720x1514 window
+[    2.4014] HLE Host: Set 'host:' root path to: content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2
+[    2.4014] 
+[    2.4019] Searching for a BIOS image in '/storage/emulated/0/Android/data/xyz.aethersx2.tturnip/files/bios'...
+[    2.4023] Bios Found: USA     v02.20(05/09/2006)  Devel 20060905-125924
+[    2.4025] Using BIOS '/storage/emulated/0/Android/data/xyz.aethersx2.tturnip/files/bios/431D9B7F.bin' (USA     v02.20(05/09/2006)  Devel 20060905-125924 USA)
+[    2.4027] Opening CDVD...
+[    2.4028] Opening GS...
+[    2.4148] EGL Version: 1.5
+[    2.4150] EGL Extensions: EGL_ANDROID_front_buffer_auto_refresh EGL_ANDROID_get_native_client_buffer EGL_ANDROID_presentation_time EGL_EXT_surface_CTA861_3_metadata EGL_EXT_surface_SMPTE2086_metadata EGL_KHR_get_all_proc_addresses EGL_KHR_swap_buffers_with_damage EGL_ANDROID_get_frame_timestamps EGL_EXT_gl_colorspace_scrgb EGL_EXT_gl_colorspace_scrgb_linear EGL_EXT_gl_colorspace_display_p3_linear EGL_EXT_gl_colorspace_display_p3 EGL_EXT_gl_colorspace_display_p3_passthrough EGL_EXT_gl_colorspace_bt2020_hlg EGL_EXT_gl_colorspace_bt2020_linear EGL_EXT_gl_colorspace_bt2020_pq EGL_ANDROID_image_native_buffer EGL_ANDROID_native_fence_sync EGL_ANDROID_recordable EGL_EXT_create_context_robustness EGL_EXT_image_gl_colorspace EGL_EXT_pixel_format_float EGL_EXT_protected_content EGL_EXT_yuv_surface EGL_IMG_context_priority EGL_KHR_create_context EGL_KHR_create_context_no_error EGL_KHR_fence_sync EGL_KHR_gl_colorspace EGL_KHR_gl_renderbuffer_image EGL_KHR_gl_texture_2D_image EGL_KHR_gl_texture_3D_image EGL_KHR_gl_texture_cubemap_image EGL_KHR_image EGL_KHR_image_base EGL_KHR_lock_surface EGL_KHR_mutable_render_buffer EGL_KHR_no_config_context EGL_KHR_partial_update EGL_KHR_reusable_sync EGL_KHR_surfaceless_context EGL_KHR_wait_sync 
+[    2.4154] Trying version 3.2 (ES)
+[    2.4167] Got version 3.2 (ES)
+[    2.4170] Created an OpenGL ES context
+[    2.4269] Lazily allocating JNI environment for thread 0x733f3cbf80
+[    2.4548] GL_ARB_viewport_array is not supported! Function pointer will be replaced.
+[    2.4550] GL_ARB_direct_state_access is not supported, this will reduce performance.
+[    2.4552] Not using PBOs for texture uploads because buffer_storage is unavailable or driver is buggy.
+[    2.4554] Not using PBOs for texture downloads, this may reduce performance.
+[    2.4557] Your GL driver does not support program binaries. Hopefully it has a built-in cache.
+[    2.5635] Opening SPU2...
+[    2.5648] Initializing SndBuffer at sample rate of 48000...
+[    2.5670] (AAudioMod) Creating stream...
+[    2.6383] (AAudioMod) Starting stream...
+[    2.6997] Opening PAD...
+[    2.6998] Opening DEV9...
+[    2.7040] Opening USB...
+[    2.7042] Opening FW...
+[    2.7090] McdSlot 0 [File]: /storage/emulated/0/Android/data/xyz.aethersx2.tturnip/files/memcards/Mcd001.ps2
+[    2.7100] McdSlot 1 [File]: /storage/emulated/0/Android/data/xyz.aethersx2.tturnip/files/memcards/Mcd002.ps2
+[    2.7148] EE/iR5900-ARM64 Recompiler Reset
+[    2.8332] Vsync is OFF
+[    3.2027] 	Searching for a BIOS image in '/storage/emulated/0/Android/data/xyz.aethersx2.tturnip/files/bios'...
+[    3.2033] 	Bios Found: USA     v02.20(05/09/2006)  Devel 20060905-125924
+[    3.2035] 	Using BIOS '/storage/emulated/0/Android/data/xyz.aethersx2.tturnip/files/bios/431D9B7F.bin' (USA     v02.20(05/09/2006)  Devel 20060905-125924 USA)
+[    3.2038] 	Bios Found: USA     v02.20(05/09/2006)  Devel 20060905-125924
+[    3.2382] 	BIOS rom1 module not found, skipping...
+[    3.2385] 	BIOS rom2 module not found, skipping...
+[    3.2589] VM subsystems initialized in 935.68 ms
+[    3.2643] GameDB cache file does not exist or failed validation, recreating
+[    3.3564] [GameDB] 12847 games on record (loaded in 93.50ms)
+[    3.3566] [GameDB] Searching for '20060905-125924' in GameDB
+[    3.3567] [GameDB] Could not find '20060905-125924' in GameDB
+[    3.3570] Game Changed:
+[    3.3572]   Name: 
+[    3.3573]   Serial: 20060905-125924
+[    3.3574]   CRC: 00000000
+[    3.3576] Applying settings...
+[    3.3590] [Unsafe Settings] Instant VU1 is disabled, this may reduce performance.
+[    3.3592] OSD [performance_settings_warning]: ïª Instant VU1 is disabled, this may reduce performance.
+[    3.3594] [GameDB] Searching for '20060905-125924' in GameDB
+[    3.3595] [GameDB] Could not find '20060905-125924' in GameDB
+[    3.3597] Updating CPU configuration...
+[    3.3828] Processor count: 8 cores, 8 processors
+[    3.3830] Cluster count: 1
+[    3.3859] Ordered processor list: 0, 1, 2, 3, 4, 5, 6, 7
+[    3.3861] Performance core list:  (mask 0x0)
+[    3.3864] Updating GS configuration...
+[    3.3866] Vsync is OFF
 # Initialize memory (rev:4.00, ctm:196Mhz, cpuclk:147Mhz detected)
-[    3.1245] Reopening GS with existing display
-[    3.1340] GL_ARB_viewport_array is not supported! Function pointer will be replaced.
-[    3.1345] GL_ARB_direct_state_access is not supported, this will reduce performance.
-[    3.1349] Not using PBOs for texture uploads because buffer_storage is unavailable or driver is buggy.
-[    3.1353] Not using PBOs for texture downloads, this may reduce performance.
-[    3.1354] Your GL driver does not support program binaries. Hopefully it has a built-in cache.
+[    3.3942] Reopening GS with existing display
+[    3.4000] GL_ARB_viewport_array is not supported! Function pointer will be replaced.
+[    3.4005] GL_ARB_direct_state_access is not supported, this will reduce performance.
+[    3.4008] Not using PBOs for texture uploads because buffer_storage is unavailable or driver is buggy.
+[    3.4016] Not using PBOs for texture downloads, this may reduce performance.
+[    3.4018] Your GL driver does not support program binaries. Hopefully it has a built-in cache.
 
 PlayStation 2 ======== Hard reset boot
  ROMGEN=2006-0905, IOP info (CPUID=1f, CACH_CONFIG=14000200, 2MB, IOP mode)
@@ -134,7 +164,7 @@ PlayStation 2 ======== Hard reset boot
 EE DECI2 Manager version 0.06 Sep  5 2006 12:57:08
   CPUID=2e20, BoardID=0, ROMGEN=2006-0905, 32M
 
-[    3.5853] ELF (host:content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fnoods-ps2-profile.elf) Game CRC = 0x5AB6E814, EntryPoint = 0x00100D28
+[    3.8091] ELF (host:content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fnoods-ps2-profile.elf) Game CRC = 0x5AB6E814, EntryPoint = 0x00100D28
 
 IOP Realtime Kernel Ver.0.9.1
     Copyright 1999 (C) Sony Computer Entertainment Inc. 
@@ -164,19 +194,21 @@ gp address 00000000
 # Initialize FPU ...
 # Initialize Scratch Pad ...
 # Restart Without Memory Clear Done.
-[    3.6354] Elf entry point @ 0x00100d28 about to get recompiled. Load patches first.
-[    3.6355] [GameDB] Searching for '5ab6e814' in GameDB
-[    3.6357] [GameDB] Could not find '5ab6e814' in GameDB
-[    3.6359] [GameDB] Searching for '5ab6e814' in GameDB
-[    3.6360] [GameDB] Could not find '5ab6e814' in GameDB
-[    3.6361] Game Changed:
-[    3.6362]   Name: 
-[    3.6364]   Serial: 5ab6e814
-[    3.6365]   CRC: 5AB6E814
-[    3.6367] Applying settings...
-[    3.6382] [GameDB] Searching for '5ab6e814' in GameDB
-[    3.6384] [GameDB] Could not find '5ab6e814' in GameDB
-[    3.6429] Add 1 seconds play time to 20060905-125924 -> now 153
+[    3.8593] Elf entry point @ 0x00100d28 about to get recompiled. Load patches first.
+[    3.8594] [GameDB] Searching for '5ab6e814' in GameDB
+[    3.8594] [GameDB] Could not find '5ab6e814' in GameDB
+[    3.8594] [GameDB] Searching for '5ab6e814' in GameDB
+[    3.8595] [GameDB] Could not find '5ab6e814' in GameDB
+[    3.8595] Game Changed:
+[    3.8595]   Name: 
+[    3.8595]   Serial: 5ab6e814
+[    3.8595]   CRC: 5AB6E814
+[    3.8596] Applying settings...
+[    3.8609] [Unsafe Settings] Instant VU1 is disabled, this may reduce performance.
+[    3.8611] OSD [performance_settings_warning]: ïª Instant VU1 is disabled, this may reduce performance.
+[    3.8612] [GameDB] Searching for '5ab6e814' in GameDB
+[    3.8614] [GameDB] Could not find '5ab6e814' in GameDB
+[    3.8662] Add 0 seconds play time to 20060905-125924 -> now 153
 fileXio: fileXio: fileXio RPC Server v1.00
 Copyright (c) 2003 adresd
 read/write allocate memory 4000
@@ -201,35 +233,35 @@ loadmodule: id 28, ret 0
 ============================================================
 [PS2][HOSTFS] ELF argv[0]: host:content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fnoods-ps2-profile.elf
 [PS2][HOSTFS] Probing host: root (ELF launch directory when supported).
-[    3.6890] IopHLE: Denying access to path outside of ELF directory. Requested path: 'game.nds', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/game.nds', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
+[    3.9145] IopHLE: Denying access to path outside of ELF directory. Requested path: 'game.nds', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/game.nds', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
 [PS2][HOSTFS][fileXio] relative open failed=-5; retry=host:content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fgame.nds
 [PS2][HOSTFS][fileXio] SAF retry result=256
 [PS2][HOSTFS][OK] Found exact file: host:game.nds
-[    3.7058] IopHLE: Denying access to path outside of ELF directory. Requested path: 'bios9.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/bios9.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
+[    3.9340] IopHLE: Denying access to path outside of ELF directory. Requested path: 'bios9.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/bios9.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
 [PS2][HOSTFS][fileXio] relative open failed=-5; retry=host:content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fbios9.bin
 [PS2][HOSTFS][fileXio] SAF retry result=256
 [PS2][HOSTFS][OK] Found exact file: host:bios9.bin
-[    3.7280] IopHLE: Denying access to path outside of ELF directory. Requested path: 'bios7.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/bios7.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
+[    3.9475] IopHLE: Denying access to path outside of ELF directory. Requested path: 'bios7.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/bios7.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
 [PS2][HOSTFS][fileXio] relative open failed=-5; retry=host:content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fbios7.bin
 [PS2][HOSTFS][fileXio] SAF retry result=256
 [PS2][HOSTFS][OK] Found exact file: host:bios7.bin
-[    3.7434] IopHLE: Denying access to path outside of ELF directory. Requested path: 'firmware.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/firmware.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
+[    3.9597] IopHLE: Denying access to path outside of ELF directory. Requested path: 'firmware.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/firmware.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
 [PS2][HOSTFS][fileXio] relative open failed=-5; retry=host:content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Ffirmware.bin
 [PS2][HOSTFS][fileXio] SAF retry result=256
 [PS2][HOSTFS][OK] Found exact file: host:firmware.bin
-[    3.7534] IopHLE: Denying access to path outside of ELF directory. Requested path: 'game.nds', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/game.nds', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
+[    3.9694] IopHLE: Denying access to path outside of ELF directory. Requested path: 'game.nds', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/game.nds', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
 [PS2][HOSTFS][fileXio] relative open failed=-5; retry=host:content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fgame.nds
 [PS2][HOSTFS][fileXio] SAF retry result=256
 [PS2][FILE][OK] NDS ROM: host:game.nds
-[    3.7630] IopHLE: Denying access to path outside of ELF directory. Requested path: 'bios9.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/bios9.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
+[    3.9780] IopHLE: Denying access to path outside of ELF directory. Requested path: 'bios9.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/bios9.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
 [PS2][HOSTFS][fileXio] relative open failed=-5; retry=host:content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fbios9.bin
 [PS2][HOSTFS][fileXio] SAF retry result=256
 [PS2][FILE][OK] ARM9 BIOS: host:bios9.bin
-[    3.7759] IopHLE: Denying access to path outside of ELF directory. Requested path: 'bios7.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/bios7.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
+[    3.9883] IopHLE: Denying access to path outside of ELF directory. Requested path: 'bios7.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/bios7.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
 [PS2][HOSTFS][fileXio] relative open failed=-5; retry=host:content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fbios7.bin
 [PS2][HOSTFS][fileXio] SAF retry result=256
 [PS2][FILE][OK] ARM7 BIOS: host:bios7.bin
-[    3.7868] IopHLE: Denying access to path outside of ELF directory. Requested path: 'firmware.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/firmware.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
+[    3.9972] IopHLE: Denying access to path outside of ELF directory. Requested path: 'firmware.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/firmware.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
 [PS2][HOSTFS][fileXio] relative open failed=-5; retry=host:content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Ffirmware.bin
 [PS2][HOSTFS][fileXio] SAF retry result=256
 [PS2][FILE][OK] Firmware: host:firmware.bin
@@ -237,46 +269,46 @@ loadmodule: id 28, ret 0
 [PS2] ROM path: host:game.nds
 [PS2] Probing data files...
 [PS2] sizeof(Core) = 7698336 bytes
-[    3.7959] IopHLE: Denying access to path outside of ELF directory. Requested path: 'game.nds', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/game.nds', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
+[    4.0061] IopHLE: Denying access to path outside of ELF directory. Requested path: 'game.nds', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/game.nds', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
 [PS2][HOSTFS][fileXio] relative open failed=-5; retry=host:content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fgame.nds
 [PS2][HOSTFS][fileXio] SAF retry result=256
 [PS2][OK] NDS ROM: host:game.nds (33554432 bytes)
 [PS2]      title='ADVANCEWARSE' gameCode='AWRE'
-[    3.8111] IopHLE: Denying access to path outside of ELF directory. Requested path: 'bios9.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/bios9.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
+[    4.0216] IopHLE: Denying access to path outside of ELF directory. Requested path: 'bios9.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/bios9.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
 [PS2][HOSTFS][fileXio] relative open failed=-5; retry=host:content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fbios9.bin
 [PS2][HOSTFS][fileXio] SAF retry result=256
 [PS2][OK] ARM9 BIOS: host:bios9.bin (4096 bytes)
-[    3.8204] IopHLE: Denying access to path outside of ELF directory. Requested path: 'bios7.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/bios7.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
+[    4.0309] IopHLE: Denying access to path outside of ELF directory. Requested path: 'bios7.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/bios7.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
 [PS2][HOSTFS][fileXio] relative open failed=-5; retry=host:content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fbios7.bin
 [PS2][HOSTFS][fileXio] SAF retry result=256
 [PS2][OK] ARM7 BIOS: host:bios7.bin (16384 bytes)
-[    3.8287] IopHLE: Denying access to path outside of ELF directory. Requested path: 'firmware.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/firmware.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
+[    4.0389] IopHLE: Denying access to path outside of ELF directory. Requested path: 'firmware.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/firmware.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
 [PS2][HOSTFS][fileXio] relative open failed=-5; retry=host:content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Ffirmware.bin
 [PS2][HOSTFS][fileXio] SAF retry result=256
 [PS2][OK] Firmware: host:firmware.bin (262144 bytes)
-[    3.8372] IopHLE: Denying access to path outside of ELF directory. Requested path: 'bios9.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/bios9.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
+[    4.0473] IopHLE: Denying access to path outside of ELF directory. Requested path: 'bios9.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/bios9.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
 [PS2][HOSTFS][fileXio] relative open failed=-5; retry=host:content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fbios9.bin
 [PS2][HOSTFS][fileXio] SAF retry result=256
-[    3.8532] IopHLE: Denying access to path outside of ELF directory. Requested path: 'firmware.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/firmware.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
+[    4.0562] IopHLE: Denying access to path outside of ELF directory. Requested path: 'firmware.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/firmware.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
 [PS2][HOSTFS][fileXio] relative open failed=-5; retry=host:content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Ffirmware.bin
 [PS2][HOSTFS][fileXio] SAF retry result=256
 
 [PS2] ROM read succeeded. M1 data path is alive.
 [PS2] BIOS probes: ARM9=OK ARM7=OK firmware=OK
 [PS2] Constructing NooDS core (no frame execution yet)...
-[    3.9899] IopHLE: Denying access to path outside of ELF directory. Requested path: 'bios9.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/bios9.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
+[    4.1828] IopHLE: Denying access to path outside of ELF directory. Requested path: 'bios9.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/bios9.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
 [PS2][HOSTFS][fileXio] relative open failed=-5; retry=host:content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fbios9.bin
 [PS2][HOSTFS][fileXio] SAF retry result=256
-[    4.0128] IopHLE: Denying access to path outside of ELF directory. Requested path: 'bios7.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/bios7.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
+[    4.2011] IopHLE: Denying access to path outside of ELF directory. Requested path: 'bios7.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/bios7.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
 [PS2][HOSTFS][fileXio] relative open failed=-5; retry=host:content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fbios7.bin
 [PS2][HOSTFS][fileXio] SAF retry result=256
-[    4.0255] IopHLE: Denying access to path outside of ELF directory. Requested path: 'firmware.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/firmware.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
+[    4.2096] IopHLE: Denying access to path outside of ELF directory. Requested path: 'firmware.bin', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/firmware.bin', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
 [PS2][HOSTFS][fileXio] relative open failed=-5; retry=host:content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Ffirmware.bin
 [PS2][HOSTFS][fileXio] SAF retry result=256
-[    4.4203] IopHLE: Denying access to path outside of ELF directory. Requested path: 'game.nds', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/game.nds', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
+[    4.6105] IopHLE: Denying access to path outside of ELF directory. Requested path: 'game.nds', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/game.nds', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
 [PS2][HOSTFS][fileXio] relative open failed=-5; retry=host:content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fgame.nds
 [PS2][HOSTFS][fileXio] SAF retry result=256
-[    4.4307] IopHLE: Denying access to path outside of ELF directory. Requested path: 'game.sav', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/game.sav', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
+[    4.6204] IopHLE: Denying access to path outside of ELF directory. Requested path: 'game.sav', Resolved path: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2/game.sav', ELF directory: 'content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2'
 [PS2][HOSTFS][fileXio] relative open failed=-5; retry=host:content://com.android.externalstorage.documents/tree/primary%3APS2/document/primary%3APS2%2Fgame.sav
 [PS2][HOSTFS][fileXio] SAF retry result=-5
 [PS2][PROF] core construction: 757.26 ms
@@ -301,7 +333,7 @@ loadmodule: id 28, ret 0
 [PS2][PROF] M3 boot frames: 1 frames in 603.87 ms (603.87 ms/frame)
 [PS2][WARN] M4: all 1 tested frames remained completely white. Last hash=83DD1DC5
 [PS2] M5: initializing GS and presenting selected frame 1 (still all-white)...
-[    5.2217] (UpdateVSyncRate) Mode Changed to NTSC.
+[    5.4292] (UpdateVSyncRate) Mode Changed to NTSC.
 [PS2][OK] M5: both NDS screens uploaded to GS. Priming both display buffers with frame 1.
 [PS2] interpreter benchmark: 59 frames in 21.073 s = 2.80 NDS fps
 [PS2][PROF] 59-frame window: 21.073s = 2.80 fps | core=340.84ms/f getFrame=4.84ms/f uploadGS=0.11ms/f present=11.36ms/f known=357.14ms/f
@@ -2150,603 +2182,303 @@ loadmodule: id 28, ret 0
 [PS2][SLOW] rank=3 frame=1123 coreMs=203.35 arm9Instr=54105 arm7Instr=30392 arm9JitGuest=11486 arm7JitGuest=9312 tasks=1157 gpu2dA=192 gpu2dB=192 render3d=192 arm9Pc=FFFF07F0 arm7Pc=000011C0 dispA=40811B19 dispB=C0811110 bldA=0000 bldB=0000 disp3d=0001 polygons=1
 [PS2][JIT] selective hot filter add count=3 pcs=0210F490,02113F18,0210F48C,00000000,00000000,00000000
 [PS2] M5 stream CT16: frame=1140 top(hash=46D8BBC6 white=18172/49152) bottom(hash=969607D8 white=109/49152) cycles=638616600
-[PS2] interpreter benchmark: 1199 frames in 193.922 s = 6.18 NDS fps
-[PS2][PROF] 60-frame window: 9.314s = 6.44 fps | core=141.54ms/f getFrame=4.84ms/f uploadGS=0.11ms/f present=8.67ms/f known=155.15ms/f
-[PS2][PROF] scheduler: ARM9=1966949 ARM7=2026566 tasks=69454 schedules=69454 maxDepth=13 legacyEstimatedMoves=569058 cursorCompactions=1085 cursorMoves=8864 blockFilterHit=267072 blockExec=38208 blockDrop=550 blockBudgetSkip=225077 autoHot=559 thumbAutoHot=0 filterCollision=10 sampleCollision=6998
-[PS2][PROF] arm7-block: filterHit=244546 exec=205952 chained=63162 drop=119 budgetSkip=37093 autoHot=156 thumbAutoHot=12 filterCollision=39 sampleCollision=12522
-[PS2][PROF] scheduler-cost: est=4.289ms/f insert=2.335us(1118 samples) pop=1.339us(1087 samples) compact=2.170ms ties=79
-[PS2][PROF] task-count: core=0 gpuDraw=15780 gpuTiming=15780 gpu3d=3363 spu=32823 dma=0 timer=1004 irq=704 other=0
-[PS2][PROF] task-sample-us: core=0.00 gpuDraw=215.82 gpuTiming=8.90 gpu3d=7.51 spu=18.70 dma=0.00 timer=3.14 irq=2.62 other=0.00 (per-class 1/64 sampled)
-[PS2][PROF] gpu-phase count/avg-us: 2dA=11520/90.39 2dB=11520/137.88 capture=0/0.00 render3d=11328/64.23 vblank=60/1304.53
-[PS2][PROF] gpu2dA count/avg-us/est-ms: clear=11520/3.10/35.73 obj=2112/68.61/144.90 text=22464/16.83/377.96
+[PS2] interpreter benchmark: 1199 frames in 197.951 s = 6.06 NDS fps
+[PS2][PROF] 60-frame window: 13.343s = 4.50 fps | core=208.95ms/f getFrame=4.84ms/f uploadGS=0.11ms/f present=8.41ms/f known=222.31ms/f
+[PS2][PROF] scheduler: ARM9=6043970 ARM7=2013139 tasks=68733 schedules=68733 maxDepth=13 legacyEstimatedMoves=563507 cursorCompactions=1073 cursorMoves=8778 blockFilterHit=972319 blockExec=162367 blockDrop=1392 blockBudgetSkip=797804 autoHot=1474 thumbAutoHot=0 filterCollision=72 sampleCollision=12112
+[PS2][PROF] arm7-block: filterHit=267026 exec=164428 chained=50458 drop=124 budgetSkip=101322 autoHot=175 thumbAutoHot=11 filterCollision=49 sampleCollision=14031
+[PS2][PROF] scheduler-cost: est=4.216ms/f insert=2.313us(1108 samples) pop=1.336us(1077 samples) compact=2.161ms ties=76
+[PS2][PROF] task-count: core=0 gpuDraw=15780 gpuTiming=15780 gpu3d=2527 spu=32823 dma=130 timer=1003 irq=690 other=0
+[PS2][PROF] task-sample-us: core=0.00 gpuDraw=191.81 gpuTiming=8.86 gpu3d=6.84 spu=17.88 dma=5.50 timer=3.38 irq=2.38 other=0.00 (per-class 1/64 sampled)
+[PS2][PROF] gpu-phase count/avg-us: 2dA=11520/95.09 2dB=11520/132.59 capture=0/0.00 render3d=9365/68.01 vblank=60/1303.25
+[PS2][PROF] gpu2dA count/avg-us/est-ms: clear=11520/3.02/34.78 obj=2688/65.08/174.94 text=22464/17.01/382.01
 [PS2][PROF] gpu2dA count/avg-us/est-ms: affine=2112/65.83/139.04 extended=0/0.00/0.00 large=0/0.00/0.00
-[PS2][PROF] gpu2dA count/avg-us/est-ms: compose=11520/17.75/204.48 output=11520/1.43/16.48 bright=11520/4.07/46.86
-[PS2][PROF] gpu2dA text-detail: samples=354 calls=354 mode4=179 mode8=0 3d=175 windowed=0 tiles=5825 hFlip=198 vFlip=195
-[PS2][PROF] gpu2dA text-memory: tileHit=5646 tileMap=179 tileFallback=0 indexHit=5183 indexMap=642 indexFallback=0 pixels=54889 transparent=41782 clipped=176 palette=8502 writes=12931
-[PS2][PROF] gpu2dA obj-detail: samples=34 calls=34 objWindow=0 scanned=4352 disabled=0 outY=4148 visible=204 affine=0 bitmap=0 bpp8=0 bpp4=204
-[PS2][PROF] gpu2dA obj-memory: pageHit=512 pageMap=64 fallback=0 texels=4608 clipped=5184 objWinWrites=0 pixelWrites=1967
-[PS2][PROF] gpu2dA compose-detail: samples=177 calls=177 noBlend=177 blended=0 windowed=0 pixels=45312 rgbConvert=39951 3d=5361 semi=0 3dAlpha=0 alpha=0 brightUp=0 brightDown=0 winCheck=0 winReject=0 writes=45312
-[PS2][PROF] gpu2dB count/avg-us/est-ms: clear=11520/16.39/188.76 obj=11520/48.33/556.73 text=11520/61.50/708.45
+[PS2][PROF] gpu2dA count/avg-us/est-ms: compose=11520/20.09/231.49 output=11520/1.40/16.17 bright=11520/4.97/57.30
+[PS2][PROF] gpu2dA text-detail: samples=354 calls=354 mode4=179 mode8=0 3d=175 windowed=0 tiles=5769 hFlip=74 vFlip=72
+[PS2][PROF] gpu2dA text-memory: tileHit=5590 tileMap=179 tileFallback=0 indexHit=5346 indexMap=423 indexFallback=0 pixels=54669 transparent=41310 clipped=93 palette=9085 writes=13266
+[PS2][PROF] gpu2dA obj-detail: samples=41 calls=41 objWindow=0 scanned=5248 disabled=0 outY=5022 visible=226 affine=0 bitmap=0 bpp8=0 bpp4=226
+[PS2][PROF] gpu2dA obj-memory: pageHit=575 pageMap=66 fallback=0 texels=5128 clipped=5224 objWinWrites=0 pixelWrites=2162
+[PS2][PROF] gpu2dA compose-detail: samples=177 calls=177 noBlend=175 blended=2 windowed=0 pixels=45312 rgbConvert=40910 3d=4402 semi=0 3dAlpha=244 alpha=144 brightUp=0 brightDown=0 winCheck=0 winReject=0 writes=45188
+[PS2][PROF] gpu2dB count/avg-us/est-ms: clear=11520/16.99/195.72 obj=11520/47.99/552.89 text=12096/53.66/649.09
 [PS2][PROF] gpu2dB count/avg-us/est-ms: affine=0/0.00/0.00 extended=0/0.00/0.00 large=0/0.00/0.00
-[PS2][PROF] gpu2dB count/avg-us/est-ms: compose=11520/14.23/163.89 output=11520/1.37/15.83 bright=11520/1.41/16.25
-[PS2][PROF] gpu2dB text-detail: samples=167 calls=167 mode4=167 mode8=0 3d=0 windowed=0 tiles=5344 hFlip=22 vFlip=0
-[PS2][PROF] gpu2dB text-memory: tileHit=5177 tileMap=167 tileFallback=0 indexHit=5016 indexMap=328 indexFallback=0 pixels=42752 transparent=0 clipped=0 palette=42752 writes=42752
-[PS2][PROF] gpu2dB obj-detail: samples=202 calls=202 objWindow=0 scanned=25856 disabled=0 outY=25826 visible=30 affine=0 bitmap=0 bpp8=0 bpp4=30
-[PS2][PROF] gpu2dB obj-memory: pageHit=90 pageMap=30 fallback=0 texels=960 clipped=0 objWinWrites=0 pixelWrites=746
-[PS2][PROF] gpu2dB compose-detail: samples=174 calls=174 noBlend=174 blended=0 windowed=0 pixels=44544 rgbConvert=44544 3d=0 semi=0 3dAlpha=0 alpha=0 brightUp=0 brightDown=0 winCheck=0 winReject=0 writes=44544
-[PS2][PROF] gpu3d-detail: frames=59 scanlines=11328 threadedFrames=0 polygonCalls=2508 solid=2508 trans=0 polygonSamples=29 sampledPixels=4572 linear=3953 perspective=619 depthTests=4572 depthFailBoth=0 shadow=0
-[PS2][PROF] gpu3d-pixel: texture=4572 fmt0=0 fmt1=0 fmt2=0 fmt3=4572 fmt4=0 fmt5=0 fmt6=0 fmt7=0 alphaReject=288 opaqueWrite=4284 transWrite=0 blend=0 finishSamples=197 fog=0 edge=41
-[PS2][PROF] gpu3d-phase-detail: scanSamples=165 clearAvgUs=9.99 polygonAvgUs=64.90 finishSamples=197 finishAvgUs=1.50
-[PS2][PROF] ROM window: hits=0 misses=0 hitRate=100.00% seeks=0 read=0KiB seqMiss=0 maxSeq=52 cache=2048KiB page=16KiB
-[PS2][PROF] ROM I/O: total=0.00ms (0.00ms/f) coreExIO=141.54ms/f reads=0 seeks=0 requested=0KiB got=0KiB maxRead=0.00ms maxSeek=0.00ms short=0
-[PS2][PROF] ROM latency hist: <1=0 1-5=0 5-10=0 10-50=0 50-100=0 100-250=0 >250=0 | size <=2K=0 <=16K=0 <=64K=0 <=256K=0 >256K=0
-[PS2][PROF] ARM9 instr=1026178 ARM=1026001 THUMB=177 | ARM dp=496649 mem=262487 multi=103155 branch=161032 sys=2678 | THUMB alu=118 mem=0 stack=0 multi=0 branch=59
-[PS2][PROF] ARM9 hotPC(sample/64): 0210F494:B8A10004:772 0210F48C:E151000C:612 0210F490:B8B00004:583 02113F18:E1D123B6:528 02113F1C:E0122000:527 02113F20:1AFFFFFC:475
-[PS2][PROF] ARM9 hot#0 pc=0210F494 op=B8A10004 next=BAFFFFFB mode=ARM kind=multi samples=772 cpsr=80000092 r1=0700045C r0=02170B38 r4=027C0290 mem=0700045C branch=FFFFFFFF nextEvent=454
-[PS2][PROF] ARM9 hot#1 pc=0210F48C op=E151000C next=B8B00004 mode=ARM kind=data samples=612 cpsr=80000092 r1=070007F0 r0=02170EC8 r12=07000800 mem=FFFFFFFF branch=FFFFFFFF nextEvent=123
-[PS2][PROF] ARM9 hot#2 pc=0210F490 op=B8B00004 next=B8A10004 mode=ARM kind=multi samples=583 cpsr=80000092 r0=02170870 r0=02170870 r4=027C0290 mem=02170870 branch=FFFFFFFF nextEvent=320
-[PS2][PROF] ARM9 hot#3 pc=02113F18 op=E1D123B6 next=E0122000 mode=ARM kind=memory samples=528 cpsr=2000001F r1=022AB8AC r2=00000001 r6=027C12E0 mem=022AB8E2 branch=FFFFFFFF nextEvent=182
-[PS2][PROF] ARM9 hot#4 pc=02113F1C op=E0122000 next=1AFFFFFC mode=ARM kind=data samples=527 cpsr=2000001F r2=00000001 r2=00000001 r0=00000001 mem=FFFFFFFF branch=FFFFFFFF nextEvent=51
-[PS2][PROF] ARM9 hot#5 pc=02113F20 op=1AFFFFFC next=E12FFF1E mode=ARM kind=branch samples=475 cpsr=2000001F r15=02113F28 r15=02113F28 r12=00000006 mem=FFFFFFFF branch=02113F18 nextEvent=832
+[PS2][PROF] gpu2dB count/avg-us/est-ms: compose=11520/14.87/171.28 output=11520/1.41/16.26 bright=11520/2.24/25.85
+[PS2][PROF] gpu2dB text-detail: samples=176 calls=176 mode4=176 mode8=0 3d=0 windowed=0 tiles=5632 hFlip=15 vFlip=0
+[PS2][PROF] gpu2dB text-memory: tileHit=5456 tileMap=176 tileFallback=0 indexHit=5331 indexMap=301 indexFallback=0 pixels=34530 transparent=42 clipped=0 palette=34488 writes=34488
+[PS2][PROF] gpu2dB obj-detail: samples=202 calls=202 objWindow=0 scanned=25856 disabled=0 outY=25829 visible=27 affine=0 bitmap=0 bpp8=0 bpp4=27
+[PS2][PROF] gpu2dB obj-memory: pageHit=81 pageMap=27 fallback=0 texels=864 clipped=0 objWinWrites=0 pixelWrites=680
+[PS2][PROF] gpu2dB compose-detail: samples=174 calls=174 noBlend=168 blended=6 windowed=0 pixels=44544 rgbConvert=44544 3d=0 semi=0 3dAlpha=0 alpha=0 brightUp=0 brightDown=0 winCheck=0 winReject=0 writes=43008
+[PS2][PROF] gpu3d-detail: frames=48 scanlines=9365 threadedFrames=0 polygonCalls=2412 solid=2412 trans=0 polygonSamples=28 sampledPixels=4410 linear=3791 perspective=619 depthTests=4410 depthFailBoth=0 shadow=0
+[PS2][PROF] gpu3d-pixel: texture=4410 fmt0=0 fmt1=0 fmt2=0 fmt3=3130 fmt4=1280 fmt5=0 fmt6=0 fmt7=0 alphaReject=693 opaqueWrite=3717 transWrite=0 blend=0 finishSamples=165 fog=0 edge=31
+[PS2][PROF] gpu3d-phase-detail: scanSamples=132 clearAvgUs=9.93 polygonAvgUs=72.53 finishSamples=165 finishAvgUs=1.53
+[PS2][PROF] ROM window: hits=185 misses=9 hitRate=95.36% seeks=7 read=144KiB seqMiss=2 maxSeq=52 cache=2048KiB page=16KiB
+[PS2][PROF] ROM I/O: total=1.59ms (0.03ms/f) coreExIO=208.93ms/f reads=9 seeks=7 requested=144KiB got=144KiB maxRead=0.14ms maxSeek=0.07ms short=0
+[PS2][PROF] ROM latency hist: <1=9 1-5=0 5-10=0 10-50=0 50-100=0 100-250=0 >250=0 | size <=2K=0 <=16K=9 <=64K=0 <=256K=0 >256K=0
+[PS2][PROF] ROM caller=ROM-cache-miss reads=9 totalMs=1.59
+[PS2][PROF] ARM9 instr=2448163 ARM=2448016 THUMB=147 | ARM dp=1372651 mem=510520 multi=154834 branch=403119 sys=6892 | THUMB alu=98 mem=0 stack=0 multi=0 branch=49
+[PS2][PROF] ARM9 hotPC(sample/64): 0210F494:B8A10004:755 0210F7B4:BAFFFFF9:693 0210F7B0:E2577001:679 0210F7B8:E3160080:679 0210F7BC:1A000006:622 0210F490:B8B00004:609
+[PS2][PROF] ARM9 hot#0 pc=0210F494 op=B8A10004 next=BAFFFFFB mode=ARM kind=multi samples=755 cpsr=80000092 r1=07000478 r0=02170B54 r4=027C0290 mem=07000478 branch=FFFFFFFF nextEvent=398
+[PS2][PROF] ARM9 hot#1 pc=0210F7B4 op=BAFFFFF9 next=E3160080 mode=ARM kind=branch samples=693 cpsr=6000001F r15=0210F7BC r15=0210F7BC r9=0000004B mem=FFFFFFFF branch=0210F7A0 nextEvent=49
+[PS2][PROF] ARM9 hot#2 pc=0210F7B0 op=E2577001 next=BAFFFFF9 mode=ARM kind=data samples=679 cpsr=2000001F r7=00000000 r7=00000000 r1=021809D4 mem=FFFFFFFF branch=FFFFFFFF nextEvent=83
+[PS2][PROF] ARM9 hot#3 pc=0210F7B8 op=E3160080 next=1A000006 mode=ARM kind=data samples=679 cpsr=2000001F r6=00001FE0 r0=023BFFE9 r0=023BFFE9 mem=FFFFFFFF branch=FFFFFFFF nextEvent=895
+[PS2][PROF] ARM9 hot#4 pc=0210F7BC op=1A000006 next=E4D09001 mode=ARM kind=branch samples=622 cpsr=2000001F r0=023BFEDE r0=023BFEDE r6=000000E0 mem=FFFFFFFF branch=0210F7DC nextEvent=578
+[PS2][PROF] ARM9 hot#5 pc=0210F490 op=B8B00004 next=B8A10004 mode=ARM kind=multi samples=609 cpsr=80000092 r0=02170888 r0=02170888 r4=027C0290 mem=02170888 branch=FFFFFFFF nextEvent=86
 [PS2][JIT] hotblock pc=0210F494 support=2/2 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] hotblock pc=0210F48C support=4/4 firstUnsupported=00000000:00000000 reason=supported
-[PS2][HOTBLOCK] cpu=ARM9 pc=0210F48C end=0210F49C sampledExec=612 estExec=39168 guestInstr=4 guestCycles=4 branch=0210F48C backEdge=1 mem=0700045C memClass=OAM dynarecSupported=4/4 halfDirect=R0/0,W0/0 wordDirect=R0/0,W0/0 read=1007 write=0007 nextEvent=123
-[PS2][HOTBLOCK] +00 pc=0210F48C op=E151000C CMP.AL r1,r12                              cond=E S=1 flagsR=0 flagsW=1 Rn=1 Rd=0 Rm=12 Rs=255 shift=0/0 imm=00000000 read=1002 write=0000 branch=FFFFFFFF back=0 jit=supported
-[PS2][HOTBLOCK] +01 pc=0210F490 op=B8B00004 LDMIA.LT r0!,{r2}                          cond=B S=0 flagsR=1 flagsW=0 Rn=0 Rd=255 Rm=255 Rs=255 shift=0/0 imm=00000000 read=0001 write=0005 branch=FFFFFFFF back=0 jit=supported
-[PS2][HOTBLOCK] +02 pc=0210F494 op=B8A10004 STMIA.LT r1!,{r2}                          cond=B S=0 flagsR=1 flagsW=0 Rn=1 Rd=255 Rm=255 Rs=255 shift=0/0 imm=00000000 read=0006 write=0002 branch=FFFFFFFF back=0 jit=supported
-[PS2][HOTBLOCK] +03 pc=0210F498 op=BAFFFFFB B.LT 0x0210F48C                            cond=B S=0 flagsR=1 flagsW=0 Rn=255 Rd=255 Rm=255 Rs=255 shift=0/0 imm=00000000 read=0000 write=0000 branch=0210F48C back=1 jit=supported
+[PS2][JIT] hotblock pc=0210F7B4 support=1/1 firstUnsupported=00000000:00000000 reason=supported
+[PS2][JIT] hotblock pc=0210F7B0 support=2/2 firstUnsupported=00000000:00000000 reason=supported
+[PS2][JIT] hotblock pc=0210F7B8 support=2/2 firstUnsupported=00000000:00000000 reason=supported
+[PS2][JIT] hotblock pc=0210F7BC support=1/1 firstUnsupported=00000000:00000000 reason=supported
 [PS2][JIT] hotblock pc=0210F490 support=3/3 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] hotblock pc=02113F18 support=3/3 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] hotblock pc=02113F1C support=2/2 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] hotblock pc=02113F20 support=1/1 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] shadow attempts=6 success=6 rejected=0 lookupHit=3 miss=3 guest=15 supported=15 coverage=100.00% avgBlock=2.50 largest=4 hostWords=0 cache=116908 invalidations=0 fallback=0
+[PS2][HOTBLOCK] cpu=ARM9 pc=0210F490 end=0210F49C sampledExec=609 estExec=38976 guestInstr=3 guestCycles=3 branch=0210F48C backEdge=1 mem=07000478 memClass=OAM dynarecSupported=3/3 halfDirect=R0/0,W0/0 wordDirect=R0/0,W0/0 read=0007 write=0007 nextEvent=86
+[PS2][HOTBLOCK] +00 pc=0210F490 op=B8B00004 LDMIA.LT r0!,{r2}                          cond=B S=0 flagsR=1 flagsW=0 Rn=0 Rd=255 Rm=255 Rs=255 shift=0/0 imm=00000000 read=0001 write=0005 branch=FFFFFFFF back=0 jit=supported
+[PS2][HOTBLOCK] +01 pc=0210F494 op=B8A10004 STMIA.LT r1!,{r2}                          cond=B S=0 flagsR=1 flagsW=0 Rn=1 Rd=255 Rm=255 Rs=255 shift=0/0 imm=00000000 read=0006 write=0002 branch=FFFFFFFF back=0 jit=supported
+[PS2][HOTBLOCK] +02 pc=0210F498 op=BAFFFFFB B.LT 0x0210F48C                            cond=B S=0 flagsR=1 flagsW=0 Rn=255 Rd=255 Rm=255 Rs=255 shift=0/0 imm=00000000 read=0000 write=0000 branch=0210F48C back=1 jit=supported
+[PS2][JIT] shadow attempts=6 success=6 rejected=0 lookupHit=4 miss=2 guest=11 supported=11 coverage=100.00% avgBlock=1.83 largest=3 hostWords=0 cache=131060 invalidations=5 fallback=0
 [PS2][JIT] exits: opcode=0 condition=0 flags=0 shift=0 memory=0 branch=0 pc=0 system=0 other=0
 [PS2][JIT] unsupported-detail: longMul=0 signedLoad=0
-[PS2][JIT] active attempts=61718 exec=137342 guest=940778 cycles=1254377 chain=99134 storeChain=30822 pipeReuse=20826 codeInv=0 compileMiss=3 budgetFallback=22960 writeFallback=0 verifyFallback=550 stateFallback=0
+[PS2][JIT] active attempts=212190 exec=448974 guest=3598238 cycles=4854174 chain=286607 storeChain=130637 pipeReuse=86420 codeInv=0 compileMiss=429 budgetFallback=48430 writeFallback=0 verifyFallback=1392 stateFallback=1
 [PS2][JIT] ARM9-Thumb active attempts=0 exec=0 guest=0 cycles=0 differentialPass=0
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=0 pc=02113F18 reason=budget sample64=122
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=1 pc=0210F840 reason=budget sample64=6
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=2 pc=0210F83C reason=budget sample64=6
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=3 pc=0210F83C reason=budget sample64=4
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=4 pc=0210F840 reason=budget sample64=3
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=5 pc=02025D84 reason=budget sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=6 pc=0210E10C reason=budget sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=7 pc=02025870 reason=budget sample64=1
-[PS2][PROF] ARM7 instr=1180313 ARM=1123123 THUMB=57190 | ARM dp=608824 mem=279772 multi=96929 branch=137598 sys=0 | THUMB alu=28803 mem=4152 stack=11570 multi=0 branch=12665
-[PS2][PROF] ARM7 hotPC(sample/64): 00002E20:E16FF00B:62 00002E1C:E8BD0800:49 00002E08:E28FE000:46 037FED94:E59FC000:38 037FED98:E12FFF1C:35 00002DDC:E92D5800:34
-[PS2][PROF] ARM7 hot#0 pc=00002E20 op=E16FF00B next=E8BD5800 mode=ARM kind=data samples=62 cpsr=000000D3 r15=00002E28 r15=00002E28 r11=8000003F mem=FFFFFFFF branch=FFFFFFFF nextEvent=1012
-[PS2][PROF] ARM7 hot#1 pc=00002E1C op=E8BD0800 next=E16FF00B mode=ARM kind=multi samples=49 cpsr=000000D3 r13=03808054 r0=00000077 r0=00000077 mem=03808054 branch=FFFFFFFF nextEvent=238
-[PS2][PROF] ARM7 hot#2 pc=00002E08 op=E28FE000 next=E12FFF1C mode=ARM kind=data samples=46 cpsr=0000001F r15=00002E10 r14=037FECAC r0=00000000 mem=FFFFFFFF branch=FFFFFFFF nextEvent=178
-[PS2][PROF] ARM7 hot#3 pc=037FED94 op=E59FC000 next=E12FFF1C mode=ARM kind=memory samples=38 cpsr=8000001F r15=037FED9C r12=03803BED r0=000001C0 mem=037FED9C branch=FFFFFFFF nextEvent=160
-[PS2][PROF] ARM7 hot#4 pc=037FED98 op=E12FFF1C next=03803BE9 mode=ARM kind=branch-exchange samples=35 cpsr=8000001F r15=037FEDA0 r15=037FEDA0 r12=03803BE9 mem=FFFFFFFF branch=FFFFFFFF nextEvent=76
-[PS2][PROF] ARM7 hot#5 pc=00002DDC op=E92D5800 next=E15EC0B2 mode=ARM kind=multi samples=34 cpsr=A0000093 r13=03808064 r5=038081E0 r0=00000248 mem=03808064 branch=FFFFFFFF nextEvent=370
-[PS2][PROF] memory ARM9 sampled/64: read=25601 direct=25505 fallback=96 write=1783 direct=1553 fallback=230 pageHit=24595 | MMIO=96/230 VRAM=121/175 palette=0/0 TCM=0/0 unaligned=0/0 crossPage=0/0
-[PS2][PROF] memory ARM9 MMIO timing/64: readSamples=92 avgUs=1.70 totalSampleMs=0.16 writeSamples=222 avgUs=2.55 totalSampleMs=0.56
-[PS2][PROF] memory ARM9 MMIO#0 address=04000298 samples=13 read=0 write=16
-[PS2][PROF] memory ARM9 MMIO#1 address=04000290 samples=3 read=0 write=3
-[PS2][PROF] memory ARM7 sampled/64: read=29768 direct=29477 fallback=291 write=3747 direct=3619 fallback=128 pageHit=30650 | MMIO=291/128 VRAM=0/0 palette=0/0 TCM=0/0 unaligned=0/0 crossPage=0/0
-[PS2][PROF] memory ARM7 MMIO timing/64: readSamples=265 avgUs=1.65 totalSampleMs=0.44 writeSamples=142 avgUs=1.94 totalSampleMs=0.28
-[PS2][PROF] memory ARM7 MMIO#0 address=04000208 samples=109 read=75 write=41
-[PS2][PROF] memory ARM7 MMIO#1 address=04000214 samples=31 read=29 write=10
-[PS2][PROF] memory ARM7 MMIO#2 address=04000104 samples=19 read=0 write=27
-[PS2][PROF] memory ARM7 MMIO#3 address=04000210 samples=6 read=16 write=8
-[PS2][PROF] memory ARM7 MMIO#4 address=040004E0 samples=1 read=1 write=0
-[PS2][PROF] memory ARM7 MMIO#5 address=0400044C samples=1 read=0 write=1
-[PS2][ARM7JIT] active attempts=206823 exec=205952 guest=846255 cycles=1479292 chain=0 storeChain=0 pipeReuse=0 codeInv=0 compileMiss=6 budgetFallback=752 verifyFallback=119 stateFallback=0
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=0 pc=037FFC98 reason=budget sample64=2
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=1 pc=03800EB0 reason=budget sample64=2
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=2 pc=037FEC8C reason=budget sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=3 pc=037FF30C reason=budget sample64=1
+[PS2][JIT-FALLBACK] cpu=ARM9 rank=0 pc=02113F18 reason=budget sample64=84
+[PS2][JIT-FALLBACK] cpu=ARM9 rank=1 pc=0210F83C reason=budget sample64=74
+[PS2][JIT-FALLBACK] cpu=ARM9 rank=2 pc=0210F840 reason=budget sample64=50
+[PS2][JIT-FALLBACK] cpu=ARM9 rank=3 pc=0210F838 reason=budget sample64=10
+[PS2][JIT-FALLBACK] cpu=ARM9 rank=4 pc=02116260 reason=budget sample64=10
+[PS2][JIT-FALLBACK] cpu=ARM9 rank=5 pc=0210F84C reason=budget sample64=7
+[PS2][JIT-FALLBACK] cpu=ARM9 rank=6 pc=0211625C reason=budget sample64=5
+[PS2][JIT-FALLBACK] cpu=ARM9 rank=7 pc=0210EB7C reason=budget sample64=5
+[PS2][PROF] ARM7 instr=1338974 ARM=1270676 THUMB=68298 | ARM dp=705327 mem=304876 multi=97254 branch=163219 sys=0 | THUMB alu=36135 mem=3944 stack=11531 multi=0 branch=16688
+[PS2][PROF] ARM7 hotPC(sample/64): 00002E08:E28FE000:45 00002DE8:E28FB048:45 00002E20:E16FF00B:41 00002E1C:E8BD0800:41 037FED94:E59FC000:39 00002C70:00004770:33
+[PS2][PROF] ARM7 hot#0 pc=00002E08 op=E28FE000 next=E12FFF1C mode=ARM kind=data samples=45 cpsr=0000001F r15=00002E10 r14=037FECAC r0=000000C0 mem=FFFFFFFF branch=FFFFFFFF nextEvent=19
+[PS2][PROF] ARM7 hot#1 pc=00002DE8 op=E28FB048 next=E79BC10C mode=ARM kind=data samples=45 cpsr=A0000093 r15=00002DF0 r11=00000000 r8=FFFFFF8D mem=FFFFFFFF branch=FFFFFFFF nextEvent=485
+[PS2][PROF] ARM7 hot#2 pc=00002E20 op=E16FF00B next=E8BD5800 mode=ARM kind=data samples=41 cpsr=000000D3 r15=00002E28 r15=00002E28 r11=A000003F mem=FFFFFFFF branch=FFFFFFFF nextEvent=255
+[PS2][PROF] ARM7 hot#3 pc=00002E1C op=E8BD0800 next=E16FF00B mode=ARM kind=multi samples=41 cpsr=000000D3 r13=03808054 r0=00000065 r0=00000065 mem=03808054 branch=FFFFFFFF nextEvent=277
+[PS2][PROF] ARM7 hot#4 pc=037FED94 op=E59FC000 next=E12FFF1C mode=ARM kind=memory samples=39 cpsr=8000001F r15=037FED9C r12=03803BED r0=000000C0 mem=037FED9C branch=FFFFFFFF nextEvent=252
+[PS2][PROF] ARM7 hot#5 pc=00002C70 op=00004770 next=00000000 mode=THUMB kind=thumb samples=33 cpsr=4000003F r255=00000000 r255=00000000 r255=00000000 mem=FFFFFFFF branch=FFFFFFFF nextEvent=167
+[PS2][PROF] memory ARM9 sampled/64: read=56258 direct=55344 fallback=914 write=4104 direct=3880 fallback=224 pageHit=55407 | MMIO=914/224 VRAM=440/452 palette=0/0 TCM=0/0 unaligned=0/0 crossPage=0/0
+[PS2][PROF] memory ARM9 MMIO timing/64: readSamples=863 avgUs=2.14 totalSampleMs=1.84 writeSamples=221 avgUs=18.78 totalSampleMs=4.15
+[PS2][PROF] memory ARM9 MMIO#0 address=04100010 samples=406 read=411 write=0
+[PS2][PROF] memory ARM9 MMIO#1 address=040001A4 samples=400 read=411 write=2
+[PS2][PROF] memory ARM9 MMIO#2 address=040001AC samples=6 read=0 write=13
+[PS2][PROF] memory ARM9 MMIO#3 address=04000298 samples=6 read=0 write=8
+[PS2][PROF] memory ARM9 MMIO#4 address=040001A8 samples=5 read=0 write=6
+[PS2][PROF] memory ARM9 MMIO#5 address=0400029C samples=3 read=0 write=6
+[PS2][PROF] memory ARM9 MMIO#6 address=040002A0 samples=1 read=1 write=0
+[PS2][PROF] memory ARM9 MMIO#7 address=040002B4 samples=1 read=1 write=0
+[PS2][PROF] memory ARM7 sampled/64: read=33564 direct=33291 fallback=273 write=3678 direct=3561 fallback=117 pageHit=34182 | MMIO=273/117 VRAM=0/0 palette=0/0 TCM=0/0 unaligned=0/0 crossPage=0/0
+[PS2][PROF] memory ARM7 MMIO timing/64: readSamples=255 avgUs=1.65 totalSampleMs=0.42 writeSamples=147 avgUs=1.91 totalSampleMs=0.28
+[PS2][PROF] memory ARM7 MMIO#0 address=04000208 samples=102 read=69 write=39
+[PS2][PROF] memory ARM7 MMIO#1 address=04000214 samples=33 read=27 write=12
+[PS2][PROF] memory ARM7 MMIO#2 address=04000104 samples=17 read=0 write=24
+[PS2][ARM7JIT] active attempts=165360 exec=164428 guest=674703 cycles=1174423 chain=0 storeChain=0 pipeReuse=0 codeInv=0 compileMiss=179 budgetFallback=808 verifyFallback=124 stateFallback=0
+[PS2][JIT-FALLBACK] cpu=ARM7 rank=0 pc=037FEC8C reason=budget sample64=2
+[PS2][JIT-FALLBACK] cpu=ARM7 rank=1 pc=03800C24 reason=budget sample64=2
+[PS2][JIT-FALLBACK] cpu=ARM7 rank=2 pc=037FF30C reason=budget sample64=1
+[PS2][JIT-FALLBACK] cpu=ARM7 rank=3 pc=037FFC98 reason=budget sample64=1
 [PS2][JIT-FALLBACK] cpu=ARM7 rank=4 pc=037FEC28 reason=budget sample64=1
 [PS2][JIT-FALLBACK] cpu=ARM7 rank=5 pc=037FF3A0 reason=verify sample64=1
 [PS2][JIT-FALLBACK] cpu=ARM7 rank=6 pc=03801E30 reason=budget sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=7 pc=03800C24 reason=budget sample64=1
-[PS2][SUMMARY] fps=6.44 coreMs=141.54 coreExIoMs=141.54 romIoMs=0.00 arm9Instr=1966949 arm7Instr=2026566 gpu2dAMs=17.35 gpu2dBMs=26.47 gpu3dMs=12.13 spuMs=10.23 schedulerMs=4.289 getFrameMs=4.84 gsUploadMs=0.11 presentMs=8.67 hotPc=0210F494 hotOpcode=B8A10004 dynarecCoveragePct=100.00 dynarecActiveGuest=940778 arm7JitCoveragePct=41.76 arm7JitGuest=846255 arm7JitGuestPerExec=4.11
-[PS2][SLOW] rank=1 frame=1176 coreMs=429.46 arm9Instr=421401 arm7Instr=31494 arm9JitGuest=296918 arm7JitGuest=0 tasks=1100 gpu2dA=192 gpu2dB=192 render3d=144 arm9Pc=0210F730 arm7Pc=000011C0 dispA=40810119 dispB=C0811110 bldA=0000 bldB=0000 disp3d=0001 polygons=1
-[PS2][SLOW] rank=2 frame=1142 coreMs=209.46 arm9Instr=54148 arm7Instr=30308 arm9JitGuest=11565 arm7JitGuest=9083 tasks=1158 gpu2dA=192 gpu2dB=192 render3d=192 arm9Pc=FFFF07F0 arm7Pc=000011C0 dispA=40811B19 dispB=C0811110 bldA=0000 bldB=0000 disp3d=0001 polygons=1
-[PS2][SLOW] rank=3 frame=1147 coreMs=208.94 arm9Instr=54128 arm7Instr=30484 arm9JitGuest=8826 arm7JitGuest=9315 tasks=1157 gpu2dA=192 gpu2dB=192 render3d=192 arm9Pc=FFFF07F0 arm7Pc=000011C0 dispA=40811B19 dispB=C0811110 bldA=0000 bldB=0000 disp3d=0001 polygons=1
-[PS2][JIT] selective hot filter add count=3 pcs=0210F48C,0210F490,02113F18,00000000,00000000,00000000
-[PS2] M5 stream CT16: frame=1200 top(hash=1E60E2D6 white=15996/49152) bottom(hash=969607D8 white=109/49152) cycles=672228000
-[PS2] ROM cache: hits=3988 misses=155 bytes=2097152
-[PS2] interpreter benchmark: 1259 frames in 209.897 s = 6.00 NDS fps
-[PS2][PROF] 60-frame window: 15.956s = 3.76 fps | core=252.06ms/f getFrame=4.84ms/f uploadGS=0.11ms/f present=8.85ms/f known=265.86ms/f
-[PS2][PROF] scheduler: ARM9=5342854 ARM7=1776862 tasks=68032 schedules=68034 maxDepth=13 legacyEstimatedMoves=557674 cursorCompactions=1062 cursorMoves=8681 blockFilterHit=843379 blockExec=159130 blockDrop=1201 blockBudgetSkip=673538 autoHot=1276 thumbAutoHot=0 filterCollision=66 sampleCollision=12796
-[PS2][PROF] arm7-block: filterHit=232893 exec=143555 chained=44534 drop=100 budgetSkip=88207 autoHot=154 thumbAutoHot=13 filterCollision=53 sampleCollision=12727
-[PS2][PROF] scheduler-cost: est=4.244ms/f insert=2.362us(1098 samples) pop=1.349us(1072 samples) compact=2.172ms ties=74
-[PS2][PROF] task-count: core=0 gpuDraw=15780 gpuTiming=15780 gpu3d=1824 spu=32824 dma=130 timer=1000 irq=694 other=0
-[PS2][PROF] task-sample-us: core=0.00 gpuDraw=429.09 gpuTiming=8.87 gpu3d=3.00 spu=15.24 dma=7.00 timer=3.24 irq=2.25 other=0.00 (per-class 1/64 sampled)
-[PS2][PROF] gpu-phase count/avg-us: 2dA=11520/185.28 2dB=11520/182.05 capture=0/0.00 render3d=9556/232.32 vblank=60/1303.40
-[PS2][PROF] gpu2dA count/avg-us/est-ms: clear=11520/4.12/47.47 obj=7872/50.98/401.29 text=34560/32.23/1114.00
+[PS2][JIT-FALLBACK] cpu=ARM7 rank=7 pc=037FFB1C reason=budget sample64=1
+[PS2][SUMMARY] fps=4.50 coreMs=208.95 coreExIoMs=208.93 romIoMs=0.03 arm9Instr=6043970 arm7Instr=2013139 gpu2dAMs=18.26 gpu2dBMs=25.46 gpu3dMs=10.62 spuMs=9.78 schedulerMs=4.216 getFrameMs=4.84 gsUploadMs=0.11 presentMs=8.41 hotPc=0210F494 hotOpcode=B8A10004 dynarecCoveragePct=100.00 dynarecActiveGuest=3598238 arm7JitCoveragePct=33.51 arm7JitGuest=674703 arm7JitGuestPerExec=4.10
+[PS2][SLOW] rank=1 frame=1196 coreMs=582.14 arm9Instr=414009 arm7Instr=39430 arm9JitGuest=247103 arm7JitGuest=101 tasks=1102 gpu2dA=192 gpu2dB=192 render3d=0 arm9Pc=02116264 arm7Pc=000011C0 dispA=40810718 dispB=C0811110 bldA=0000 bldB=0000 disp3d=0001 polygons=0
+[PS2][SLOW] rank=2 frame=1189 coreMs=535.19 arm9Instr=393773 arm7Instr=32138 arm9JitGuest=246488 arm7JitGuest=117 tasks=1099 gpu2dA=192 gpu2dB=192 render3d=144 arm9Pc=02111B64 arm7Pc=000011C0 dispA=40810718 dispB=C0811110 bldA=0000 bldB=0000 disp3d=0001 polygons=0
+[PS2][SLOW] rank=3 frame=1188 coreMs=518.76 arm9Instr=403041 arm7Instr=39876 arm9JitGuest=243753 arm7JitGuest=107 tasks=1234 gpu2dA=192 gpu2dB=192 render3d=67 arm9Pc=02111BC8 arm7Pc=000011C0 dispA=40810718 dispB=C0811110 bldA=0000 bldB=0000 disp3d=0001 polygons=0
+[PS2][JIT] selective hot filter add count=1 pcs=0210F490,00000000,00000000,00000000,00000000,00000000
+[PS2] M5 stream CT16: frame=1200 top(hash=627379EC white=15080/49152) bottom(hash=25AC5E90 white=14665/49152) cycles=672228000
+[PS2] ROM cache: hits=4173 misses=164 bytes=2097152
+[PS2] interpreter benchmark: 1259 frames in 211.804 s = 5.94 NDS fps
+[PS2][PROF] 60-frame window: 13.834s = 4.34 fps | core=216.48ms/f getFrame=4.84ms/f uploadGS=0.11ms/f present=9.06ms/f known=230.48ms/f
+[PS2][PROF] scheduler: ARM9=1347302 ARM7=1701544 tasks=68311 schedules=68313 maxDepth=13 legacyEstimatedMoves=560016 cursorCompactions=1068 cursorMoves=8735 blockFilterHit=106038 blockExec=33007 blockDrop=376 blockBudgetSkip=70803 autoHot=400 thumbAutoHot=0 filterCollision=23 sampleCollision=8941
+[PS2][PROF] arm7-block: filterHit=207366 exec=176057 chained=56579 drop=100 budgetSkip=30019 autoHot=150 thumbAutoHot=13 filterCollision=48 sampleCollision=10382
+[PS2][PROF] scheduler-cost: est=4.314ms/f insert=2.404us(1102 samples) pop=1.354us(1074 samples) compact=2.137ms ties=70
+[PS2][PROF] task-count: core=0 gpuDraw=15780 gpuTiming=15780 gpu3d=2220 spu=32824 dma=0 timer=1000 irq=707 other=0
+[PS2][PROF] task-sample-us: core=0.00 gpuDraw=542.16 gpuTiming=8.76 gpu3d=5.78 spu=16.05 dma=0.00 timer=3.33 irq=2.50 other=0.00 (per-class 1/64 sampled)
+[PS2][PROF] gpu-phase count/avg-us: 2dA=11520/246.74 2dB=11520/201.51 capture=0/0.00 render3d=11520/269.59 vblank=60/1305.18
+[PS2][PROF] gpu2dA count/avg-us/est-ms: clear=11520/4.66/53.66 obj=11520/51.49/593.22 text=34560/39.92/1379.50
 [PS2][PROF] gpu2dA count/avg-us/est-ms: affine=0/0.00/0.00 extended=0/0.00/0.00 large=0/0.00/0.00
-[PS2][PROF] gpu2dA count/avg-us/est-ms: compose=11520/51.11/588.74 output=11520/1.31/15.11 bright=11520/11.53/132.87
-[PS2][PROF] gpu2dA text-detail: samples=531 calls=531 mode4=343 mode8=0 3d=188 windowed=0 tiles=11213 hFlip=36 vFlip=38
-[PS2][PROF] gpu2dA text-memory: tileHit=10870 tileMap=343 tileFallback=0 indexHit=10510 indexMap=703 indexFallback=0 pixels=86940 transparent=37793 clipped=974 palette=37452 writes=48173
-[PS2][PROF] gpu2dA obj-detail: samples=138 calls=138 objWindow=0 scanned=17664 disabled=0 outY=17415 visible=249 affine=0 bitmap=0 bpp8=0 bpp4=249
-[PS2][PROF] gpu2dA obj-memory: pageHit=622 pageMap=47 fallback=0 texels=5321 clipped=551 objWinWrites=0 pixelWrites=2240
-[PS2][PROF] gpu2dA compose-detail: samples=177 calls=177 noBlend=61 blended=116 windowed=0 pixels=45312 rgbConvert=35954 3d=9358 semi=0 3dAlpha=9115 alpha=6464 brightUp=0 brightDown=0 winCheck=0 winReject=0 writes=31195
-[PS2][PROF] gpu2dB count/avg-us/est-ms: clear=11520/26.39/303.96 obj=11520/47.44/546.52 text=19392/39.98/775.25
+[PS2][PROF] gpu2dA count/avg-us/est-ms: compose=11520/65.37/753.02 output=11520/1.32/15.26 bright=11520/8.17/94.09
+[PS2][PROF] gpu2dA text-detail: samples=531 calls=531 mode4=343 mode8=0 3d=188 windowed=0 tiles=11277 hFlip=18 vFlip=11
+[PS2][PROF] gpu2dA text-memory: tileHit=10934 tileMap=343 tileFallback=0 indexHit=10578 indexMap=699 indexFallback=0 pixels=102758 transparent=35874 clipped=1535 palette=52675 writes=65349
+[PS2][PROF] gpu2dA obj-detail: samples=195 calls=195 objWindow=0 scanned=24960 disabled=0 outY=24636 visible=324 affine=0 bitmap=0 bpp8=0 bpp4=324
+[PS2][PROF] gpu2dA obj-memory: pageHit=760 pageMap=89 fallback=0 texels=6735 clipped=569 objWinWrites=0 pixelWrites=2574
+[PS2][PROF] gpu2dA compose-detail: samples=177 calls=177 noBlend=0 blended=177 windowed=0 pixels=45312 rgbConvert=32065 3d=13247 semi=0 3dAlpha=13216 alpha=9377 brightUp=0 brightDown=0 winCheck=0 winReject=0 writes=22593
+[PS2][PROF] gpu2dB count/avg-us/est-ms: clear=11520/31.27/360.18 obj=11520/47.24/544.24 text=23040/44.29/1020.52
 [PS2][PROF] gpu2dB count/avg-us/est-ms: affine=0/0.00/0.00 extended=0/0.00/0.00 large=0/0.00/0.00
-[PS2][PROF] gpu2dB count/avg-us/est-ms: compose=11520/26.92/310.10 output=11520/1.26/14.56 bright=11520/9.05/104.30
-[PS2][PROF] gpu2dB text-detail: samples=281 calls=281 mode4=281 mode8=0 3d=0 windowed=0 tiles=9074 hFlip=6 vFlip=0
-[PS2][PROF] gpu2dB text-memory: tileHit=8793 tileMap=281 tileFallback=0 indexHit=8554 indexMap=520 indexFallback=0 pixels=36936 transparent=454 clipped=656 palette=35826 writes=35826
-[PS2][PROF] gpu2dB obj-detail: samples=202 calls=202 objWindow=0 scanned=25856 disabled=0 outY=25852 visible=4 affine=0 bitmap=0 bpp8=0 bpp4=4
-[PS2][PROF] gpu2dB obj-memory: pageHit=12 pageMap=4 fallback=0 texels=128 clipped=0 objWinWrites=0 pixelWrites=82
-[PS2][PROF] gpu2dB compose-detail: samples=174 calls=174 noBlend=47 blended=127 windowed=0 pixels=44544 rgbConvert=44544 3d=0 semi=0 3dAlpha=0 alpha=0 brightUp=0 brightDown=0 winCheck=0 winReject=0 writes=12032
-[PS2][PROF] gpu3d-detail: frames=49 scanlines=9556 threadedFrames=0 polygonCalls=5472 solid=5472 trans=0 polygonSamples=66 sampledPixels=16864 linear=16864 perspective=0 depthTests=16864 depthFailBoth=0 shadow=0
-[PS2][PROF] gpu3d-pixel: texture=16864 fmt0=0 fmt1=0 fmt2=0 fmt3=480 fmt4=16384 fmt5=0 fmt6=0 fmt7=0 alphaReject=9574 opaqueWrite=7290 transWrite=0 blend=0 finishSamples=166 fog=0 edge=4
-[PS2][PROF] gpu3d-phase-detail: scanSamples=137 clearAvgUs=10.03 polygonAvgUs=221.66 finishSamples=166 finishAvgUs=1.39
-[PS2][PROF] ROM window: hits=185 misses=9 hitRate=95.36% seeks=7 read=144KiB seqMiss=2 maxSeq=52 cache=2048KiB page=16KiB
-[PS2][PROF] ROM I/O: total=1.58ms (0.03ms/f) coreExIO=252.03ms/f reads=9 seeks=7 requested=144KiB got=144KiB maxRead=0.14ms maxSeek=0.06ms short=0
-[PS2][PROF] ROM latency hist: <1=9 1-5=0 5-10=0 10-50=0 50-100=0 100-250=0 >250=0 | size <=2K=0 <=16K=9 <=64K=0 <=256K=0 >256K=0
-[PS2][PROF] ROM caller=ROM-cache-miss reads=9 totalMs=1.58
-[PS2][PROF] ARM9 instr=2297665 ARM=2297515 THUMB=150 | ARM dp=1264531 mem=503502 multi=134382 branch=387982 sys=7118 | THUMB alu=100 mem=0 stack=0 multi=0 branch=50
-[PS2][PROF] ARM9 hotPC(sample/64): 0210F7B4:BAFFFFF9:655 0210F7B8:E3160080:592 0210F7BC:1A000006:566 0210F7B0:E2577001:537 0210F48C:E151000C:506 0210F828:E3A080FF:476
-[PS2][PROF] ARM9 hot#0 pc=0210F7B4 op=BAFFFFF9 next=E3160080 mode=ARM kind=branch samples=655 cpsr=2000001F r15=0210F7BC r15=0210F7BC r9=00000000 mem=FFFFFFFF branch=0210F7A0 nextEvent=432
-[PS2][PROF] ARM9 hot#1 pc=0210F7B8 op=E3160080 next=1A000006 mode=ARM kind=data samples=592 cpsr=2000001F r6=00003000 r0=023BFFA2 r0=023BFFA2 mem=FFFFFFFF branch=FFFFFFFF nextEvent=827
-[PS2][PROF] ARM9 hot#2 pc=0210F7BC op=1A000006 next=E4D09001 mode=ARM kind=branch samples=566 cpsr=6000001F r0=023BFFF2 r0=023BFFF2 r6=00000100 mem=FFFFFFFF branch=0210F7DC nextEvent=56
-[PS2][PROF] ARM9 hot#3 pc=0210F7B0 op=E2577001 next=BAFFFFF9 mode=ARM kind=data samples=537 cpsr=2000001F r7=00000007 r7=00000007 r1=02180890 mem=FFFFFFFF branch=FFFFFFFF nextEvent=109
-[PS2][PROF] ARM9 hot#4 pc=0210F48C op=E151000C next=B8B00004 mode=ARM kind=data samples=506 cpsr=80000092 r1=07000044 r0=021704EC r12=07000080 mem=FFFFFFFF branch=FFFFFFFF nextEvent=776
-[PS2][PROF] ARM9 hot#5 pc=0210F828 op=E3A080FF next=E0098E18 mode=ARM kind=data samples=476 cpsr=2000001F r0=023BFFE7 r8=00000002 r15=0210F830 mem=FFFFFFFF branch=FFFFFFFF nextEvent=126
-[PS2][JIT] hotblock pc=0210F7B4 support=1/1 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] hotblock pc=0210F7B8 support=2/2 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] hotblock pc=0210F7BC support=1/1 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] hotblock pc=0210F7B0 support=2/2 firstUnsupported=00000000:00000000 reason=supported
-[PS2][HOTBLOCK] cpu=ARM9 pc=0210F7B0 end=0210F7B8 sampledExec=537 estExec=34368 guestInstr=2 guestCycles=2 branch=0210F7A0 backEdge=1 mem=FFFFFFFF memClass=none dynarecSupported=2/2 halfDirect=R0/0,W0/0 wordDirect=R0/0,W0/0 read=0080 write=0080 nextEvent=109
-[PS2][HOTBLOCK] +00 pc=0210F7B0 op=E2577001 SUBS.AL r7,r7,#0x1                         cond=E S=1 flagsR=0 flagsW=1 Rn=7 Rd=7 Rm=1 Rs=255 shift=0/0 imm=00000001 read=0080 write=0080 branch=FFFFFFFF back=0 jit=supported
-[PS2][HOTBLOCK] +01 pc=0210F7B4 op=BAFFFFF9 B.LT 0x0210F7A0                            cond=B S=0 flagsR=1 flagsW=0 Rn=255 Rd=255 Rm=255 Rs=255 shift=0/0 imm=00000000 read=0000 write=0000 branch=0210F7A0 back=1 jit=supported
-[PS2][JIT] hotblock pc=0210F48C support=4/4 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] hotblock pc=0210F828 support=9/9 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] shadow attempts=6 success=6 rejected=0 lookupHit=6 miss=0 guest=19 supported=19 coverage=100.00% avgBlock=3.17 largest=9 hostWords=0 cache=134172 invalidations=3 fallback=0
-[PS2][JIT] exits: opcode=0 condition=0 flags=0 shift=0 memory=0 branch=0 pc=0 system=0 other=0
-[PS2][JIT] unsupported-detail: longMul=0 signedLoad=0
-[PS2][JIT] active attempts=201854 exec=401784 guest=3047728 cycles=4162586 chain=242654 storeChain=105178 pipeReuse=86106 codeInv=0 compileMiss=467 budgetFallback=41189 writeFallback=0 verifyFallback=1156 stateFallback=379
-[PS2][JIT] ARM9-Thumb active attempts=0 exec=0 guest=0 cycles=0 differentialPass=0
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=0 pc=02113F18 reason=budget sample64=89
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=1 pc=0210F83C reason=budget sample64=47
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=2 pc=0210F840 reason=budget sample64=44
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=3 pc=0210F84C reason=budget sample64=25
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=4 pc=0210F838 reason=budget sample64=21
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=5 pc=0210F840 reason=budget sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=6 pc=02017218 reason=budget sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=7 pc=02025D60 reason=budget sample64=1
-[PS2][PROF] ARM7 instr=1212868 ARM=1147860 THUMB=65008 | ARM dp=641020 mem=274580 multi=81099 branch=151161 sys=0 | THUMB alu=34673 mem=4714 stack=11565 multi=0 branch=14056
-[PS2][PROF] ARM7 hotPC(sample/64): 00002E08:E28FE000:43 03800EC0:159F0004:34 037FED94:E59FC000:33 00002E04:E92D4004:31 00002E10:E8BD4004:31 00002DDC:E92D5800:31
-[PS2][PROF] ARM7 hot#0 pc=00002E08 op=E28FE000 next=E12FFF1C mode=ARM kind=data samples=43 cpsr=0000001F r15=00002E10 r14=037FECAC r0=00000000 mem=FFFFFFFF branch=FFFFFFFF nextEvent=314
-[PS2][PROF] ARM7 hot#1 pc=03800EC0 op=159F0004 next=10800301 mode=ARM kind=memory samples=34 cpsr=8000001F r15=03800EC8 r0=0380861B r4=00000001 mem=03800ECC branch=FFFFFFFF nextEvent=110
-[PS2][PROF] ARM7 hot#2 pc=037FED94 op=E59FC000 next=E12FFF1C mode=ARM kind=memory samples=33 cpsr=8000001F r15=037FED9C r12=03803BED r0=000000C0 mem=037FED9C branch=FFFFFFFF nextEvent=78
-[PS2][PROF] ARM7 hot#3 pc=00002E04 op=E92D4004 next=E28FE000 mode=ARM kind=multi samples=31 cpsr=0000001F r13=03807FC4 r4=00000000 r4=00000000 mem=03807FC4 branch=FFFFFFFF nextEvent=544
-[PS2][PROF] ARM7 hot#4 pc=00002E10 op=E8BD4004 next=E3A0C0D3 mode=ARM kind=multi samples=31 cpsr=6000001F r13=03807FC4 r4=FFFFFEE8 r4=FFFFFEE8 mem=03807FC4 branch=FFFFFFFF nextEvent=676
-[PS2][PROF] ARM7 hot#5 pc=00002DDC op=E92D5800 next=E15EC0B2 mode=ARM kind=multi samples=31 cpsr=80000093 r13=03808064 r5=000002F6 r0=00000200 mem=03808064 branch=FFFFFFFF nextEvent=84
-[PS2][PROF] memory ARM9 sampled/64: read=53183 direct=52282 fallback=901 write=3866 direct=3628 fallback=238 pageHit=51553 | MMIO=901/238 VRAM=313/192 palette=0/0 TCM=0/0 unaligned=0/0 crossPage=0/0
-[PS2][PROF] memory ARM9 MMIO timing/64: readSamples=879 avgUs=1.65 totalSampleMs=1.45 writeSamples=214 avgUs=66.55 totalSampleMs=14.24
-[PS2][PROF] memory ARM9 MMIO#0 address=04100010 samples=370 read=395 write=0
-[PS2][PROF] memory ARM9 MMIO#1 address=040001A4 samples=358 read=386 write=3
-[PS2][PROF] memory ARM9 MMIO#2 address=04000298 samples=19 read=3 write=19
-[PS2][PROF] memory ARM9 MMIO#3 address=0400045C samples=4 read=0 write=5
-[PS2][PROF] memory ARM9 MMIO#4 address=04000280 samples=1 read=2 write=1
-[PS2][PROF] memory ARM9 MMIO#5 address=04000454 samples=1 read=0 write=2
-[PS2][PROF] memory ARM9 MMIO#6 address=040004C8 samples=1 read=0 write=1
-[PS2][PROF] memory ARM9 MMIO#7 address=0400048C samples=1 read=0 write=1
-[PS2][PROF] memory ARM7 sampled/64: read=29902 direct=29667 fallback=235 write=3357 direct=3216 fallback=141 pageHit=30731 | MMIO=235/141 VRAM=0/0 palette=0/0 TCM=0/0 unaligned=0/0 crossPage=0/0
-[PS2][PROF] memory ARM7 MMIO timing/64: readSamples=257 avgUs=1.75 totalSampleMs=0.45 writeSamples=131 avgUs=1.82 totalSampleMs=0.24
-[PS2][PROF] memory ARM7 MMIO#0 address=04000208 samples=78 read=50 write=35
-[PS2][PROF] memory ARM7 MMIO#1 address=04000104 samples=32 read=0 write=37
-[PS2][PROF] memory ARM7 MMIO#2 address=04000214 samples=31 read=30 write=12
-[PS2][PROF] memory ARM7 MMIO#3 address=04000210 samples=14 read=28 write=23
-[PS2][PROF] memory ARM7 MMIO#4 address=04000100 samples=2 read=2 write=0
-[PS2][PROF] memory ARM7 MMIO#5 address=04000498 samples=1 read=0 write=1
-[PS2][ARM7JIT] active attempts=144500 exec=143555 guest=564593 cycles=992133 chain=0 storeChain=0 pipeReuse=0 codeInv=0 compileMiss=212 budgetFallback=845 verifyFallback=100 stateFallback=0
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=0 pc=037FFA88 reason=budget sample64=3
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=1 pc=037FFB88 reason=budget sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=2 pc=03800EB8 reason=budget sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=3 pc=03800EAC reason=verify sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=4 pc=03801A0C reason=compile sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=5 pc=037FFE2C reason=compile sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=6 pc=00002E24 reason=compile sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=7 pc=037FFEC4 reason=budget sample64=1
-[PS2][SUMMARY] fps=3.76 coreMs=252.06 coreExIoMs=252.03 romIoMs=0.03 arm9Instr=5342854 arm7Instr=1776862 gpu2dAMs=35.57 gpu2dBMs=34.95 gpu3dMs=37.00 spuMs=8.33 schedulerMs=4.244 getFrameMs=4.84 gsUploadMs=0.11 presentMs=8.85 hotPc=0210F7B4 hotOpcode=BAFFFFF9 dynarecCoveragePct=100.00 dynarecActiveGuest=3047728 arm7JitCoveragePct=31.77 arm7JitGuest=564593 arm7JitGuestPerExec=3.93
-[PS2][SLOW] rank=1 frame=1218 coreMs=560.20 arm9Instr=413465 arm7Instr=32280 arm9JitGuest=259860 arm7JitGuest=7 tasks=1099 gpu2dA=192 gpu2dB=192 render3d=0 arm9Pc=02116250 arm7Pc=000011C0 dispA=40810718 dispB=C0811110 bldA=0000 bldB=0000 disp3d=0001 polygons=0
-[PS2][SLOW] rank=2 frame=1211 coreMs=505.39 arm9Instr=393773 arm7Instr=34805 arm9JitGuest=250825 arm7JitGuest=140 tasks=1101 gpu2dA=192 gpu2dB=192 render3d=144 arm9Pc=02111B64 arm7Pc=03800010 dispA=40810718 dispB=C0811110 bldA=0000 bldB=0000 disp3d=0001 polygons=0
-[PS2][SLOW] rank=3 frame=1217 coreMs=504.24 arm9Instr=425626 arm7Instr=37297 arm9JitGuest=270285 arm7JitGuest=18 tasks=1102 gpu2dA=192 gpu2dB=192 render3d=0 arm9Pc=0210F7C0 arm7Pc=000011C0 dispA=40810718 dispB=C0811110 bldA=0000 bldB=0000 disp3d=0001 polygons=0
-[PS2][JIT] selective hot filter add count=2 pcs=0210F48C,0210F828,00000000,00000000,00000000,00000000
-[PS2] M5 stream CT16: frame=1260 top(hash=0BF66382 white=5574/49152) bottom(hash=659AA339 white=1680/49152) cycles=705839400
-[PS2] interpreter benchmark: 1319 frames in 223.849 s = 5.89 NDS fps
-[PS2][PROF] 60-frame window: 13.933s = 4.31 fps | core=216.67ms/f getFrame=4.84ms/f uploadGS=0.11ms/f present=10.52ms/f known=232.14ms/f
-[PS2][PROF] scheduler: ARM9=1355331 ARM7=1837078 tasks=68324 schedules=68322 maxDepth=13 legacyEstimatedMoves=560520 cursorCompactions=1067 cursorMoves=8727 blockFilterHit=108502 blockExec=28739 blockDrop=364 blockBudgetSkip=77167 autoHot=373 thumbAutoHot=0 filterCollision=11 sampleCollision=8902
-[PS2][PROF] arm7-block: filterHit=230953 exec=196063 chained=60445 drop=139 budgetSkip=33462 autoHot=194 thumbAutoHot=10 filterCollision=54 sampleCollision=10882
-[PS2][PROF] scheduler-cost: est=4.306ms/f insert=2.348us(1102 samples) pop=1.401us(1074 samples) compact=2.144ms ties=71
-[PS2][PROF] task-count: core=0 gpuDraw=15780 gpuTiming=15780 gpu3d=2220 spu=32823 dma=0 timer=1014 irq=707 other=0
-[PS2][PROF] task-sample-us: core=0.00 gpuDraw=530.63 gpuTiming=8.77 gpu3d=5.96 spu=20.28 dma=0.00 timer=3.05 irq=2.50 other=0.00 (per-class 1/64 sampled)
-[PS2][PROF] gpu-phase count/avg-us: 2dA=11520/237.86 2dB=11520/194.10 capture=0/0.00 render3d=11520/269.62 vblank=60/1305.00
-[PS2][PROF] gpu2dA count/avg-us/est-ms: clear=11520/4.60/53.01 obj=11520/51.97/598.68 text=34560/40.03/1383.30
-[PS2][PROF] gpu2dA count/avg-us/est-ms: affine=0/0.00/0.00 extended=0/0.00/0.00 large=0/0.00/0.00
-[PS2][PROF] gpu2dA count/avg-us/est-ms: compose=11520/65.26/751.81 output=11520/1.30/14.95 bright=11520/1.36/15.68
-[PS2][PROF] gpu2dA text-detail: samples=531 calls=531 mode4=343 mode8=0 3d=188 windowed=0 tiles=11272 hFlip=18 vFlip=11
-[PS2][PROF] gpu2dA text-memory: tileHit=10929 tileMap=343 tileFallback=0 indexHit=10557 indexMap=715 indexFallback=0 pixels=102774 transparent=35874 clipped=1551 palette=52675 writes=65349
-[PS2][PROF] gpu2dA obj-detail: samples=195 calls=195 objWindow=0 scanned=24960 disabled=0 outY=24619 visible=341 affine=0 bitmap=0 bpp8=0 bpp4=341
-[PS2][PROF] gpu2dA obj-memory: pageHit=756 pageMap=118 fallback=0 texels=6975 clipped=481 objWinWrites=0 pixelWrites=2605
-[PS2][PROF] gpu2dA compose-detail: samples=177 calls=177 noBlend=0 blended=177 windowed=0 pixels=45312 rgbConvert=32065 3d=13247 semi=0 3dAlpha=13176 alpha=9293 brightUp=0 brightDown=0 winCheck=0 winReject=0 writes=22469
-[PS2][PROF] gpu2dB count/avg-us/est-ms: clear=11520/31.32/360.78 obj=11520/47.19/543.59 text=23040/44.25/1019.60
-[PS2][PROF] gpu2dB count/avg-us/est-ms: affine=0/0.00/0.00 extended=0/0.00/0.00 large=0/0.00/0.00
-[PS2][PROF] gpu2dB count/avg-us/est-ms: compose=11520/32.16/370.45 output=11520/1.33/15.34 bright=11520/1.27/14.61
-[PS2][PROF] gpu2dB text-detail: samples=335 calls=335 mode4=335 mode8=0 3d=0 windowed=0 tiles=10869 hFlip=8 vFlip=0
-[PS2][PROF] gpu2dB text-memory: tileHit=10534 tileMap=335 tileFallback=0 indexHit=10195 indexMap=674 indexFallback=0 pixels=46709 transparent=437 clipped=1192 palette=45080 writes=45080
+[PS2][PROF] gpu2dB count/avg-us/est-ms: compose=11520/32.14/370.31 output=11520/1.31/15.12 bright=11520/10.59/121.99
+[PS2][PROF] gpu2dB text-detail: samples=335 calls=335 mode4=335 mode8=0 3d=0 windowed=0 tiles=10864 hFlip=10 vFlip=0
+[PS2][PROF] gpu2dB text-memory: tileHit=10529 tileMap=335 tileFallback=0 indexHit=10211 indexMap=653 indexFallback=0 pixels=46669 transparent=437 clipped=1152 palette=45080 writes=45080
 [PS2][PROF] gpu2dB obj-detail: samples=202 calls=202 objWindow=0 scanned=25856 disabled=0 outY=25856 visible=0 affine=0 bitmap=0 bpp8=0 bpp4=0
 [PS2][PROF] gpu2dB obj-memory: pageHit=0 pageMap=0 fallback=0 texels=0 clipped=0 objWinWrites=0 pixelWrites=0
 [PS2][PROF] gpu2dB compose-detail: samples=174 calls=174 noBlend=0 blended=174 windowed=0 pixels=44544 rgbConvert=44544 3d=0 semi=0 3dAlpha=0 alpha=0 brightUp=0 brightDown=0 winCheck=0 winReject=0 writes=0
 [PS2][PROF] gpu3d-detail: frames=60 scanlines=11520 threadedFrames=0 polygonCalls=7680 solid=7680 trans=0 polygonSamples=100 sampledPixels=25600 linear=25600 perspective=0 depthTests=25600 depthFailBoth=0 shadow=0
 [PS2][PROF] gpu3d-pixel: texture=25600 fmt0=0 fmt1=0 fmt2=0 fmt3=0 fmt4=25600 fmt5=0 fmt6=0 fmt7=0 alphaReject=15488 opaqueWrite=10112 transWrite=0 blend=0 finishSamples=198 fog=0 edge=0
-[PS2][PROF] gpu3d-phase-detail: scanSamples=169 clearAvgUs=10.05 polygonAvgUs=293.51 finishSamples=198 finishAvgUs=1.46
+[PS2][PROF] gpu3d-phase-detail: scanSamples=169 clearAvgUs=9.96 polygonAvgUs=293.51 finishSamples=198 finishAvgUs=1.48
 [PS2][PROF] ROM window: hits=0 misses=0 hitRate=100.00% seeks=0 read=0KiB seqMiss=0 maxSeq=52 cache=2048KiB page=16KiB
-[PS2][PROF] ROM I/O: total=0.00ms (0.00ms/f) coreExIO=216.67ms/f reads=0 seeks=0 requested=0KiB got=0KiB maxRead=0.00ms maxSeek=0.00ms short=0
+[PS2][PROF] ROM I/O: total=0.00ms (0.00ms/f) coreExIO=216.48ms/f reads=0 seeks=0 requested=0KiB got=0KiB maxRead=0.00ms maxSeek=0.00ms short=0
 [PS2][PROF] ROM latency hist: <1=0 1-5=0 5-10=0 10-50=0 50-100=0 100-250=0 >250=0 | size <=2K=0 <=16K=0 <=64K=0 <=256K=0 >256K=0
-[PS2][PROF] ARM9 instr=966869 ARM=966689 THUMB=180 | ARM dp=409370 mem=300574 multi=100453 branch=153568 sys=2724 | THUMB alu=120 mem=0 stack=0 multi=0 branch=60
-[PS2][PROF] ARM9 hotPC(sample/64): 0210F48C:E151000C:563 02113F1C:E0122000:514 02113F20:1AFFFFFC:501 02113F18:E1D123B6:476 0210F490:B8B00004:435 0210F494:B8A10004:416
-[PS2][PROF] ARM9 hot#0 pc=0210F48C op=E151000C next=B8B00004 mode=ARM kind=data samples=563 cpsr=80000092 r1=07000480 r0=02170B58 r12=07000480 mem=FFFFFFFF branch=FFFFFFFF nextEvent=385
-[PS2][PROF] ARM9 hot#1 pc=02113F1C op=E0122000 next=1AFFFFFC mode=ARM kind=data samples=514 cpsr=2000001F r2=00000001 r2=00000001 r0=00000001 mem=FFFFFFFF branch=FFFFFFFF nextEvent=690
-[PS2][PROF] ARM9 hot#2 pc=02113F20 op=1AFFFFFC next=E12FFF1E mode=ARM kind=branch samples=501 cpsr=2000001F r15=02113F28 r15=02113F28 r12=00000006 mem=FFFFFFFF branch=02113F18 nextEvent=564
-[PS2][PROF] ARM9 hot#3 pc=02113F18 op=E1D123B6 next=E0122000 mode=ARM kind=memory samples=476 cpsr=2000001F r1=022AB8AC r2=00000001 r6=027C12E0 mem=022AB8E2 branch=FFFFFFFF nextEvent=451
-[PS2][PROF] ARM9 hot#4 pc=0210F490 op=B8B00004 next=B8A10004 mode=ARM kind=multi samples=435 cpsr=80000092 r0=021708A4 r0=021708A4 r4=027C0290 mem=021708A4 branch=FFFFFFFF nextEvent=594
-[PS2][PROF] ARM9 hot#5 pc=0210F494 op=B8A10004 next=BAFFFFFB mode=ARM kind=multi samples=416 cpsr=80000092 r1=070007F0 r0=02170ECC r4=027C0290 mem=070007F0 branch=FFFFFFFF nextEvent=704
+[PS2][PROF] ARM9 instr=975940 ARM=975760 THUMB=180 | ARM dp=415411 mem=303567 multi=98748 branch=155312 sys=2722 | THUMB alu=120 mem=0 stack=0 multi=0 branch=60
+[PS2][PROF] ARM9 hotPC(sample/64): 0210F490:B8B00004:526 02113F1C:E0122000:521 02113F18:E1D123B6:516 02113F20:1AFFFFFC:485 0210F498:BAFFFFFB:440 0210F48C:E151000C:438
+[PS2][PROF] ARM9 hot#0 pc=0210F490 op=B8B00004 next=B8A10004 mode=ARM kind=multi samples=526 cpsr=60000092 r0=02170B58 r0=02170B58 r4=027C0290 mem=02170B58 branch=FFFFFFFF nextEvent=278
+[PS2][PROF] ARM9 hot#1 pc=02113F1C op=E0122000 next=1AFFFFFC mode=ARM kind=data samples=521 cpsr=2000001F r2=00000001 r2=00000001 r0=00000001 mem=FFFFFFFF branch=FFFFFFFF nextEvent=74
+[PS2][PROF] ARM9 hot#2 pc=02113F18 op=E1D123B6 next=E0122000 mode=ARM kind=memory samples=516 cpsr=2000001F r1=022AB8AC r2=00000001 r6=027C12E0 mem=022AB8E2 branch=FFFFFFFF nextEvent=185
+[PS2][PROF] ARM9 hot#3 pc=02113F20 op=1AFFFFFC next=E12FFF1E mode=ARM kind=branch samples=485 cpsr=2000001F r15=02113F28 r15=02113F28 r12=00000006 mem=FFFFFFFF branch=02113F18 nextEvent=313
+[PS2][PROF] ARM9 hot#4 pc=0210F498 op=BAFFFFFB next=E12FFF1E mode=ARM kind=branch samples=440 cpsr=80000092 r15=0210F4A0 r15=0210F4A0 r11=0000001F mem=FFFFFFFF branch=0210F48C nextEvent=432
+[PS2][PROF] ARM9 hot#5 pc=0210F48C op=E151000C next=B8B00004 mode=ARM kind=data samples=438 cpsr=80000092 r1=070007C8 r0=02170EA0 r12=07000800 mem=FFFFFFFF branch=FFFFFFFF nextEvent=579
+[PS2][JIT] hotblock pc=0210F490 support=3/3 firstUnsupported=00000000:00000000 reason=supported
+[PS2][JIT] hotblock pc=02113F1C support=2/2 firstUnsupported=00000000:00000000 reason=supported
+[PS2][JIT] hotblock pc=02113F18 support=3/3 firstUnsupported=00000000:00000000 reason=supported
+[PS2][JIT] hotblock pc=02113F20 support=1/1 firstUnsupported=00000000:00000000 reason=supported
+[PS2][JIT] hotblock pc=0210F498 support=1/1 firstUnsupported=00000000:00000000 reason=supported
 [PS2][JIT] hotblock pc=0210F48C support=4/4 firstUnsupported=00000000:00000000 reason=supported
-[PS2][HOTBLOCK] cpu=ARM9 pc=0210F48C end=0210F49C sampledExec=563 estExec=36032 guestInstr=4 guestCycles=4 branch=0210F48C backEdge=1 mem=021708A4 memClass=main-RAM dynarecSupported=4/4 halfDirect=R0/0,W0/0 wordDirect=R0/0,W0/0 read=1007 write=0007 nextEvent=385
+[PS2][HOTBLOCK] cpu=ARM9 pc=0210F48C end=0210F49C sampledExec=438 estExec=28032 guestInstr=4 guestCycles=4 branch=0210F48C backEdge=1 mem=02170B58 memClass=main-RAM dynarecSupported=4/4 halfDirect=R0/0,W0/0 wordDirect=R0/0,W0/0 read=1007 write=0007 nextEvent=579
+[PS2][HOTBLOCK] +00 pc=0210F48C op=E151000C CMP.AL r1,r12                              cond=E S=1 flagsR=0 flagsW=1 Rn=1 Rd=0 Rm=12 Rs=255 shift=0/0 imm=00000000 read=1002 write=0000 branch=FFFFFFFF back=0 jit=supported
+[PS2][HOTBLOCK] +01 pc=0210F490 op=B8B00004 LDMIA.LT r0!,{r2}                          cond=B S=0 flagsR=1 flagsW=0 Rn=0 Rd=255 Rm=255 Rs=255 shift=0/0 imm=00000000 read=0001 write=0005 branch=FFFFFFFF back=0 jit=supported
+[PS2][HOTBLOCK] +02 pc=0210F494 op=B8A10004 STMIA.LT r1!,{r2}                          cond=B S=0 flagsR=1 flagsW=0 Rn=1 Rd=255 Rm=255 Rs=255 shift=0/0 imm=00000000 read=0006 write=0002 branch=FFFFFFFF back=0 jit=supported
+[PS2][HOTBLOCK] +03 pc=0210F498 op=BAFFFFFB B.LT 0x0210F48C                            cond=B S=0 flagsR=1 flagsW=0 Rn=255 Rd=255 Rm=255 Rs=255 shift=0/0 imm=00000000 read=0000 write=0000 branch=0210F48C back=1 jit=supported
+[PS2][JIT] shadow attempts=6 success=6 rejected=0 lookupHit=4 miss=2 guest=14 supported=14 coverage=100.00% avgBlock=2.33 largest=4 hostWords=0 cache=146312 invalidations=0 fallback=0
+[PS2][JIT] exits: opcode=0 condition=0 flags=0 shift=0 memory=0 branch=0 pc=0 system=0 other=0
+[PS2][JIT] unsupported-detail: longMul=0 signedLoad=0
+[PS2][JIT] active attempts=48293 exec=83276 guest=371507 cycles=525879 chain=50269 storeChain=1325 pipeReuse=11342 codeInv=0 compileMiss=41 budgetFallback=14910 writeFallback=0 verifyFallback=376 stateFallback=0
+[PS2][JIT] ARM9-Thumb active attempts=0 exec=0 guest=0 cycles=0 differentialPass=0
+[PS2][JIT-FALLBACK] cpu=ARM9 rank=0 pc=02113F18 reason=budget sample64=133
+[PS2][JIT-FALLBACK] cpu=ARM9 rank=1 pc=0210E10C reason=budget sample64=3
+[PS2][JIT-FALLBACK] cpu=ARM9 rank=2 pc=020258BC reason=budget sample64=1
+[PS2][PROF] ARM7 instr=1001161 ARM=946130 THUMB=55031 | ARM dp=511272 mem=236170 multi=78028 branch=120660 sys=0 | THUMB alu=27829 mem=4771 stack=11680 multi=0 branch=10751
+[PS2][PROF] ARM7 hotPC(sample/64): 00002DE8:E28FB048:53 00002DDC:E92D5800:47 00002E0C:E12FFF1C:39 00002E20:E16FF00B:37 00002E04:E92D4004:34 037FED98:E12FFF1C:31
+[PS2][PROF] ARM7 hot#0 pc=00002DE8 op=E28FB048 next=E79BC10C mode=ARM kind=data samples=53 cpsr=80000093 r15=00002DF0 r11=00000000 r8=00000306 mem=FFFFFFFF branch=FFFFFFFF nextEvent=158
+[PS2][PROF] ARM7 hot#1 pc=00002DDC op=E92D5800 next=E15EC0B2 mode=ARM kind=multi samples=47 cpsr=80000093 r13=03808064 r5=000002F6 r0=000002C0 mem=03808064 branch=FFFFFFFF nextEvent=704
+[PS2][PROF] ARM7 hot#2 pc=00002E0C op=E12FFF1C next=E8BD4004 mode=ARM kind=branch-exchange samples=39 cpsr=0000001F r15=00002E14 r15=00002E14 r12=00002C17 mem=FFFFFFFF branch=FFFFFFFF nextEvent=582
+[PS2][PROF] ARM7 hot#3 pc=00002E20 op=E16FF00B next=E8BD5800 mode=ARM kind=data samples=37 cpsr=000000D3 r15=00002E28 r15=00002E28 r11=8000003F mem=FFFFFFFF branch=FFFFFFFF nextEvent=122
+[PS2][PROF] ARM7 hot#4 pc=00002E04 op=E92D4004 next=E28FE000 mode=ARM kind=multi samples=34 cpsr=0000001F r13=03807FCC r4=FFFFFFC8 r4=FFFFFFC8 mem=03807FCC branch=FFFFFFFF nextEvent=106
+[PS2][PROF] ARM7 hot#5 pc=037FED98 op=E12FFF1C next=03803BE9 mode=ARM kind=branch-exchange samples=31 cpsr=8000001F r15=037FEDA0 r15=037FEDA0 r12=03803BE9 mem=FFFFFFFF branch=FFFFFFFF nextEvent=538
+[PS2][PROF] memory ARM9 sampled/64: read=25348 direct=25227 fallback=121 write=2262 direct=2048 fallback=214 pageHit=23973 | MMIO=121/214 VRAM=0/0 palette=0/0 TCM=0/0 unaligned=0/0 crossPage=0/0
+[PS2][PROF] memory ARM9 MMIO timing/64: readSamples=110 avgUs=1.63 totalSampleMs=0.18 writeSamples=214 avgUs=2.55 totalSampleMs=0.55
+[PS2][PROF] memory ARM9 MMIO#0 address=04000298 samples=24 read=0 write=26
+[PS2][PROF] memory ARM9 MMIO#1 address=0400029C samples=11 read=0 write=21
+[PS2][PROF] memory ARM9 MMIO#2 address=04000184 samples=2 read=2 write=0
+[PS2][PROF] memory ARM9 MMIO#3 address=04000290 samples=1 read=0 write=1
+[PS2][PROF] memory ARM9 MMIO#4 address=04000454 samples=1 read=0 write=1
+[PS2][PROF] memory ARM7 sampled/64: read=25129 direct=24870 fallback=259 write=3126 direct=2985 fallback=141 pageHit=26130 | MMIO=259/141 VRAM=0/0 palette=0/0 TCM=0/0 unaligned=0/0 crossPage=0/0
+[PS2][PROF] memory ARM7 MMIO timing/64: readSamples=260 avgUs=1.75 totalSampleMs=0.45 writeSamples=126 avgUs=1.93 totalSampleMs=0.24
+[PS2][PROF] memory ARM7 MMIO#0 address=04000208 samples=104 read=53 write=57
+[PS2][PROF] memory ARM7 MMIO#1 address=04000214 samples=32 read=33 write=9
+[PS2][PROF] memory ARM7 MMIO#2 address=04000104 samples=22 read=0 write=28
+[PS2][PROF] memory ARM7 MMIO#3 address=04000210 samples=18 read=38 write=26
+[PS2][ARM7JIT] active attempts=177016 exec=176057 guest=700539 cycles=1218445 chain=0 storeChain=0 pipeReuse=0 codeInv=0 compileMiss=75 budgetFallback=859 verifyFallback=100 stateFallback=0
+[PS2][JIT-FALLBACK] cpu=ARM7 rank=0 pc=037FFC28 reason=budget sample64=2
+[PS2][JIT-FALLBACK] cpu=ARM7 rank=1 pc=037FFCCC reason=budget sample64=2
+[PS2][JIT-FALLBACK] cpu=ARM7 rank=2 pc=03801A10 reason=budget sample64=1
+[PS2][JIT-FALLBACK] cpu=ARM7 rank=3 pc=03801A0C reason=budget sample64=1
+[PS2][JIT-FALLBACK] cpu=ARM7 rank=4 pc=037FF0F4 reason=budget sample64=1
+[PS2][JIT-FALLBACK] cpu=ARM7 rank=5 pc=037FFA38 reason=budget sample64=1
+[PS2][JIT-FALLBACK] cpu=ARM7 rank=6 pc=037FEC94 reason=verify sample64=1
+[PS2][JIT-FALLBACK] cpu=ARM7 rank=7 pc=03801A50 reason=budget sample64=1
+[PS2][SUMMARY] fps=4.34 coreMs=216.48 coreExIoMs=216.48 romIoMs=0.00 arm9Instr=1347302 arm7Instr=1701544 gpu2dAMs=47.37 gpu2dBMs=38.69 gpu3dMs=51.76 spuMs=8.78 schedulerMs=4.314 getFrameMs=4.84 gsUploadMs=0.11 presentMs=9.06 hotPc=0210F490 hotOpcode=B8B00004 dynarecCoveragePct=100.00 dynarecActiveGuest=371507 arm7JitCoveragePct=41.17 arm7JitGuest=700539 arm7JitGuestPerExec=3.98
+[PS2][SLOW] rank=1 frame=1221 coreMs=225.53 arm9Instr=22678 arm7Instr=32026 arm9JitGuest=7661 arm7JitGuest=13543 tasks=1141 gpu2dA=192 gpu2dB=192 render3d=192 arm9Pc=FFFF07F0 arm7Pc=00002C2A dispA=40811718 dispB=C0811510 bldA=0642 bldB=0442 disp3d=0009 polygons=1
+[PS2][SLOW] rank=2 frame=1216 coreMs=224.98 arm9Instr=22649 arm7Instr=30904 arm9JitGuest=7355 arm7JitGuest=14068 tasks=1139 gpu2dA=192 gpu2dB=192 render3d=192 arm9Pc=FFFF07F0 arm7Pc=00002DE0 dispA=40811718 dispB=C0811510 bldA=0642 bldB=0442 disp3d=0009 polygons=1
+[PS2][SLOW] rank=3 frame=1212 coreMs=224.24 arm9Instr=22757 arm7Instr=30589 arm9JitGuest=6543 arm7JitGuest=14109 tasks=1137 gpu2dA=192 gpu2dB=192 render3d=192 arm9Pc=FFFF07F0 arm7Pc=000011C0 dispA=40811718 dispB=C0811510 bldA=0642 bldB=0442 disp3d=0009 polygons=1
+[PS2][JIT] selective hot filter add count=3 pcs=0210F490,02113F18,0210F48C,00000000,00000000,00000000
+[PS2] M5 stream CT16: frame=1260 top(hash=92019EEF white=5678/49152) bottom(hash=956ED3AC white=1678/49152) cycles=705839400
+[PS2] interpreter benchmark: 1319 frames in 225.835 s = 5.84 NDS fps
+[PS2][PROF] 60-frame window: 14.013s = 4.28 fps | core=218.94ms/f getFrame=4.84ms/f uploadGS=0.11ms/f present=9.59ms/f known=233.48ms/f
+[PS2][PROF] scheduler: ARM9=1354689 ARM7=1868241 tasks=68316 schedules=68314 maxDepth=13 legacyEstimatedMoves=560190 cursorCompactions=1067 cursorMoves=8713 blockFilterHit=115757 blockExec=33514 blockDrop=371 blockBudgetSkip=79832 autoHot=376 thumbAutoHot=0 filterCollision=6 sampleCollision=8589
+[PS2][PROF] arm7-block: filterHit=232471 exec=197997 chained=60691 drop=156 budgetSkip=32981 autoHot=228 thumbAutoHot=11 filterCollision=70 sampleCollision=10746
+[PS2][PROF] scheduler-cost: est=4.327ms/f insert=2.407us(1102 samples) pop=1.361us(1074 samples) compact=2.183ms ties=73
+[PS2][PROF] task-count: core=0 gpuDraw=15780 gpuTiming=15780 gpu3d=2220 spu=32823 dma=0 timer=1008 irq=705 other=0
+[PS2][PROF] task-sample-us: core=0.00 gpuDraw=530.61 gpuTiming=8.77 gpu3d=5.81 spu=21.43 dma=0.00 timer=3.38 irq=2.25 other=0.00 (per-class 1/64 sampled)
+[PS2][PROF] gpu-phase count/avg-us: 2dA=11520/237.91 2dB=11520/194.14 capture=0/0.00 render3d=11520/269.76 vblank=60/1304.68
+[PS2][PROF] gpu2dA count/avg-us/est-ms: clear=11520/4.77/54.98 obj=11520/51.54/593.76 text=34560/39.95/1380.77
+[PS2][PROF] gpu2dA count/avg-us/est-ms: affine=0/0.00/0.00 extended=0/0.00/0.00 large=0/0.00/0.00
+[PS2][PROF] gpu2dA count/avg-us/est-ms: compose=11520/65.48/754.37 output=11520/1.47/16.94 bright=11520/1.34/15.38
+[PS2][PROF] gpu2dA text-detail: samples=531 calls=531 mode4=343 mode8=0 3d=188 windowed=0 tiles=11262 hFlip=18 vFlip=11
+[PS2][PROF] gpu2dA text-memory: tileHit=10919 tileMap=343 tileFallback=0 indexHit=10549 indexMap=713 indexFallback=0 pixels=102559 transparent=35874 clipped=1336 palette=52675 writes=65349
+[PS2][PROF] gpu2dA obj-detail: samples=195 calls=195 objWindow=0 scanned=24960 disabled=0 outY=24643 visible=317 affine=0 bitmap=0 bpp8=0 bpp4=317
+[PS2][PROF] gpu2dA obj-memory: pageHit=698 pageMap=126 fallback=0 texels=6560 clipped=616 objWinWrites=0 pixelWrites=2494
+[PS2][PROF] gpu2dA compose-detail: samples=177 calls=177 noBlend=0 blended=177 windowed=0 pixels=45312 rgbConvert=32065 3d=13247 semi=0 3dAlpha=13168 alpha=9332 brightUp=0 brightDown=0 winCheck=0 winReject=0 writes=22500
+[PS2][PROF] gpu2dB count/avg-us/est-ms: clear=11520/31.28/360.36 obj=11520/47.25/544.30 text=23040/44.28/1020.21
+[PS2][PROF] gpu2dB count/avg-us/est-ms: affine=0/0.00/0.00 extended=0/0.00/0.00 large=0/0.00/0.00
+[PS2][PROF] gpu2dB count/avg-us/est-ms: compose=11520/32.25/371.47 output=11520/1.35/15.55 bright=11520/1.45/16.66
+[PS2][PROF] gpu2dB text-detail: samples=335 calls=335 mode4=335 mode8=0 3d=0 windowed=0 tiles=10857 hFlip=5 vFlip=0
+[PS2][PROF] gpu2dB text-memory: tileHit=10522 tileMap=335 tileFallback=0 indexHit=10175 indexMap=682 indexFallback=0 pixels=46613 transparent=437 clipped=1096 palette=45080 writes=45080
+[PS2][PROF] gpu2dB obj-detail: samples=202 calls=202 objWindow=0 scanned=25856 disabled=0 outY=25856 visible=0 affine=0 bitmap=0 bpp8=0 bpp4=0
+[PS2][PROF] gpu2dB obj-memory: pageHit=0 pageMap=0 fallback=0 texels=0 clipped=0 objWinWrites=0 pixelWrites=0
+[PS2][PROF] gpu2dB compose-detail: samples=174 calls=174 noBlend=0 blended=174 windowed=0 pixels=44544 rgbConvert=44544 3d=0 semi=0 3dAlpha=0 alpha=0 brightUp=0 brightDown=0 winCheck=0 winReject=0 writes=0
+[PS2][PROF] gpu3d-detail: frames=60 scanlines=11520 threadedFrames=0 polygonCalls=7680 solid=7680 trans=0 polygonSamples=100 sampledPixels=25600 linear=25600 perspective=0 depthTests=25600 depthFailBoth=0 shadow=0
+[PS2][PROF] gpu3d-pixel: texture=25600 fmt0=0 fmt1=0 fmt2=0 fmt3=0 fmt4=25600 fmt5=0 fmt6=0 fmt7=0 alphaReject=15488 opaqueWrite=10112 transWrite=0 blend=0 finishSamples=198 fog=0 edge=0
+[PS2][PROF] gpu3d-phase-detail: scanSamples=169 clearAvgUs=9.97 polygonAvgUs=293.46 finishSamples=198 finishAvgUs=1.28
+[PS2][PROF] ROM window: hits=0 misses=0 hitRate=100.00% seeks=0 read=0KiB seqMiss=0 maxSeq=52 cache=2048KiB page=16KiB
+[PS2][PROF] ROM I/O: total=0.00ms (0.00ms/f) coreExIO=218.94ms/f reads=0 seeks=0 requested=0KiB got=0KiB maxRead=0.00ms maxSeek=0.00ms short=0
+[PS2][PROF] ROM latency hist: <1=0 1-5=0 5-10=0 10-50=0 50-100=0 100-250=0 >250=0 | size <=2K=0 <=16K=0 <=64K=0 <=256K=0 >256K=0
+[PS2][PROF] ARM9 instr=936879 ARM=936699 THUMB=180 | ARM dp=394744 mem=290596 multi=96793 branch=151842 sys=2724 | THUMB alu=120 mem=0 stack=0 multi=0 branch=60
+[PS2][PROF] ARM9 hotPC(sample/64): 0210F48C:E151000C:531 02113F1C:E0122000:507 02113F18:E1D123B6:491 02113F20:1AFFFFFC:488 0210F494:B8A10004:444 0210F498:BAFFFFFB:432
+[PS2][PROF] ARM9 hot#0 pc=0210F48C op=E151000C next=B8B00004 mode=ARM kind=data samples=531 cpsr=80000092 r1=0700047C r0=02170B54 r12=07000480 mem=FFFFFFFF branch=FFFFFFFF nextEvent=393
+[PS2][PROF] ARM9 hot#1 pc=02113F1C op=E0122000 next=1AFFFFFC mode=ARM kind=data samples=507 cpsr=2000001F r2=00000001 r2=00000001 r0=00000001 mem=FFFFFFFF branch=FFFFFFFF nextEvent=575
+[PS2][PROF] ARM9 hot#2 pc=02113F18 op=E1D123B6 next=E0122000 mode=ARM kind=memory samples=491 cpsr=2000001F r1=022AB8AC r2=00000001 r6=027C12E0 mem=022AB8E2 branch=FFFFFFFF nextEvent=696
+[PS2][PROF] ARM9 hot#3 pc=02113F20 op=1AFFFFFC next=E12FFF1E mode=ARM kind=branch samples=488 cpsr=2000001F r15=02113F28 r15=02113F28 r12=00000006 mem=FFFFFFFF branch=02113F18 nextEvent=464
+[PS2][PROF] ARM9 hot#4 pc=0210F494 op=B8A10004 next=BAFFFFFB mode=ARM kind=multi samples=444 cpsr=80000092 r1=070007EC r0=02170EC8 r4=027C0290 mem=070007EC branch=FFFFFFFF nextEvent=712
+[PS2][PROF] ARM9 hot#5 pc=0210F498 op=BAFFFFFB next=E12FFF1E mode=ARM kind=branch samples=432 cpsr=80000092 r15=0210F4A0 r15=0210F4A0 r11=0000001F mem=FFFFFFFF branch=0210F48C nextEvent=790
+[PS2][JIT] hotblock pc=0210F48C support=4/4 firstUnsupported=00000000:00000000 reason=supported
+[PS2][HOTBLOCK] cpu=ARM9 pc=0210F48C end=0210F49C sampledExec=531 estExec=33984 guestInstr=4 guestCycles=4 branch=0210F48C backEdge=1 mem=070007EC memClass=OAM dynarecSupported=4/4 halfDirect=R0/0,W0/0 wordDirect=R0/0,W0/0 read=1007 write=0007 nextEvent=393
 [PS2][HOTBLOCK] +00 pc=0210F48C op=E151000C CMP.AL r1,r12                              cond=E S=1 flagsR=0 flagsW=1 Rn=1 Rd=0 Rm=12 Rs=255 shift=0/0 imm=00000000 read=1002 write=0000 branch=FFFFFFFF back=0 jit=supported
 [PS2][HOTBLOCK] +01 pc=0210F490 op=B8B00004 LDMIA.LT r0!,{r2}                          cond=B S=0 flagsR=1 flagsW=0 Rn=0 Rd=255 Rm=255 Rs=255 shift=0/0 imm=00000000 read=0001 write=0005 branch=FFFFFFFF back=0 jit=supported
 [PS2][HOTBLOCK] +02 pc=0210F494 op=B8A10004 STMIA.LT r1!,{r2}                          cond=B S=0 flagsR=1 flagsW=0 Rn=1 Rd=255 Rm=255 Rs=255 shift=0/0 imm=00000000 read=0006 write=0002 branch=FFFFFFFF back=0 jit=supported
 [PS2][HOTBLOCK] +03 pc=0210F498 op=BAFFFFFB B.LT 0x0210F48C                            cond=B S=0 flagsR=1 flagsW=0 Rn=255 Rd=255 Rm=255 Rs=255 shift=0/0 imm=00000000 read=0000 write=0000 branch=0210F48C back=1 jit=supported
 [PS2][JIT] hotblock pc=02113F1C support=2/2 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] hotblock pc=02113F20 support=1/1 firstUnsupported=00000000:00000000 reason=supported
 [PS2][JIT] hotblock pc=02113F18 support=3/3 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] hotblock pc=0210F490 support=3/3 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] hotblock pc=0210F494 support=2/2 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] shadow attempts=6 success=6 rejected=0 lookupHit=5 miss=1 guest=15 supported=15 coverage=100.00% avgBlock=2.50 largest=4 hostWords=0 cache=143024 invalidations=0 fallback=0
-[PS2][JIT] exits: opcode=0 condition=0 flags=0 shift=0 memory=0 branch=0 pc=0 system=0 other=0
-[PS2][JIT] unsupported-detail: longMul=0 signedLoad=0
-[PS2][JIT] active attempts=44942 exec=85777 guest=388535 cycles=549611 chain=57038 storeChain=1329 pipeReuse=13830 codeInv=0 compileMiss=20 budgetFallback=15556 writeFallback=0 verifyFallback=328 stateFallback=319
-[PS2][JIT] ARM9-Thumb active attempts=0 exec=0 guest=0 cycles=0 differentialPass=0
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=0 pc=02113F18 reason=budget sample64=132
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=1 pc=0210E10C reason=budget sample64=4
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=2 pc=02025850 reason=budget sample64=2
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=3 pc=02025D60 reason=budget sample64=2
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=4 pc=02025884 reason=budget sample64=2
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=5 pc=02017218 reason=budget sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=6 pc=020258E8 reason=budget sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=7 pc=02113F1C reason=budget sample64=1
-[PS2][PROF] ARM7 instr=1065678 ARM=1013474 THUMB=52204 | ARM dp=551610 mem=247255 multi=87010 branch=127599 sys=0 | THUMB alu=25784 mem=5573 stack=9612 multi=0 branch=11235
-[PS2][PROF] ARM7 hotPC(sample/64): 00002DE8:E28FB048:76 00002E08:E28FE000:66 00002DDC:E92D5800:64 00002DFC:E38BB01F:54 00002DEC:E79BC10C:52 00002E20:E16FF00B:47
-[PS2][PROF] ARM7 hot#0 pc=00002DE8 op=E28FB048 next=E79BC10C mode=ARM kind=data samples=76 cpsr=A0000093 r15=00002DF0 r11=00000000 r8=FFFFFE9D mem=FFFFFFFF branch=FFFFFFFF nextEvent=414
-[PS2][PROF] ARM7 hot#1 pc=00002E08 op=E28FE000 next=E12FFF1C mode=ARM kind=data samples=66 cpsr=0000001F r15=00002E10 r14=037FECAC r0=00000000 mem=FFFFFFFF branch=FFFFFFFF nextEvent=258
-[PS2][PROF] ARM7 hot#2 pc=00002DDC op=E92D5800 next=E15EC0B2 mode=ARM kind=multi samples=64 cpsr=80000093 r13=0380FFC0 r5=000018B8 r0=00000525 mem=0380FFC0 branch=FFFFFFFF nextEvent=188
-[PS2][PROF] ARM7 hot#3 pc=00002DFC op=E38BB01F next=E12FF00B mode=ARM kind=data samples=54 cpsr=A0000093 r11=00000000 r11=00000000 r15=00002E04 mem=FFFFFFFF branch=FFFFFFFF nextEvent=82
-[PS2][PROF] ARM7 hot#4 pc=00002DEC op=E79BC10C next=E14FB000 mode=ARM kind=memory samples=52 cpsr=A0000093 r11=00002E38 r12=0000001C r12=0000001C mem=FFFFFFFF branch=FFFFFFFF nextEvent=456
-[PS2][PROF] ARM7 hot#5 pc=00002E20 op=E16FF00B next=E8BD5800 mode=ARM kind=data samples=47 cpsr=000000D3 r15=00002E28 r15=00002E28 r11=8000003F mem=FFFFFFFF branch=FFFFFFFF nextEvent=876
-[PS2][PROF] memory ARM9 sampled/64: read=25300 direct=25189 fallback=111 write=2091 direct=1877 fallback=214 pageHit=23820 | MMIO=111/214 VRAM=0/0 palette=0/0 TCM=0/0 unaligned=0/0 crossPage=0/0
-[PS2][PROF] memory ARM9 MMIO timing/64: readSamples=117 avgUs=1.69 totalSampleMs=0.20 writeSamples=209 avgUs=2.49 totalSampleMs=0.52
-[PS2][PROF] memory ARM9 MMIO#0 address=04000290 samples=17 read=0 write=23
-[PS2][PROF] memory ARM9 MMIO#1 address=04000298 samples=15 read=0 write=18
-[PS2][PROF] memory ARM9 MMIO#2 address=04000280 samples=6 read=0 write=9
-[PS2][PROF] memory ARM9 MMIO#3 address=0400029C samples=3 read=0 write=14
-[PS2][PROF] memory ARM9 MMIO#4 address=04000004 samples=1 read=0 write=1
-[PS2][PROF] memory ARM9 MMIO#5 address=04000214 samples=1 read=2 write=0
-[PS2][PROF] memory ARM7 sampled/64: read=26519 direct=26258 fallback=261 write=3370 direct=3254 fallback=116 pageHit=27605 | MMIO=261/116 VRAM=0/0 palette=0/0 TCM=0/0 unaligned=0/0 crossPage=0/0
-[PS2][PROF] memory ARM7 MMIO timing/64: readSamples=257 avgUs=1.74 totalSampleMs=0.45 writeSamples=137 avgUs=2.00 totalSampleMs=0.27
-[PS2][PROF] memory ARM7 MMIO#0 address=04000208 samples=106 read=62 write=48
-[PS2][PROF] memory ARM7 MMIO#1 address=04000214 samples=14 read=22 write=4
-[PS2][PROF] memory ARM7 MMIO#2 address=04000104 samples=13 read=0 write=21
-[PS2][PROF] memory ARM7 MMIO#3 address=04000210 samples=9 read=14 write=11
-[PS2][PROF] memory ARM7 MMIO#4 address=04000420 samples=1 read=1 write=0
-[PS2][ARM7JIT] active attempts=197095 exec=196063 guest=771476 cycles=1375258 chain=0 storeChain=0 pipeReuse=0 codeInv=0 compileMiss=42 budgetFallback=893 verifyFallback=139 stateFallback=0
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=0 pc=037FFA88 reason=budget sample64=2
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=1 pc=03800D50 reason=budget sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=2 pc=03800C38 reason=budget sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=3 pc=03800EB4 reason=budget sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=4 pc=03801A0C reason=budget sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=5 pc=037FFB1C reason=budget sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=6 pc=03800EC0 reason=budget sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=7 pc=00002C64 reason=budget sample64=1
-[PS2][SUMMARY] fps=4.31 coreMs=216.67 coreExIoMs=216.67 romIoMs=0.00 arm9Instr=1355331 arm7Instr=1837078 gpu2dAMs=45.67 gpu2dBMs=37.27 gpu3dMs=51.77 spuMs=11.09 schedulerMs=4.306 getFrameMs=4.84 gsUploadMs=0.11 presentMs=10.52 hotPc=0210F48C hotOpcode=E151000C dynarecCoveragePct=100.00 dynarecActiveGuest=388535 arm7JitCoveragePct=41.99 arm7JitGuest=771476 arm7JitGuestPerExec=3.93
-[PS2][SLOW] rank=1 frame=1298 coreMs=223.35 arm9Instr=22426 arm7Instr=38079 arm9JitGuest=8038 arm7JitGuest=17351 tasks=1138 gpu2dA=192 gpu2dB=192 render3d=192 arm9Pc=FFFF07F0 arm7Pc=000011C0 dispA=40811718 dispB=C0811510 bldA=0642 bldB=0442 disp3d=0009 polygons=1
-[PS2][SLOW] rank=2 frame=1303 coreMs=223.00 arm9Instr=22426 arm7Instr=37615 arm9JitGuest=7718 arm7JitGuest=16730 tasks=1136 gpu2dA=192 gpu2dB=192 render3d=192 arm9Pc=FFFF07F0 arm7Pc=000011C0 dispA=40811718 dispB=C0811510 bldA=0642 bldB=0442 disp3d=0009 polygons=1
-[PS2][SLOW] rank=3 frame=1301 coreMs=222.65 arm9Instr=23128 arm7Instr=29706 arm9JitGuest=1639 arm7JitGuest=10359 tasks=1138 gpu2dA=192 gpu2dB=192 render3d=192 arm9Pc=FFFF07F0 arm7Pc=000011C0 dispA=40811718 dispB=C0811510 bldA=0642 bldB=0442 disp3d=0009 polygons=1
-[PS2][JIT] selective hot filter add count=3 pcs=0210F48C,02113F18,0210F490,00000000,00000000,00000000
-[PS2] M5 stream CT16: frame=1320 top(hash=3A303F7D white=5609/49152) bottom(hash=4AC2F9D0 white=1676/49152) cycles=739450800
-[PS2] interpreter benchmark: 1379 frames in 237.876 s = 5.80 NDS fps
-[PS2][PROF] 60-frame window: 14.009s = 4.28 fps | core=217.78ms/f getFrame=4.84ms/f uploadGS=0.11ms/f present=10.67ms/f known=233.40ms/f
-[PS2][PROF] scheduler: ARM9=1357734 ARM7=1896684 tasks=68315 schedules=68315 maxDepth=13 legacyEstimatedMoves=559845 cursorCompactions=1067 cursorMoves=8725 blockFilterHit=115714 blockExec=31747 blockDrop=368 blockBudgetSkip=81076 autoHot=375 thumbAutoHot=0 filterCollision=6 sampleCollision=8482
-[PS2][PROF] arm7-block: filterHit=239078 exec=204967 chained=65757 drop=136 budgetSkip=32510 autoHot=200 thumbAutoHot=14 filterCollision=61 sampleCollision=11058
-[PS2][PROF] scheduler-cost: est=4.326ms/f insert=2.403us(1102 samples) pop=1.365us(1074 samples) compact=2.170ms ties=69
-[PS2][PROF] task-count: core=0 gpuDraw=15780 gpuTiming=15780 gpu3d=2220 spu=32824 dma=0 timer=1004 irq=707 other=0
-[PS2][PROF] task-sample-us: core=0.00 gpuDraw=530.37 gpuTiming=8.80 gpu3d=5.56 spu=20.40 dma=0.00 timer=2.71 irq=2.50 other=0.00 (per-class 1/64 sampled)
-[PS2][PROF] gpu-phase count/avg-us: 2dA=11520/237.69 2dB=11520/194.05 capture=0/0.00 render3d=11520/269.61 vblank=60/1304.88
-[PS2][PROF] gpu2dA count/avg-us/est-ms: clear=11520/4.58/52.71 obj=11520/51.28/590.79 text=34560/39.98/1381.62
-[PS2][PROF] gpu2dA count/avg-us/est-ms: affine=0/0.00/0.00 extended=0/0.00/0.00 large=0/0.00/0.00
-[PS2][PROF] gpu2dA count/avg-us/est-ms: compose=11520/65.57/755.39 output=11520/1.36/15.64 bright=11520/1.41/16.22
-[PS2][PROF] gpu2dA text-detail: samples=531 calls=531 mode4=343 mode8=0 3d=188 windowed=0 tiles=11284 hFlip=18 vFlip=11
-[PS2][PROF] gpu2dA text-memory: tileHit=10941 tileMap=343 tileFallback=0 indexHit=10575 indexMap=709 indexFallback=0 pixels=102560 transparent=35874 clipped=1337 palette=52675 writes=65349
-[PS2][PROF] gpu2dA obj-detail: samples=195 calls=195 objWindow=0 scanned=24960 disabled=0 outY=24656 visible=304 affine=0 bitmap=0 bpp8=0 bpp4=304
-[PS2][PROF] gpu2dA obj-memory: pageHit=642 pageMap=97 fallback=0 texels=5895 clipped=1041 objWinWrites=0 pixelWrites=2417
-[PS2][PROF] gpu2dA compose-detail: samples=177 calls=177 noBlend=0 blended=177 windowed=0 pixels=45312 rgbConvert=32065 3d=13247 semi=0 3dAlpha=13188 alpha=9381 brightUp=0 brightDown=0 winCheck=0 winReject=0 writes=22569
-[PS2][PROF] gpu2dB count/avg-us/est-ms: clear=11520/31.27/360.18 obj=11520/47.24/544.24 text=23040/44.32/1021.19
-[PS2][PROF] gpu2dB count/avg-us/est-ms: affine=0/0.00/0.00 extended=0/0.00/0.00 large=0/0.00/0.00
-[PS2][PROF] gpu2dB count/avg-us/est-ms: compose=11520/32.23/371.25 output=11520/1.34/15.41 bright=11520/1.34/15.43
-[PS2][PROF] gpu2dB text-detail: samples=335 calls=335 mode4=335 mode8=0 3d=0 windowed=0 tiles=10866 hFlip=0 vFlip=0
-[PS2][PROF] gpu2dB text-memory: tileHit=10531 tileMap=335 tileFallback=0 indexHit=10162 indexMap=704 indexFallback=0 pixels=46685 transparent=437 clipped=1168 palette=45080 writes=45080
-[PS2][PROF] gpu2dB obj-detail: samples=202 calls=202 objWindow=0 scanned=25856 disabled=0 outY=25856 visible=0 affine=0 bitmap=0 bpp8=0 bpp4=0
-[PS2][PROF] gpu2dB obj-memory: pageHit=0 pageMap=0 fallback=0 texels=0 clipped=0 objWinWrites=0 pixelWrites=0
-[PS2][PROF] gpu2dB compose-detail: samples=174 calls=174 noBlend=0 blended=174 windowed=0 pixels=44544 rgbConvert=44544 3d=0 semi=0 3dAlpha=0 alpha=0 brightUp=0 brightDown=0 winCheck=0 winReject=0 writes=0
-[PS2][PROF] gpu3d-detail: frames=60 scanlines=11520 threadedFrames=0 polygonCalls=7680 solid=7680 trans=0 polygonSamples=100 sampledPixels=25600 linear=25600 perspective=0 depthTests=25600 depthFailBoth=0 shadow=0
-[PS2][PROF] gpu3d-pixel: texture=25600 fmt0=0 fmt1=0 fmt2=0 fmt3=0 fmt4=25600 fmt5=0 fmt6=0 fmt7=0 alphaReject=15488 opaqueWrite=10112 transWrite=0 blend=0 finishSamples=198 fog=0 edge=0
-[PS2][PROF] gpu3d-phase-detail: scanSamples=169 clearAvgUs=9.80 polygonAvgUs=293.51 finishSamples=198 finishAvgUs=1.32
-[PS2][PROF] ROM window: hits=0 misses=0 hitRate=100.00% seeks=0 read=0KiB seqMiss=0 maxSeq=52 cache=2048KiB page=16KiB
-[PS2][PROF] ROM I/O: total=0.00ms (0.00ms/f) coreExIO=217.78ms/f reads=0 seeks=0 requested=0KiB got=0KiB maxRead=0.00ms maxSeek=0.00ms short=0
-[PS2][PROF] ROM latency hist: <1=0 1-5=0 5-10=0 10-50=0 50-100=0 100-250=0 >250=0 | size <=2K=0 <=16K=0 <=64K=0 <=256K=0 >256K=0
-[PS2][PROF] ARM9 instr=925657 ARM=925477 THUMB=180 | ARM dp=388522 mem=287701 multi=97283 branch=149247 sys=2724 | THUMB alu=120 mem=0 stack=0 multi=0 branch=60
-[PS2][PROF] ARM9 hotPC(sample/64): 02113F1C:E0122000:510 02113F20:1AFFFFFC:505 0210F498:BAFFFFFB:491 02113F18:E1D123B6:479 0210F48C:E151000C:475 0210F494:B8A10004:434
-[PS2][PROF] ARM9 hot#0 pc=02113F1C op=E0122000 next=1AFFFFFC mode=ARM kind=data samples=510 cpsr=2000001F r2=00000001 r2=00000001 r0=00000001 mem=FFFFFFFF branch=FFFFFFFF nextEvent=785
-[PS2][PROF] ARM9 hot#1 pc=02113F20 op=1AFFFFFC next=E12FFF1E mode=ARM kind=branch samples=505 cpsr=2000001F r15=02113F28 r15=02113F28 r12=00000006 mem=FFFFFFFF branch=02113F18 nextEvent=664
-[PS2][PROF] ARM9 hot#2 pc=0210F498 op=BAFFFFFB next=E12FFF1E mode=ARM kind=branch samples=491 cpsr=80000092 r15=0210F4A0 r15=0210F4A0 r11=0000001F mem=FFFFFFFF branch=0210F48C nextEvent=216
-[PS2][PROF] ARM9 hot#3 pc=02113F18 op=E1D123B6 next=E0122000 mode=ARM kind=memory samples=479 cpsr=2000001F r1=022AB8AC r2=00000001 r6=027C12E0 mem=022AB8E2 branch=FFFFFFFF nextEvent=546
-[PS2][PROF] ARM9 hot#4 pc=0210F48C op=E151000C next=B8B00004 mode=ARM kind=data samples=475 cpsr=80000092 r1=070007E0 r0=02170EB8 r12=07000800 mem=FFFFFFFF branch=FFFFFFFF nextEvent=259
-[PS2][PROF] ARM9 hot#5 pc=0210F494 op=B8A10004 next=BAFFFFFB mode=ARM kind=multi samples=434 cpsr=80000092 r1=070003E0 r0=0217088C r4=027C0290 mem=070003E0 branch=FFFFFFFF nextEvent=188
-[PS2][JIT] hotblock pc=02113F1C support=2/2 firstUnsupported=00000000:00000000 reason=supported
 [PS2][JIT] hotblock pc=02113F20 support=1/1 firstUnsupported=00000000:00000000 reason=supported
+[PS2][JIT] hotblock pc=0210F494 support=2/2 firstUnsupported=00000000:00000000 reason=supported
 [PS2][JIT] hotblock pc=0210F498 support=1/1 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] hotblock pc=02113F18 support=3/3 firstUnsupported=00000000:00000000 reason=supported
-[PS2][HOTBLOCK] cpu=ARM9 pc=02113F18 end=02113F24 sampledExec=479 estExec=30656 guestInstr=3 guestCycles=3 branch=02113F18 backEdge=1 mem=022AB8E2 memClass=main-RAM dynarecSupported=3/3 halfDirect=R1/1,W0/0 wordDirect=R0/0,W0/0 read=0007 write=0004 nextEvent=546
-[PS2][HOTBLOCK] +00 pc=02113F18 op=E1D123B6 LDRH.AL r2,[r1]                            cond=E S=0 flagsR=0 flagsW=0 Rn=1 Rd=2 Rm=255 Rs=255 shift=0/0 imm=00000000 read=0002 write=0004 branch=FFFFFFFF back=0 jit=supported
-[PS2][HOTBLOCK] +01 pc=02113F1C op=E0122000 ANDS.AL r2,r2,r0                           cond=E S=1 flagsR=0 flagsW=1 Rn=2 Rd=2 Rm=0 Rs=255 shift=0/0 imm=00000000 read=0005 write=0004 branch=FFFFFFFF back=0 jit=supported
-[PS2][HOTBLOCK] +02 pc=02113F20 op=1AFFFFFC B.NE 0x02113F18                            cond=1 S=0 flagsR=1 flagsW=0 Rn=255 Rd=255 Rm=255 Rs=255 shift=0/0 imm=00000000 read=0000 write=0000 branch=02113F18 back=1 jit=supported
-[PS2][JIT] hotblock pc=0210F48C support=4/4 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] hotblock pc=0210F494 support=2/2 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] shadow attempts=6 success=6 rejected=0 lookupHit=6 miss=0 guest=13 supported=13 coverage=100.00% avgBlock=2.17 largest=4 hostWords=0 cache=149140 invalidations=0 fallback=0
+[PS2][JIT] shadow attempts=6 success=6 rejected=0 lookupHit=4 miss=2 guest=13 supported=13 coverage=100.00% avgBlock=2.17 largest=4 hostWords=0 cache=150644 invalidations=0 fallback=0
 [PS2][JIT] exits: opcode=0 condition=0 flags=0 shift=0 memory=0 branch=0 pc=0 system=0 other=0
 [PS2][JIT] unsupported-detail: longMul=0 signedLoad=0
-[PS2][JIT] active attempts=48781 exec=92876 guest=432142 cycles=608368 chain=61129 storeChain=1957 pipeReuse=14270 codeInv=0 compileMiss=14 budgetFallback=16265 writeFallback=0 verifyFallback=315 stateFallback=454
+[PS2][JIT] active attempts=49930 exec=90102 guest=417852 cycles=584582 chain=56588 storeChain=1234 pipeReuse=13316 codeInv=0 compileMiss=17 budgetFallback=16045 writeFallback=0 verifyFallback=371 stateFallback=0
 [PS2][JIT] ARM9-Thumb active attempts=0 exec=0 guest=0 cycles=0 differentialPass=0
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=0 pc=02113F18 reason=budget sample64=129
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=1 pc=0210F48C reason=state sample64=6
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=2 pc=02025850 reason=budget sample64=2
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=3 pc=02023744 reason=budget sample64=1
+[PS2][JIT-FALLBACK] cpu=ARM9 rank=0 pc=02113F18 reason=budget sample64=131
+[PS2][JIT-FALLBACK] cpu=ARM9 rank=1 pc=020258E8 reason=budget sample64=1
+[PS2][JIT-FALLBACK] cpu=ARM9 rank=2 pc=02025D60 reason=budget sample64=1
+[PS2][JIT-FALLBACK] cpu=ARM9 rank=3 pc=0202586C reason=budget sample64=1
 [PS2][JIT-FALLBACK] cpu=ARM9 rank=4 pc=02025884 reason=budget sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=5 pc=020258E8 reason=budget sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=6 pc=020237F0 reason=budget sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=7 pc=0210E10C reason=budget sample64=1
-[PS2][PROF] ARM7 instr=1084505 ARM=1027452 THUMB=57053 | ARM dp=557870 mem=252584 multi=89404 branch=127594 sys=0 | THUMB alu=30241 mem=4524 stack=10721 multi=0 branch=11567
-[PS2][PROF] ARM7 hotPC(sample/64): 00002DEC:E79BC10C:66 00002DE8:E28FB048:64 00002E20:E16FF00B:63 00002E08:E28FE000:63 00002DDC:E92D5800:62 037FED94:E59FC000:52
-[PS2][PROF] ARM7 hot#0 pc=00002DEC op=E79BC10C next=E14FB000 mode=ARM kind=memory samples=66 cpsr=A0000093 r11=00002E38 r12=0000001C r12=0000001C mem=FFFFFFFF branch=FFFFFFFF nextEvent=394
-[PS2][PROF] ARM7 hot#1 pc=00002DE8 op=E28FB048 next=E79BC10C mode=ARM kind=data samples=64 cpsr=A0000093 r15=00002DF0 r11=00000000 r8=FFFFFE8C mem=FFFFFFFF branch=FFFFFFFF nextEvent=64
-[PS2][PROF] ARM7 hot#2 pc=00002E20 op=E16FF00B next=E8BD5800 mode=ARM kind=data samples=63 cpsr=000000D3 r15=00002E28 r15=00002E28 r11=8000003F mem=FFFFFFFF branch=FFFFFFFF nextEvent=336
-[PS2][PROF] ARM7 hot#3 pc=00002E08 op=E28FE000 next=E12FFF1C mode=ARM kind=data samples=63 cpsr=0000001F r15=00002E10 r14=037FEC14 r0=000001BB mem=FFFFFFFF branch=FFFFFFFF nextEvent=330
-[PS2][PROF] ARM7 hot#4 pc=00002DDC op=E92D5800 next=E15EC0B2 mode=ARM kind=multi samples=62 cpsr=80000093 r13=03808064 r5=000002F7 r0=00000280 mem=03808064 branch=FFFFFFFF nextEvent=306
-[PS2][PROF] ARM7 hot#5 pc=037FED94 op=E59FC000 next=E12FFF1C mode=ARM kind=memory samples=52 cpsr=8000001F r15=037FED9C r12=03803BED r0=00000200 mem=037FED9C branch=FFFFFFFF nextEvent=378
-[PS2][PROF] memory ARM9 sampled/64: read=24255 direct=24141 fallback=114 write=2065 direct=1864 fallback=201 pageHit=22898 | MMIO=114/201 VRAM=0/0 palette=0/0 TCM=0/0 unaligned=0/0 crossPage=0/0
-[PS2][PROF] memory ARM9 MMIO timing/64: readSamples=117 avgUs=1.70 totalSampleMs=0.20 writeSamples=209 avgUs=2.44 totalSampleMs=0.51
-[PS2][PROF] memory ARM9 MMIO#0 address=04000290 samples=10 read=0 write=14
-[PS2][PROF] memory ARM9 MMIO#1 address=04000298 samples=9 read=0 write=14
-[PS2][PROF] memory ARM9 MMIO#2 address=04000294 samples=1 read=0 write=1
-[PS2][PROF] memory ARM9 MMIO#3 address=04001008 samples=1 read=2 write=0
-[PS2][PROF] memory ARM7 sampled/64: read=26984 direct=26753 fallback=231 write=3490 direct=3331 fallback=159 pageHit=28184 | MMIO=231/159 VRAM=0/0 palette=0/0 TCM=0/0 unaligned=0/0 crossPage=0/0
-[PS2][PROF] memory ARM7 MMIO timing/64: readSamples=269 avgUs=1.70 totalSampleMs=0.46 writeSamples=130 avgUs=1.96 totalSampleMs=0.26
-[PS2][PROF] memory ARM7 MMIO#0 address=04000208 samples=81 read=43 write=48
-[PS2][PROF] memory ARM7 MMIO#1 address=04000104 samples=29 read=0 write=34
-[PS2][PROF] memory ARM7 MMIO#2 address=04000214 samples=17 read=25 write=8
-[PS2][PROF] memory ARM7 MMIO#3 address=04000210 samples=8 read=21 write=31
-[PS2][PROF] memory ARM7 MMIO#4 address=0400046C samples=1 read=0 write=1
-[PS2][ARM7JIT] active attempts=206048 exec=204967 guest=812196 cycles=1443427 chain=0 storeChain=0 pipeReuse=0 codeInv=0 compileMiss=15 budgetFallback=945 verifyFallback=136 stateFallback=0
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=0 pc=037FFB88 reason=budget sample64=2
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=1 pc=03800C38 reason=budget sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=2 pc=03800EBC reason=budget sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=3 pc=037FFE94 reason=budget sample64=1
+[PS2][JIT-FALLBACK] cpu=ARM9 rank=5 pc=0202591C reason=budget sample64=1
+[PS2][JIT-FALLBACK] cpu=ARM9 rank=6 pc=0202591C reason=budget sample64=1
+[PS2][PROF] ARM7 instr=1089957 ARM=1035318 THUMB=54639 | ARM dp=564845 mem=252969 multi=90229 branch=127275 sys=0 | THUMB alu=28943 mem=3335 stack=9950 multi=0 branch=12411
+[PS2][PROF] ARM7 hotPC(sample/64): 00002DE8:E28FB048:72 00002E20:E16FF00B:65 00002E08:E28FE000:54 03801E28:11850716:50 00002E0C:E12FFF1C:45 00002E18:E12FF00C:45
+[PS2][PROF] ARM7 hot#0 pc=00002DE8 op=E28FB048 next=E79BC10C mode=ARM kind=data samples=72 cpsr=80000093 r15=00002DF0 r11=00000000 r8=00000057 mem=FFFFFFFF branch=FFFFFFFF nextEvent=570
+[PS2][PROF] ARM7 hot#1 pc=00002E20 op=E16FF00B next=E8BD5800 mode=ARM kind=data samples=65 cpsr=000000D3 r15=00002E28 r15=00002E28 r11=8000003F mem=FFFFFFFF branch=FFFFFFFF nextEvent=264
+[PS2][PROF] ARM7 hot#2 pc=00002E08 op=E28FE000 next=E12FFF1C mode=ARM kind=data samples=54 cpsr=0000001F r15=00002E10 r14=037FECAC r0=00000280 mem=FFFFFFFF branch=FFFFFFFF nextEvent=230
+[PS2][PROF] ARM7 hot#3 pc=03801E28 op=11850716 next=11A00800 mode=ARM kind=data samples=50 cpsr=2000001F r5=0000000F r0=00000001 r6=00000001 mem=FFFFFFFF branch=FFFFFFFF nextEvent=948
+[PS2][PROF] ARM7 hot#4 pc=00002E0C op=E12FFF1C next=E8BD4004 mode=ARM kind=branch-exchange samples=45 cpsr=0000001F r15=00002E14 r15=00002E14 r12=000011AC mem=FFFFFFFF branch=FFFFFFFF nextEvent=32
+[PS2][PROF] ARM7 hot#5 pc=00002E18 op=E12FF00C next=E8BD0800 mode=ARM kind=system samples=45 cpsr=6000001F r15=00002E20 r15=00002E20 r12=000000D3 mem=FFFFFFFF branch=FFFFFFFF nextEvent=284
+[PS2][PROF] memory ARM9 sampled/64: read=24549 direct=24458 fallback=91 write=2130 direct=1910 fallback=220 pageHit=23119 | MMIO=91/220 VRAM=0/0 palette=0/0 TCM=0/0 unaligned=0/0 crossPage=0/0
+[PS2][PROF] memory ARM9 MMIO timing/64: readSamples=117 avgUs=1.65 totalSampleMs=0.19 writeSamples=209 avgUs=2.49 totalSampleMs=0.52
+[PS2][PROF] memory ARM9 MMIO#0 address=04000298 samples=12 read=0 write=14
+[PS2][PROF] memory ARM9 MMIO#1 address=04000290 samples=8 read=0 write=13
+[PS2][PROF] memory ARM9 MMIO#2 address=0400029C samples=2 read=0 write=5
+[PS2][PROF] memory ARM9 MMIO#3 address=04000600 samples=1 read=2 write=0
+[PS2][PROF] memory ARM9 MMIO#4 address=04001044 samples=1 read=0 write=1
+[PS2][PROF] memory ARM9 MMIO#5 address=0400100C samples=1 read=1 write=0
+[PS2][PROF] memory ARM7 sampled/64: read=27153 direct=26874 fallback=279 write=3495 direct=3373 fallback=122 pageHit=28324 | MMIO=279/122 VRAM=0/0 palette=0/0 TCM=0/0 unaligned=0/0 crossPage=0/0
+[PS2][PROF] memory ARM7 MMIO timing/64: readSamples=263 avgUs=1.73 totalSampleMs=0.46 writeSamples=132 avgUs=1.95 totalSampleMs=0.26
+[PS2][PROF] memory ARM7 MMIO#0 address=04000208 samples=100 read=69 write=37
+[PS2][PROF] memory ARM7 MMIO#1 address=04000104 samples=21 read=0 write=28
+[PS2][PROF] memory ARM7 MMIO#2 address=04000214 samples=19 read=21 write=5
+[PS2][PROF] memory ARM7 MMIO#3 address=04000210 samples=13 read=17 write=9
+[PS2][ARM7JIT] active attempts=198977 exec=197997 guest=778338 cycles=1385104 chain=0 storeChain=0 pipeReuse=0 codeInv=0 compileMiss=43 budgetFallback=824 verifyFallback=156 stateFallback=0
+[PS2][JIT-FALLBACK] cpu=ARM7 rank=0 pc=037FFD14 reason=budget sample64=1
+[PS2][JIT-FALLBACK] cpu=ARM7 rank=1 pc=037FFCD0 reason=budget sample64=1
+[PS2][JIT-FALLBACK] cpu=ARM7 rank=2 pc=00002DF0 reason=verify sample64=1
+[PS2][JIT-FALLBACK] cpu=ARM7 rank=3 pc=03800D50 reason=budget sample64=1
 [PS2][JIT-FALLBACK] cpu=ARM7 rank=4 pc=037FFD1C reason=budget sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=5 pc=037FEC84 reason=verify sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=6 pc=03800D38 reason=verify sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=7 pc=03800D70 reason=budget sample64=1
-[PS2][SUMMARY] fps=4.28 coreMs=217.78 coreExIoMs=217.78 romIoMs=0.00 arm9Instr=1357734 arm7Instr=1896684 gpu2dAMs=45.64 gpu2dBMs=37.26 gpu3dMs=51.76 spuMs=11.16 schedulerMs=4.326 getFrameMs=4.84 gsUploadMs=0.11 presentMs=10.67 hotPc=02113F1C hotOpcode=E0122000 dynarecCoveragePct=100.00 dynarecActiveGuest=432142 arm7JitCoveragePct=42.82 arm7JitGuest=812196 arm7JitGuestPerExec=3.96
-[PS2][SLOW] rank=1 frame=1363 coreMs=225.23 arm9Instr=22426 arm7Instr=34906 arm9JitGuest=3504 arm7JitGuest=12907 tasks=1137 gpu2dA=192 gpu2dB=192 render3d=192 arm9Pc=FFFF07F0 arm7Pc=000011C0 dispA=40811718 dispB=C0811510 bldA=0642 bldB=0442 disp3d=0009 polygons=1
-[PS2][SLOW] rank=2 frame=1354 coreMs=224.60 arm9Instr=23872 arm7Instr=30325 arm9JitGuest=1284 arm7JitGuest=9530 tasks=1140 gpu2dA=192 gpu2dB=192 render3d=192 arm9Pc=FFFF07F0 arm7Pc=000011C0 dispA=40811718 dispB=C0811510 bldA=0642 bldB=0442 disp3d=0009 polygons=1
-[PS2][SLOW] rank=3 frame=1365 coreMs=224.07 arm9Instr=23662 arm7Instr=37782 arm9JitGuest=9075 arm7JitGuest=17161 tasks=1140 gpu2dA=192 gpu2dB=192 render3d=192 arm9Pc=FFFF07F0 arm7Pc=037FF064 dispA=40811718 dispB=C0811510 bldA=0642 bldB=0442 disp3d=0009 polygons=1
-[PS2][JIT] selective hot filter add count=2 pcs=02113F18,0210F48C,00000000,00000000,00000000,00000000
-[PS2] M5 stream CT16: frame=1380 top(hash=1F95DBB9 white=5548/49152) bottom(hash=C2EA0268 white=1676/49152) cycles=773062200
-[PS2] interpreter benchmark: 1439 frames in 258.542 s = 5.57 NDS fps
-[PS2][PROF] 60-frame window: 20.648s = 2.91 fps | core=330.45ms/f getFrame=4.84ms/f uploadGS=0.11ms/f present=8.65ms/f known=344.05ms/f
-[PS2][PROF] scheduler: ARM9=9855470 ARM7=1569793 tasks=67087 schedules=67086 maxDepth=13 legacyEstimatedMoves=549719 cursorCompactions=1048 cursorMoves=8570 blockFilterHit=1106026 blockExec=519624 blockDrop=5130 blockBudgetSkip=571423 autoHot=5182 thumbAutoHot=0 filterCollision=61 sampleCollision=10589
-[PS2][PROF] arm7-block: filterHit=224334 exec=126471 chained=39765 drop=107 budgetSkip=96775 autoHot=166 thumbAutoHot=10 filterCollision=62 sampleCollision=11029
-[PS2][PROF] scheduler-cost: est=4.131ms/f insert=2.330us(1079 samples) pop=1.334us(1061 samples) compact=2.085ms ties=66
-[PS2][PROF] task-count: core=0 gpuDraw=15780 gpuTiming=15780 gpu3d=1005 spu=32824 dma=6 timer=1003 irq=689 other=0
-[PS2][PROF] task-sample-us: core=0.00 gpuDraw=343.11 gpuTiming=8.87 gpu3d=4.55 spu=13.48 dma=0.00 timer=2.62 irq=2.88 other=0.00 (per-class 1/64 sampled)
-[PS2][PROF] gpu-phase count/avg-us: 2dA=11520/168.93 2dB=11520/156.96 capture=0/0.00 render3d=7091/224.00 vblank=60/1301.75
-[PS2][PROF] gpu2dA count/avg-us/est-ms: clear=11520/4.79/55.19 obj=6528/61.50/401.47 text=20736/38.63/801.13
-[PS2][PROF] gpu2dA count/avg-us/est-ms: affine=0/0.00/0.00 extended=0/0.00/0.00 large=0/0.00/0.00
-[PS2][PROF] gpu2dA count/avg-us/est-ms: compose=11520/44.50/512.64 output=11520/1.30/14.95 bright=11520/1.26/14.54
-[PS2][PROF] gpu2dA text-detail: samples=323 calls=323 mode4=207 mode8=12 3d=104 windowed=197 tiles=7174 hFlip=11 vFlip=7
-[PS2][PROF] gpu2dA text-memory: tileHit=6955 tileMap=219 tileFallback=0 indexHit=6707 indexMap=467 indexFallback=0 pixels=60814 transparent=20579 clipped=630 palette=33322 writes=39605
-[PS2][PROF] gpu2dA obj-detail: samples=116 calls=116 objWindow=0 scanned=14848 disabled=0 outY=14696 visible=152 affine=0 bitmap=0 bpp8=0 bpp4=152
-[PS2][PROF] gpu2dA obj-memory: pageHit=351 pageMap=39 fallback=0 texels=3120 clipped=560 objWinWrites=0 pixelWrites=1345
-[PS2][PROF] gpu2dA compose-detail: samples=177 calls=177 noBlend=0 blended=177 windowed=143 pixels=45312 rgbConvert=41395 3d=3917 semi=0 3dAlpha=3908 alpha=2966 brightUp=0 brightDown=0 winCheck=107 winReject=0 writes=6874
-[PS2][PROF] gpu2dB count/avg-us/est-ms: clear=11520/31.28/360.30 obj=6528/59.88/390.91 text=15360/41.17/632.40
-[PS2][PROF] gpu2dB count/avg-us/est-ms: affine=0/0.00/0.00 extended=0/0.00/0.00 large=0/0.00/0.00
-[PS2][PROF] gpu2dB count/avg-us/est-ms: compose=11520/32.11/369.87 output=11520/1.39/15.97 bright=11520/1.37/15.77
-[PS2][PROF] gpu2dB text-detail: samples=221 calls=221 mode4=205 mode8=16 3d=0 windowed=147 tiles=7163 hFlip=6 vFlip=2
-[PS2][PROF] gpu2dB text-memory: tileHit=6942 tileMap=221 tileFallback=0 indexHit=6673 indexMap=490 indexFallback=0 pixels=30110 transparent=295 clipped=629 palette=29186 writes=29186
-[PS2][PROF] gpu2dB obj-detail: samples=131 calls=131 objWindow=25 scanned=16768 disabled=0 outY=16704 visible=64 affine=0 bitmap=0 bpp8=0 bpp4=64
-[PS2][PROF] gpu2dB obj-memory: pageHit=245 pageMap=8 fallback=0 texels=2024 clipped=96 objWinWrites=1488 pixelWrites=496
-[PS2][PROF] gpu2dB compose-detail: samples=174 calls=174 noBlend=0 blended=174 windowed=141 pixels=44544 rgbConvert=44544 3d=0 semi=0 3dAlpha=0 alpha=0 brightUp=0 brightDown=0 winCheck=0 winReject=0 writes=0
-[PS2][PROF] gpu3d-detail: frames=35 scanlines=7091 threadedFrames=0 polygonCalls=3968 solid=3968 trans=0 polygonSamples=47 sampledPixels=12032 linear=12032 perspective=0 depthTests=12032 depthFailBoth=0 shadow=0
-[PS2][PROF] gpu3d-pixel: texture=12032 fmt0=0 fmt1=0 fmt2=0 fmt3=0 fmt4=12032 fmt5=0 fmt6=0 fmt7=0 alphaReject=7204 opaqueWrite=4828 transWrite=0 blend=0 finishSamples=136 fog=0 edge=0
-[PS2][PROF] gpu3d-phase-detail: scanSamples=105 clearAvgUs=9.98 polygonAvgUs=266.46 finishSamples=136 finishAvgUs=3.57
-[PS2][PROF] ROM window: hits=3129 misses=101 hitRate=96.87% seeks=14 read=1616KiB seqMiss=87 maxSeq=52 cache=2048KiB page=16KiB
-[PS2][PROF] ROM I/O: total=14.39ms (0.24ms/f) coreExIO=330.21ms/f reads=101 seeks=14 requested=1616KiB got=1616KiB maxRead=0.52ms maxSeek=0.46ms short=0
-[PS2][PROF] ROM latency hist: <1=101 1-5=0 5-10=0 10-50=0 50-100=0 100-250=0 >250=0 | size <=2K=0 <=16K=101 <=64K=0 <=256K=0 >256K=0
-[PS2][PROF] ROM caller=ROM-cache-miss reads=101 totalMs=14.39
-[PS2][PROF] ARM9 instr=4058056 ARM=4057933 THUMB=123 | ARM dp=1673184 mem=1326848 multi=103044 branch=846480 sys=108377 | THUMB alu=82 mem=0 stack=0 multi=0 branch=41
-[PS2][PROF] ARM9 hotPC(sample/64): 02116258:E5951000:6620 02116250:E2121502:6573 0211624C:E5962000:6423 02116254:0A000003:6208 0210E14C:BAFFFFFB:1331 0210E178:E2800020:1241
-[PS2][PROF] ARM9 hot#0 pc=02116258 op=E5951000 next=E3500C02 mode=ARM kind=memory samples=6620 cpsr=0000001F r5=04100010 r1=00800000 r0=00000060 mem=04100010 branch=FFFFFFFF nextEvent=5
-[PS2][PROF] ARM9 hot#1 pc=02116250 op=E2121502 next=0A000003 mode=ARM kind=data samples=6573 cpsr=A000001F r2=A1D86000 r1=80000000 r2=A1D86000 mem=FFFFFFFF branch=FFFFFFFF nextEvent=245
-[PS2][PROF] ARM9 hot#2 pc=0211624C op=E5962000 next=E2121502 mode=ARM kind=memory samples=6423 cpsr=A000001F r6=040001A4 r2=A1D86000 r0=00000002 mem=040001A4 branch=FFFFFFFF nextEvent=18
-[PS2][PROF] ARM9 hot#3 pc=02116254 op=0A000003 next=E5951000 mode=ARM kind=branch samples=6208 cpsr=0000001F r0=0000007F r0=0000007F r3=00000000 mem=FFFFFFFF branch=02116268 nextEvent=381
-[PS2][PROF] ARM9 hot#4 pc=0210E14C op=BAFFFFFB next=E12FFF1E mode=ARM kind=branch samples=1331 cpsr=2000001F r15=0210E154 r15=0210E154 r11=00000000 mem=FFFFFFFF branch=0210E140 nextEvent=874
-[PS2][PROF] ARM9 hot#5 pc=0210E178 op=E2800020 next=E1500001 mode=ARM kind=data samples=1241 cpsr=8000001F r0=023503E0 r0=023503E0 r0=023503E0 mem=FFFFFFFF branch=FFFFFFFF nextEvent=501
-[PS2][JIT] hotblock pc=02116258 support=6/6 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] hotblock pc=02116250 support=2/2 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] hotblock pc=0211624C support=3/3 firstUnsupported=00000000:00000000 reason=supported
-[PS2][HOTBLOCK] cpu=ARM9 pc=0211624C end=02116258 sampledExec=6423 estExec=411072 guestInstr=3 guestCycles=3 branch=02116268 backEdge=0 mem=040001A4 memClass=MMIO dynarecSupported=3/3 halfDirect=R0/0,W0/0 wordDirect=R0/1,W0/0 read=0044 write=0006 nextEvent=18
-[PS2][HOTBLOCK] +00 pc=0211624C op=E5962000 LDR.AL r2,[r6]                             cond=E S=0 flagsR=0 flagsW=0 Rn=6 Rd=2 Rm=255 Rs=255 shift=0/0 imm=00000000 read=0040 write=0004 branch=FFFFFFFF back=0 jit=supported
-[PS2][HOTBLOCK] +01 pc=02116250 op=E2121502 ANDS.AL r1,r2,#0x800000                    cond=E S=1 flagsR=0 flagsW=1 Rn=2 Rd=1 Rm=2 Rs=255 shift=0/0 imm=00800000 read=0004 write=0002 branch=FFFFFFFF back=0 jit=supported
-[PS2][HOTBLOCK] +02 pc=02116254 op=0A000003 B.EQ 0x02116268                            cond=0 S=0 flagsR=1 flagsW=0 Rn=255 Rd=255 Rm=255 Rs=255 shift=0/0 imm=00000000 read=0000 write=0000 branch=02116268 back=0 jit=supported
-[PS2][JIT] hotblock pc=02116254 support=1/1 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] hotblock pc=0210E14C support=1/1 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] hotblock pc=0210E178 support=3/3 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] shadow attempts=6 success=6 rejected=0 lookupHit=0 miss=6 guest=16 supported=16 coverage=100.00% avgBlock=2.67 largest=6 hostWords=0 cache=31064 invalidations=11 fallback=0
-[PS2][JIT] exits: opcode=0 condition=0 flags=0 shift=0 memory=0 branch=0 pc=0 system=0 other=0
-[PS2][JIT] unsupported-detail: longMul=0 signedLoad=0
-[PS2][JIT] active attempts=596132 exec=831281 guest=5802547 cycles=7920976 chain=311657 storeChain=129965 pipeReuse=76025 codeInv=0 compileMiss=954 budgetFallback=71166 writeFallback=0 verifyFallback=5102 stateFallback=240
-[PS2][JIT] ARM9-Thumb active attempts=0 exec=0 guest=0 cycles=0 differentialPass=0
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=0 pc=02116264 reason=budget sample64=91
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=1 pc=02116260 reason=budget sample64=69
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=2 pc=02113F18 reason=budget sample64=41
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=3 pc=02116260 reason=budget sample64=27
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=4 pc=0210F83C reason=budget sample64=18
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=5 pc=02116264 reason=budget sample64=18
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=6 pc=0210F490 reason=budget sample64=10
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=7 pc=0211625C reason=budget sample64=9
-[PS2][PROF] ARM7 instr=1077521 ARM=1032440 THUMB=45081 | ARM dp=580165 mem=244670 multi=72185 branch=135420 sys=0 | THUMB alu=23833 mem=2925 stack=8259 multi=0 branch=10064
-[PS2][PROF] ARM7 hotPC(sample/64): 03800EA4:E351000F:44 00002DDC:E92D5800:39 03800EBC:03A00000:33 03800EC4:10800301:32 03800EB0:E0800001:31 03800EB4:E5D01008:30
-[PS2][PROF] ARM7 hot#0 pc=03800EA4 op=E351000F next=C3A00000 mode=ARM kind=data samples=44 cpsr=8000001F r1=00000003 r0=0380863C r15=03800EAC mem=FFFFFFFF branch=FFFFFFFF nextEvent=265
-[PS2][PROF] ARM7 hot#1 pc=00002DDC op=E92D5800 next=E15EC0B2 mode=ARM kind=multi samples=39 cpsr=80000093 r13=03808064 r5=000002F7 r0=00000000 mem=03808064 branch=FFFFFFFF nextEvent=723
-[PS2][PROF] ARM7 hot#2 pc=03800EBC op=03A00000 next=159F0004 mode=ARM kind=data samples=33 cpsr=8000001F r0=03808660 r0=03808660 r0=03808660 mem=FFFFFFFF branch=FFFFFFFF nextEvent=23
-[PS2][PROF] ARM7 hot#3 pc=03800EC4 op=10800301 next=E12FFF1E mode=ARM kind=data samples=32 cpsr=6000001F r0=00000000 r0=00000000 r1=000000FF mem=FFFFFFFF branch=FFFFFFFF nextEvent=295
-[PS2][PROF] ARM7 hot#4 pc=03800EB0 op=E0800001 next=E5D01008 mode=ARM kind=data samples=31 cpsr=8000001F r0=03808660 r0=03808660 r1=00000002 mem=FFFFFFFF branch=FFFFFFFF nextEvent=281
-[PS2][PROF] ARM7 hot#5 pc=03800EB4 op=E5D01008 next=E35100FF mode=ARM kind=memory samples=30 cpsr=8000001F r0=03808667 r1=00000007 r8=00000001 mem=0380866F branch=FFFFFFFF nextEvent=819
-[PS2][PROF] memory ARM9 sampled/64: read=93976 direct=80870 fallback=13106 write=4219 direct=3604 fallback=615 pageHit=82190 | MMIO=13106/615 VRAM=383/300 palette=0/0 TCM=0/0 unaligned=0/0 crossPage=0/0
-[PS2][PROF] memory ARM9 MMIO timing/64: readSamples=13107 avgUs=1.93 totalSampleMs=25.33 writeSamples=630 avgUs=2.46 totalSampleMs=1.55
-[PS2][PROF] memory ARM9 MMIO#0 address=040001A4 samples=6595 read=6552 write=52
-[PS2][PROF] memory ARM9 MMIO#1 address=04100010 samples=6471 read=6476 write=0
-[PS2][PROF] memory ARM9 MMIO#2 address=040001A8 samples=176 read=0 write=183
-[PS2][PROF] memory ARM9 MMIO#3 address=040001AC samples=175 read=0 write=178
-[PS2][PROF] memory ARM9 MMIO#4 address=040001A0 samples=31 read=0 write=43
-[PS2][PROF] memory ARM9 MMIO#5 address=04000298 samples=15 read=1 write=14
-[PS2][PROF] memory ARM9 MMIO#6 address=04000294 samples=1 read=1 write=1
-[PS2][PROF] memory ARM9 MMIO#7 address=0400101C samples=1 read=0 write=1
-[PS2][PROF] memory ARM7 sampled/64: read=26875 direct=26635 fallback=240 write=2701 direct=2580 fallback=121 pageHit=27473 | MMIO=240/121 VRAM=0/0 palette=0/0 TCM=0/0 unaligned=0/0 crossPage=0/0
-[PS2][PROF] memory ARM7 MMIO timing/64: readSamples=255 avgUs=1.67 totalSampleMs=0.43 writeSamples=123 avgUs=1.91 totalSampleMs=0.23
-[PS2][PROF] memory ARM7 MMIO#0 address=04000208 samples=85 read=51 write=36
-[PS2][PROF] memory ARM7 MMIO#1 address=04000214 samples=30 read=33 write=7
-[PS2][PROF] memory ARM7 MMIO#2 address=04000104 samples=24 read=0 write=27
-[PS2][PROF] memory ARM7 MMIO#3 address=04000210 samples=13 read=25 write=15
-[PS2][PROF] memory ARM7 MMIO#4 address=04000300 samples=1 read=0 write=2
-[PS2][ARM7JIT] active attempts=127270 exec=126471 guest=493991 cycles=870935 chain=0 storeChain=0 pipeReuse=0 codeInv=0 compileMiss=510 budgetFallback=692 verifyFallback=107 stateFallback=0
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=0 pc=037FF150 reason=compile sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=1 pc=037FFC28 reason=budget sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=2 pc=03801E34 reason=budget sample64=1
-[PS2][SUMMARY] fps=2.91 coreMs=330.45 coreExIoMs=330.21 romIoMs=0.24 arm9Instr=9855470 arm7Instr=1569793 gpu2dAMs=32.43 gpu2dBMs=30.14 gpu3dMs=26.47 spuMs=7.37 schedulerMs=4.131 getFrameMs=4.84 gsUploadMs=0.11 presentMs=8.65 hotPc=02116258 hotOpcode=E5951000 dynarecCoveragePct=100.00 dynarecActiveGuest=5802547 arm7JitCoveragePct=31.47 arm7JitGuest=493991 arm7JitGuestPerExec=3.91
-[PS2][SLOW] rank=1 frame=1413 coreMs=1005.97 arm9Instr=459392 arm7Instr=34186 arm9JitGuest=196585 arm7JitGuest=0 tasks=1101 gpu2dA=192 gpu2dB=192 render3d=0 arm9Pc=02116250 arm7Pc=000011C0 dispA=40816018 dispB=C0816010 bldA=06C2 bldB=04C2 disp3d=0009 polygons=1
-[PS2][SLOW] rank=2 frame=1414 coreMs=913.43 arm9Instr=459421 arm7Instr=25901 arm9JitGuest=209554 arm7JitGuest=0 tasks=1098 gpu2dA=192 gpu2dB=192 render3d=0 arm9Pc=0211624C arm7Pc=000011C0 dispA=40816018 dispB=C0816010 bldA=06C2 bldB=04C2 disp3d=0009 polygons=1
-[PS2][SLOW] rank=3 frame=1412 coreMs=901.97 arm9Instr=430993 arm7Instr=26225 arm9JitGuest=195178 arm7JitGuest=0 tasks=1097 gpu2dA=192 gpu2dB=192 render3d=0 arm9Pc=0211626C arm7Pc=000011C0 dispA=40816018 dispB=C0816010 bldA=06C2 bldB=04C2 disp3d=0009 polygons=1
-[PS2][JIT] selective hot filter add count=3 pcs=02116258,0211624C,0210E178,00000000,00000000,00000000
-[PS2] M5 stream CT16: frame=1440 top(hash=FACCDBF1 white=384/49152) bottom(hash=16A4445F white=0/49152) cycles=806673600
-[PS2] interpreter benchmark: 1499 frames in 274.882 s = 5.45 NDS fps
-[PS2][PROF] 60-frame window: 16.321s = 3.68 fps | core=258.64ms/f getFrame=4.84ms/f uploadGS=0.11ms/f present=8.35ms/f known=271.94ms/f
-[PS2][PROF] scheduler: ARM9=2955188 ARM7=1091916 tasks=69978 schedules=69980 maxDepth=13 legacyEstimatedMoves=574068 cursorCompactions=1093 cursorMoves=8948 blockFilterHit=196822 blockExec=86793 blockDrop=766 blockBudgetSkip=105654 autoHot=809 thumbAutoHot=0 filterCollision=29 sampleCollision=15295
-[PS2][PROF] arm7-block: filterHit=125660 exec=90154 chained=29962 drop=21 budgetSkip=34882 autoHot=29 thumbAutoHot=0 filterCollision=8 sampleCollision=8841
-[PS2][PROF] scheduler-cost: est=4.424ms/f insert=2.374us(1127 samples) pop=1.388us(1093 samples) compact=2.157ms ties=71
-[PS2][PROF] task-count: core=0 gpuDraw=15780 gpuTiming=15780 gpu3d=3873 spu=32823 dma=0 timer=1015 irq=707 other=0
-[PS2][PROF] task-sample-us: core=0.00 gpuDraw=647.05 gpuTiming=8.73 gpu3d=6.12 spu=6.45 dma=0.00 timer=3.52 irq=3.12 other=0.00 (per-class 1/64 sampled)
-[PS2][PROF] gpu-phase count/avg-us: 2dA=11520/306.70 2dB=11520/367.15 capture=0/0.00 render3d=10416/182.22 vblank=60/1314.32
-[PS2][PROF] gpu2dA count/avg-us/est-ms: clear=11520/4.61/53.15 obj=11520/50.34/579.86 text=46080/43.79/2017.73
-[PS2][PROF] gpu2dA count/avg-us/est-ms: affine=0/0.00/0.00 extended=0/0.00/0.00 large=0/0.00/0.00
-[PS2][PROF] gpu2dA count/avg-us/est-ms: compose=11520/78.04/899.07 output=11520/1.38/15.87 bright=11520/1.39/16.04
-[PS2][PROF] gpu2dA text-detail: samples=716 calls=716 mode4=377 mode8=181 3d=158 windowed=69 tiles=18194 hFlip=13 vFlip=0
-[PS2][PROF] gpu2dA text-memory: tileHit=17636 tileMap=558 tileFallback=0 indexHit=16875 indexMap=1319 indexFallback=0 pixels=133776 transparent=27618 clipped=2704 palette=90624 writes=103454
-[PS2][PROF] gpu2dA obj-detail: samples=195 calls=195 objWindow=0 scanned=24960 disabled=0 outY=24913 visible=47 affine=0 bitmap=0 bpp8=0 bpp4=47
-[PS2][PROF] gpu2dA obj-memory: pageHit=2 pageMap=31 fallback=0 texels=263 clipped=113 objWinWrites=0 pixelWrites=28
-[PS2][PROF] gpu2dA compose-detail: samples=177 calls=177 noBlend=0 blended=177 windowed=14 pixels=45312 rgbConvert=30434 3d=14878 semi=0 3dAlpha=0 alpha=28716 brightUp=0 brightDown=0 winCheck=1618 winReject=0 writes=28716
-[PS2][PROF] gpu2dB count/avg-us/est-ms: clear=11520/31.27/360.24 obj=11520/83.48/961.69 text=46080/41.26/1901.48
-[PS2][PROF] gpu2dB count/avg-us/est-ms: affine=0/0.00/0.00 extended=0/0.00/0.00 large=0/0.00/0.00
-[PS2][PROF] gpu2dB count/avg-us/est-ms: compose=11520/94.38/1087.23 output=11520/1.34/15.48 bright=11520/1.43/16.46
-[PS2][PROF] gpu2dB text-detail: samples=727 calls=727 mode4=560 mode8=167 3d=0 windowed=727 tiles=23760 hFlip=106 vFlip=84
-[PS2][PROF] gpu2dB text-memory: tileHit=23033 tileMap=727 tileFallback=0 indexHit=21894 indexMap=1866 indexFallback=0 pixels=93221 transparent=553 clipped=2702 palette=89966 writes=89966
-[PS2][PROF] gpu2dB obj-detail: samples=202 calls=202 objWindow=202 scanned=25856 disabled=0 outY=25363 visible=493 affine=131 bitmap=0 bpp8=0 bpp4=493
-[PS2][PROF] gpu2dB obj-memory: pageHit=2393 pageMap=117 fallback=0 texels=13059 clipped=385 objWinWrites=7936 pixelWrites=4111
-[PS2][PROF] gpu2dB compose-detail: samples=174 calls=174 noBlend=0 blended=174 windowed=174 pixels=44544 rgbConvert=44544 3d=0 semi=0 3dAlpha=0 alpha=36971 brightUp=0 brightDown=0 winCheck=586 winReject=0 writes=36971
-[PS2][PROF] gpu3d-detail: frames=55 scanlines=10416 threadedFrames=0 polygonCalls=10528 solid=10528 trans=0 polygonSamples=155 sampledPixels=14720 linear=14720 perspective=0 depthTests=14720 depthFailBoth=0 shadow=0
-[PS2][PROF] gpu3d-pixel: texture=14720 fmt0=0 fmt1=0 fmt2=0 fmt3=14720 fmt4=0 fmt5=0 fmt6=0 fmt7=0 alphaReject=466 opaqueWrite=14254 transWrite=0 blend=0 finishSamples=186 fog=0 edge=275
-[PS2][PROF] gpu3d-phase-detail: scanSamples=151 clearAvgUs=9.89 polygonAvgUs=172.19 finishSamples=186 finishAvgUs=10.92
-[PS2][PROF] ROM window: hits=0 misses=0 hitRate=100.00% seeks=0 read=0KiB seqMiss=0 maxSeq=52 cache=2048KiB page=16KiB
-[PS2][PROF] ROM I/O: total=0.00ms (0.00ms/f) coreExIO=258.64ms/f reads=0 seeks=0 requested=0KiB got=0KiB maxRead=0.00ms maxSeek=0.00ms short=0
-[PS2][PROF] ROM latency hist: <1=0 1-5=0 5-10=0 10-50=0 50-100=0 100-250=0 >250=0 | size <=2K=0 <=16K=0 <=64K=0 <=256K=0 >256K=0
-[PS2][PROF] ARM9 instr=1701295 ARM=1701115 THUMB=180 | ARM dp=772742 mem=472776 multi=218053 branch=234828 sys=2716 | THUMB alu=120 mem=0 stack=0 multi=0 branch=60
-[PS2][PROF] ARM9 hotPC(sample/64): 0210F498:BAFFFFFB:1371 0210F490:B8B00004:1354 0210F48C:E151000C:1327 0210F494:B8A10004:932 02113F20:1AFFFFFC:478 02113F1C:E0122000:405
-[PS2][PROF] ARM9 hot#0 pc=0210F498 op=BAFFFFFB next=E12FFF1E mode=ARM kind=branch samples=1371 cpsr=80000092 r15=0210F4A0 r15=0210F4A0 r11=0000001F mem=FFFFFFFF branch=0210F48C nextEvent=624
-[PS2][PROF] ARM9 hot#1 pc=0210F490 op=B8B00004 next=B8A10004 mode=ARM kind=multi samples=1354 cpsr=80000092 r0=0217E2D4 r0=0217E2D4 r4=00000000 mem=0217E2D4 branch=FFFFFFFF nextEvent=646
-[PS2][PROF] ARM9 hot#2 pc=0210F48C op=E151000C next=B8B00004 mode=ARM kind=data samples=1327 cpsr=80000092 r1=0620D61C r0=0217F124 r12=0620D800 mem=FFFFFFFF branch=FFFFFFFF nextEvent=77
-[PS2][PROF] ARM9 hot#3 pc=0210F494 op=B8A10004 next=BAFFFFFB mode=ARM kind=multi samples=932 cpsr=80000092 r1=07000048 r0=021704F4 r4=027C0290 mem=07000048 branch=FFFFFFFF nextEvent=151
-[PS2][PROF] ARM9 hot#4 pc=02113F20 op=1AFFFFFC next=E12FFF1E mode=ARM kind=branch samples=478 cpsr=2000001F r15=02113F28 r15=02113F28 r12=00000006 mem=FFFFFFFF branch=02113F18 nextEvent=451
-[PS2][PROF] ARM9 hot#5 pc=02113F1C op=E0122000 next=1AFFFFFC mode=ARM kind=data samples=405 cpsr=2000001F r2=00000001 r2=00000001 r0=00000001 mem=FFFFFFFF branch=FFFFFFFF nextEvent=582
-[PS2][JIT] hotblock pc=0210F498 support=1/1 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] hotblock pc=0210F490 support=3/3 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] hotblock pc=0210F48C support=4/4 firstUnsupported=00000000:00000000 reason=supported
-[PS2][HOTBLOCK] cpu=ARM9 pc=0210F48C end=0210F49C sampledExec=1327 estExec=84928 guestInstr=4 guestCycles=4 branch=0210F48C backEdge=1 mem=0217E2D4 memClass=main-RAM dynarecSupported=4/4 halfDirect=R0/0,W0/0 wordDirect=R0/0,W0/0 read=1007 write=0007 nextEvent=77
-[PS2][HOTBLOCK] +00 pc=0210F48C op=E151000C CMP.AL r1,r12                              cond=E S=1 flagsR=0 flagsW=1 Rn=1 Rd=0 Rm=12 Rs=255 shift=0/0 imm=00000000 read=1002 write=0000 branch=FFFFFFFF back=0 jit=supported
-[PS2][HOTBLOCK] +01 pc=0210F490 op=B8B00004 LDMIA.LT r0!,{r2}                          cond=B S=0 flagsR=1 flagsW=0 Rn=0 Rd=255 Rm=255 Rs=255 shift=0/0 imm=00000000 read=0001 write=0005 branch=FFFFFFFF back=0 jit=supported
-[PS2][HOTBLOCK] +02 pc=0210F494 op=B8A10004 STMIA.LT r1!,{r2}                          cond=B S=0 flagsR=1 flagsW=0 Rn=1 Rd=255 Rm=255 Rs=255 shift=0/0 imm=00000000 read=0006 write=0002 branch=FFFFFFFF back=0 jit=supported
-[PS2][HOTBLOCK] +03 pc=0210F498 op=BAFFFFFB B.LT 0x0210F48C                            cond=B S=0 flagsR=1 flagsW=0 Rn=255 Rd=255 Rm=255 Rs=255 shift=0/0 imm=00000000 read=0000 write=0000 branch=0210F48C back=1 jit=supported
-[PS2][JIT] hotblock pc=0210F494 support=2/2 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] hotblock pc=02113F20 support=1/1 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] hotblock pc=02113F1C support=2/2 firstUnsupported=00000000:00000000 reason=supported
-[PS2][JIT] shadow attempts=6 success=6 rejected=0 lookupHit=5 miss=1 guest=13 supported=13 coverage=100.00% avgBlock=2.17 largest=4 hostWords=0 cache=44332 invalidations=15 fallback=0
-[PS2][JIT] exits: opcode=0 condition=0 flags=0 shift=0 memory=0 branch=0 pc=0 system=0 other=0
-[PS2][JIT] unsupported-detail: longMul=0 signedLoad=0
-[PS2][JIT] active attempts=104011 exec=208677 guest=1261429 cycles=1684984 chain=121884 storeChain=34223 pipeReuse=14493 codeInv=0 compileMiss=1375 budgetFallback=16221 writeFallback=0 verifyFallback=734 stateFallback=263
-[PS2][JIT] ARM9-Thumb active attempts=0 exec=0 guest=0 cycles=0 differentialPass=0
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=0 pc=02113F18 reason=budget sample64=122
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=1 pc=0210F490 reason=budget sample64=10
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=2 pc=0210F490 reason=budget sample64=6
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=3 pc=02017160 reason=budget sample64=2
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=4 pc=020175C4 reason=budget sample64=2
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=5 pc=0201715C reason=budget sample64=2
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=6 pc=02025850 reason=compile sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM9 rank=7 pc=02020EFC reason=budget sample64=1
-[PS2][PROF] ARM7 instr=742693 ARM=724890 THUMB=17803 | ARM dp=393106 mem=193514 multi=45434 branch=92836 sys=0 | THUMB alu=10599 mem=1158 stack=2993 multi=0 branch=3053
-[PS2][PROF] ARM7 hotPC(sample/64): 037FDBA4:E2010080:21 037FCE94:E59F108C:20 037FCEAC:E59F207C:13 037FCE90:EB00033A:13 037FDBA8:E12FFF1E:13 037FB36C:E0112013:12
-[PS2][PROF] ARM7 hot#0 pc=037FDBA4 op=E2010080 next=E12FFF1E mode=ARM kind=data samples=21 cpsr=60000092 r1=60000092 r0=00000080 r0=00000080 mem=FFFFFFFF branch=FFFFFFFF nextEvent=405
-[PS2][PROF] ARM7 hot#1 pc=037FCE94 op=E59F108C next=E1D110B0 mode=ARM kind=memory samples=20 cpsr=20000092 r15=037FCE9C r1=20000092 r12=00000000 mem=037FCF28 branch=FFFFFFFF nextEvent=175
-[PS2][PROF] ARM7 hot#2 pc=037FCEAC op=E59F207C next=E3E01000 mode=ARM kind=memory samples=13 cpsr=20000092 r15=037FCEB4 r2=00000AA8 r12=000000C7 mem=037FCF30 branch=FFFFFFFF nextEvent=121
-[PS2][PROF] ARM7 hot#3 pc=037FCE90 op=EB00033A next=E59F108C mode=ARM kind=branch samples=13 cpsr=20000092 r0=00000019 r0=00000019 r10=00000000 mem=FFFFFFFF branch=037FDB80 nextEvent=671
-[PS2][PROF] ARM7 hot#4 pc=037FDBA8 op=E12FFF1E next=E10F0000 mode=ARM kind=branch-exchange samples=13 cpsr=60000092 r15=037FDBB0 r15=037FDBB0 r14=037FCF00 mem=FFFFFFFF branch=FFFFFFFF nextEvent=125
-[PS2][PROF] ARM7 hot#5 pc=037FB36C op=E0112013 next=02800001 mode=ARM kind=data samples=12 cpsr=40000092 r1=00040000 r2=00000000 r3=00000001 mem=FFFFFFFF branch=FFFFFFFF nextEvent=234
-[PS2][PROF] memory ARM9 sampled/64: read=43014 direct=42919 fallback=95 write=4244 direct=4025 fallback=219 pageHit=42774 | MMIO=95/219 VRAM=62/1035 palette=0/0 TCM=0/0 unaligned=0/0 crossPage=0/0
-[PS2][PROF] memory ARM9 MMIO timing/64: readSamples=87 avgUs=1.66 totalSampleMs=0.14 writeSamples=205 avgUs=2.69 totalSampleMs=0.55
-[PS2][PROF] memory ARM9 MMIO#0 address=0400048C samples=8 read=0 write=17
-[PS2][PROF] memory ARM9 MMIO#1 address=04000214 samples=3 read=2 write=1
-[PS2][PROF] memory ARM9 MMIO#2 address=04000448 samples=1 read=0 write=1
-[PS2][PROF] memory ARM9 MMIO#3 address=040002B8 samples=1 read=0 write=5
-[PS2][PROF] memory ARM9 MMIO#4 address=0400045C samples=1 read=0 write=1
-[PS2][PROF] memory ARM7 sampled/64: read=18554 direct=18338 fallback=216 write=2109 direct=1977 fallback=132 pageHit=19093 | MMIO=216/132 VRAM=0/0 palette=0/0 TCM=0/0 unaligned=0/0 crossPage=0/0
-[PS2][PROF] memory ARM7 MMIO timing/64: readSamples=222 avgUs=1.68 totalSampleMs=0.37 writeSamples=131 avgUs=1.85 totalSampleMs=0.24
-[PS2][PROF] memory ARM7 MMIO#0 address=04000208 samples=104 read=58 write=50
-[PS2][PROF] memory ARM7 MMIO#1 address=04000210 samples=27 read=21 write=16
-[PS2][PROF] memory ARM7 MMIO#2 address=04000214 samples=24 read=27 write=10
-[PS2][PROF] memory ARM7 MMIO#3 address=04000104 samples=22 read=0 write=34
-[PS2][PROF] memory ARM7 MMIO#4 address=040004E0 samples=1 read=1 write=0
-[PS2][ARM7JIT] active attempts=91133 exec=90154 guest=355311 cycles=617468 chain=0 storeChain=0 pipeReuse=0 codeInv=0 compileMiss=1612 budgetFallback=958 verifyFallback=21 stateFallback=0
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=0 pc=037FF858 reason=compile sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=1 pc=037FED5C reason=compile sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=2 pc=037FFE78 reason=compile sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=3 pc=037FEC0C reason=compile sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=4 pc=03800C38 reason=compile sample64=1
-[PS2][JIT-FALLBACK] cpu=ARM7 rank=5 pc=037FB370 reason=budget sample64=1
-[PS2][SUMMARY] fps=3.68 coreMs=258.64 coreExIoMs=258.64 romIoMs=0.00 arm9Instr=2955188 arm7Instr=1091916 gpu2dAMs=58.89 gpu2dBMs=70.49 gpu3dMs=31.63 spuMs=3.53 schedulerMs=4.424 getFrameMs=4.84 gsUploadMs=0.11 presentMs=8.35 hotPc=0210F498 hotOpcode=BAFFFFFB dynarecCoveragePct=100.00 dynarecActiveGuest=1261429 arm7JitCoveragePct=32.54 arm7JitGuest=355311 arm7JitGuestPerExec=3.94
-[PS2][SLOW] rank=1 frame=1494 coreMs=293.06 arm9Instr=49938 arm7Instr=21459 arm9JitGuest=23433 arm7JitGuest=8139 tasks=1174 gpu2dA=192 gpu2dB=192 render3d=192 arm9Pc=FFFF07F0 arm7Pc=037FFAD0 dispA=40811F18 dispB=C0819F10 bldA=0844 bldB=0844 disp3d=0019 polygons=4
-[PS2][SLOW] rank=2 frame=1486 coreMs=289.38 arm9Instr=49670 arm7Instr=16937 arm9JitGuest=23682 arm7JitGuest=6252 tasks=1187 gpu2dA=192 gpu2dB=192 render3d=192 arm9Pc=FFFF07F0 arm7Pc=000011C0 dispA=40811F18 dispB=C0819F10 bldA=0844 bldB=0844 disp3d=0019 polygons=4
-[PS2][SLOW] rank=3 frame=1478 coreMs=289.00 arm9Instr=49401 arm7Instr=16489 arm9JitGuest=17899 arm7JitGuest=4312 tasks=1171 gpu2dA=192 gpu2dB=192 render3d=192 arm9Pc=FFFF07F0 arm7Pc=000011C0 dispA=40811F18 dispB=C0819F10 bldA=0844 bldB=0844 disp3d=0019 polygons=4
-[PS2][JIT] selective hot filter add count=2 pcs=0210F490,0210F48C,00000000,00000000,00000000,00000000
-[PS2] M5 stream CT16: frame=1500 top(hash=E17C31F3 white=2723/49152) bottom(hash=6C35338F white=3897/49152) cycles=840285000
-[PS2] ROM cache: hits=7302 misses=265 bytes=2097152
-[  307.6894] (AAudioMod) Requesting pause...
-[  356.6290] Processing 0x0 surface change
-[  356.6361] Changing to surfaceless and pausing
-[  356.6459] (VMManager) Pausing...
-[  356.7196] Add 353 seconds play time to 5ab6e814 -> now 353
-[  356.9403] (AAudioMod) Closing stream...
-[  356.9405] (AAudioMod) Stopping stream...
-[  356.9412] AAudioStream_requestStop failed: -895
+[PS2][JIT-FALLBACK] cpu=ARM7 rank=5 pc=03801E30 reason=budget sample64=1
+[PS2][JIT-FALLBACK] cpu=ARM7 rank=6 pc=00002C62 reason=budget sample64=1
+[PS2][JIT-FALLBACK] cpu=ARM7 rank=7 pc=037FEC8C reason=budget sample64=1
+[PS2][SUMMARY] fps=4.28 coreMs=218.94 coreExIoMs=218.94 romIoMs=0.00 arm9Instr=1354689 arm7Instr=1868241 gpu2dAMs=45.68 gpu2dBMs=37.28 gpu3dMs=51.79 spuMs=11.72 schedulerMs=4.327 getFrameMs=4.84 gsUploadMs=0.11 presentMs=9.59 hotPc=0210F48C hotOpcode=E151000C dynarecCoveragePct=100.00 dynarecActiveGuest=417852 arm7JitCoveragePct=41.66 arm7JitGuest=778338 arm7JitGuestPerExec=3.93
+[PS2][SLOW] rank=1 frame=1317 coreMs=225.93 arm9Instr=22630 arm7Instr=38655 arm9JitGuest=8953 arm7JitGuest=17263 tasks=1139 gpu2dA=192 gpu2dB=192 render3d=192 arm9Pc=FFFF07F0 arm7Pc=037FEC54 dispA=40811718 dispB=C0811510 bldA=0642 bldB=0442 disp3d=0009 polygons=1
+[PS2][SLOW] rank=2 frame=1298 coreMs=224.22 arm9Instr=22426 arm7Instr=38060 arm9JitGuest=8552 arm7JitGuest=17206 tasks=1138 gpu2dA=192 gpu2dB=192 render3d=192 arm9Pc=FFFF07F0 arm7Pc=000011C0 dispA=40811718 dispB=C0811510 bldA=0642 bldB=0442 disp3d=0009 polygons=1
+[PS2][SLOW] rank=3 frame=1274 coreMs=224.15 arm9Instr=22426 arm7Instr=37257 arm9JitGuest=8668 arm7JitGuest=16782 tasks=1138 gpu2dA=192 gpu2dB=192 render3d=192 arm9Pc=FFFF07F0 arm7Pc=000011C0 dispA=40811718 dispB=C0811510 bldA=0642 bldB=0442 disp3d=0009 polygons=1
+[PS2][JIT] selective hot filter add count=2 pcs=0210F48C,02113F18,00000000,00000000,00000000,00000000
+[PS2] M5 stream CT16: frame=1320 top(hash=E5C70554 white=5609/49152) bottom(hash=61A9192D white=1676/49152) cycles=739450800
+[  233.3460] Processing 0x0 surface change
+[  233.3654] Changing to surfaceless and pausing
+[  233.3698] (VMManager) Pausing...
+[  233.3729] (AAudioMod) Requesting pause...
+[  233.4032] Add 230 seconds play time to 5ab6e814 -> now 583
+[  233.6447] (AAudioMod) Closing stream...
+[  233.6449] (AAudioMod) Stopping stream...
+[  233.6454] AAudioStream_requestStop failed: -895
