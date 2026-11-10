@@ -3,6 +3,7 @@
 #include "arm_alu.h"
 #include "dynarec_r5900.h"
 #include "r5900_emitter.h"
+#include "r5900_alu_flags.h"
 #include "thumb_alu.h"
 
 #include <algorithm>
@@ -2111,28 +2112,10 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
                 code[words++] = R5900::or_(R5900::R_A1,
                     R5900::R_A1, R5900::R_T3);
 
-                // Overflow is the OR of the two exact 32-bit additions:
-                // (T0+T1), then (+carry).
-                code[words++] = R5900::xor_(R5900::R_T3,
-                    R5900::R_T0, R5900::R_T1);
-                code[words++] = R5900::nor_(R5900::R_T3,
-                    R5900::R_T3, R5900::R_ZERO);
-                code[words++] = R5900::xor_(R5900::R_T4,
-                    R5900::R_T0, R5900::R_T6);
-                code[words++] = R5900::and_(R5900::R_T3,
-                    R5900::R_T3, R5900::R_T4);
-                code[words++] = R5900::xor_(R5900::R_T4,
-                    R5900::R_T6, R5900::R_T9);
-                code[words++] = R5900::nor_(R5900::R_T4,
-                    R5900::R_T4, R5900::R_ZERO);
-                code[words++] = R5900::xor_(R5900::R_T5,
-                    R5900::R_T6, R5900::R_T2);
-                code[words++] = R5900::and_(R5900::R_T4,
-                    R5900::R_T4, R5900::R_T5);
-                code[words++] = R5900::or_(R5900::R_V0,
-                    R5900::R_T3, R5900::R_T4);
-                code[words++] = R5900::srl(R5900::R_V0,
-                    R5900::R_V0, 31);
+                // The final result includes carry-in. Intermediate signed
+                // overflows can cancel, so use the original operands and the
+                // final result, matching the interpreter.
+                words += emitArmCarryOverflow(code + words, false, false);
             }
             break;
         }
@@ -2166,23 +2149,10 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
                 code[words++] = R5900::and_(R5900::R_A1,
                     R5900::R_A1, R5900::R_T3);
 
-                // Overflow across the two exact subtractions.
-                code[words++] = R5900::xor_(R5900::R_T3,
-                    leftReg, rightReg);
-                code[words++] = R5900::xor_(R5900::R_T4,
-                    leftReg, R5900::R_T6);
-                code[words++] = R5900::and_(R5900::R_T3,
-                    R5900::R_T3, R5900::R_T4);
-                code[words++] = R5900::xor_(R5900::R_T4,
-                    R5900::R_T6, R5900::R_T9);
-                code[words++] = R5900::xor_(R5900::R_T5,
-                    R5900::R_T6, R5900::R_T2);
-                code[words++] = R5900::and_(R5900::R_T4,
-                    R5900::R_T4, R5900::R_T5);
-                code[words++] = R5900::or_(R5900::R_V0,
-                    R5900::R_T3, R5900::R_T4);
-                code[words++] = R5900::srl(R5900::R_V0,
-                    R5900::R_V0, 31);
+                // Use the original operands and final result; overflow in
+                // the first subtraction can be undone by the borrow input.
+                words += emitArmCarryOverflow(code + words, true,
+                    decoded.operation == 7);
             }
             break;
         }
@@ -6690,6 +6660,12 @@ bool DynarecR5900::runArmAluSelfTest()
               0x00000013u }, // SBCS: signed overflow
             { 0xE0F02001u, 0x80000000u, 0x00000000u,
               0x00000013u }, // RSCS reversed subtraction
+            { 0xE0B02001u, 0x80000000u, 0xFFFFFFFFu,
+              0x20000013u }, // ADCS intermediate overflow cancels
+            { 0xE0D02001u, 0x00000000u, 0x80000000u,
+              0x00000013u }, // SBCS intermediate overflow cancels
+            { 0xE0F02001u, 0x00000000u, 0x80000000u,
+              0x00000013u }, // RSCS borrow produces overflow
             { 0xE0A02001u, 0xFFFFFFFFu, 0x00000000u,
               0x20000013u }, // ADC S=0 preserves flags
             { 0x00B02001u, 0x12345678u, 0x9ABCDEF0u,
@@ -6726,7 +6702,18 @@ bool DynarecR5900::runArmAluSelfTest()
             if (actual.r[2] != expected.r[2] ||
                 actual.cpsr != expected.cpsr ||
                 actual.cycles != expected.cycles)
+            {
+                std::printf("[PS2][JIT-SELFTEST] ALU opcode=%08lX "
+                    "result=%08lX/%08lX cpsr=%08lX/%08lX cycles=%lu/%lu\n",
+                    static_cast<unsigned long>(cases[i].opcode),
+                    static_cast<unsigned long>(actual.r[2]),
+                    static_cast<unsigned long>(expected.r[2]),
+                    static_cast<unsigned long>(actual.cpsr),
+                    static_cast<unsigned long>(expected.cpsr),
+                    static_cast<unsigned long>(actual.cycles),
+                    static_cast<unsigned long>(expected.cycles));
                 return false;
+            }
         }
     }
 

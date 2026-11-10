@@ -1367,10 +1367,10 @@ int main(int argc, char **argv)
     PS2_LOG(" Instrumentation: disabled\n");
 #endif
 #ifdef NOODS_PROFILE
-    PS2_LOG(" Dynarec: ARM-ALU-v55 psr-helper-abi (profile L%d)\n",
+    PS2_LOG(" Dynarec: ARM-ALU-v56 carry-overflow (profile L%d)\n",
         NOODS_PROFILE_LEVEL);
 #else
-    PS2_LOG(" Dynarec: ARM-ALU-v55 psr-helper-abi\n");
+    PS2_LOG(" Dynarec: ARM-ALU-v56 carry-overflow\n");
 #endif
     PS2_LOG("============================================================\n");
 
