@@ -72,6 +72,7 @@ struct Gpu2DTextDetailCounters
     uint64_t threeD = 0;
     uint64_t windowed = 0;
     uint64_t tiles = 0;
+    uint64_t culledTiles = 0;
     uint64_t hFlipTiles = 0;
     uint64_t vFlipTiles = 0;
     uint64_t tilePageHits = 0;
@@ -96,6 +97,7 @@ struct Gpu2DObjDetailCounters
     uint64_t spritesDisabled = 0;
     uint64_t spritesOutsideY = 0;
     uint64_t spritesVisible = 0;
+    uint64_t culledSprites = 0;
     uint64_t affineSprites = 0;
     uint64_t bitmapSprites = 0;
     uint64_t bpp8Sprites = 0;
@@ -218,6 +220,11 @@ class Gpu2D
         uint8_t windowMask[256] = {};
         uint8_t windowAllMask = 0x3F;
         bool windowMaskReady = false;
+        bool textFrontToBack = false;
+        bool textFirstBackground = false;
+        uint16_t textCoveredPixels = 0;
+
+        bool bgAbove(int bg, int x, int layer, int8_t priority) const;
 
         int internalX[2] = {};
         int internalY[2] = {};
@@ -292,6 +299,8 @@ class Gpu2D
         void drawObjPixelNoWindow(int x, uint32_t pixel,
             int8_t priority);
 
+        template<bool Ordered>
+        void drawTextOrdered(int bg, int line, int mosaicLine);
         void drawText(int bg, int line, int mosaicLine);
         void drawAffine(int bg, int line);
         void drawExtended(int bg, int line);

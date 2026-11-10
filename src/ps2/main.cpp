@@ -1126,7 +1126,7 @@ void logGpu2DProfile(const char *label, const Gpu2DRunProfile &profile)
     if (profile.textDetailSamples)
     {
         const Gpu2DTextDetailCounters &d = profile.textDetail;
-        PS2_LOG("[PS2][PROF] %s text-detail: samples=%llu calls=%llu mode4=%llu mode8=%llu 3d=%llu windowed=%llu tiles=%llu hFlip=%llu vFlip=%llu\n",
+        PS2_LOG("[PS2][PROF] %s text-detail: samples=%llu calls=%llu mode4=%llu mode8=%llu 3d=%llu windowed=%llu tiles=%llu culled=%llu hFlip=%llu vFlip=%llu\n",
             label,
             static_cast<unsigned long long>(profile.textDetailSamples),
             static_cast<unsigned long long>(d.calls),
@@ -1135,6 +1135,7 @@ void logGpu2DProfile(const char *label, const Gpu2DRunProfile &profile)
             static_cast<unsigned long long>(d.threeD),
             static_cast<unsigned long long>(d.windowed),
             static_cast<unsigned long long>(d.tiles),
+            static_cast<unsigned long long>(d.culledTiles),
             static_cast<unsigned long long>(d.hFlipTiles),
             static_cast<unsigned long long>(d.vFlipTiles));
         PS2_LOG("[PS2][PROF] %s text-memory: tileHit=%llu tileMap=%llu tileFallback=%llu indexHit=%llu indexMap=%llu indexFallback=%llu pixels=%llu transparent=%llu clipped=%llu palette=%llu rejected=%llu writes=%llu\n",
@@ -1156,7 +1157,7 @@ void logGpu2DProfile(const char *label, const Gpu2DRunProfile &profile)
     if (profile.objDetailSamples)
     {
         const Gpu2DObjDetailCounters &d = profile.objDetail;
-        PS2_LOG("[PS2][PROF] %s obj-detail: samples=%llu calls=%llu objWindow=%llu scanned=%llu disabled=%llu outY=%llu visible=%llu affine=%llu bitmap=%llu bpp8=%llu bpp4=%llu\n",
+        PS2_LOG("[PS2][PROF] %s obj-detail: samples=%llu calls=%llu objWindow=%llu scanned=%llu disabled=%llu outY=%llu visible=%llu culled=%llu affine=%llu bitmap=%llu bpp8=%llu bpp4=%llu\n",
             label,
             static_cast<unsigned long long>(profile.objDetailSamples),
             static_cast<unsigned long long>(d.calls),
@@ -1165,6 +1166,7 @@ void logGpu2DProfile(const char *label, const Gpu2DRunProfile &profile)
             static_cast<unsigned long long>(d.spritesDisabled),
             static_cast<unsigned long long>(d.spritesOutsideY),
             static_cast<unsigned long long>(d.spritesVisible),
+            static_cast<unsigned long long>(d.culledSprites),
             static_cast<unsigned long long>(d.affineSprites),
             static_cast<unsigned long long>(d.bitmapSprites),
             static_cast<unsigned long long>(d.bpp8Sprites),
@@ -1373,6 +1375,7 @@ int main(int argc, char **argv)
 #else
     PS2_LOG(" Dynarec: ARM-ALU-v56 carry-overflow\n");
 #endif
+    PS2_LOG(" Renderer: 2D priority culling / 3D perspective Z stepping\n");
     PS2_LOG("============================================================\n");
 
     if (argc > 0 && argv[0] && argv[0][0])

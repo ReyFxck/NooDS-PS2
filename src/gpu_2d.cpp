@@ -138,6 +138,8 @@ uint32_t Gpu2D::rgb5ToRgb6(uint32_t color)
 
 void Gpu2D::drawGbaScanline(int line)
 {
+    textFrontToBack = false;
+    textCoveredPixels = 0;
     windowMaskReady = false;
     windowAllMask = 0x3F;
     const int bgMosaicSize = ((mosaic >> 4) & 0xFu) + 1;
@@ -291,6 +293,8 @@ void Gpu2D::drawGbaScanline(int line)
 
 void Gpu2D::drawScanline(int line)
 {
+    textFrontToBack = false;
+    textCoveredPixels = 0;
     windowMaskReady = false;
     windowAllMask = 0x3F;
     // Reload the internal registers at the start of the frame
@@ -337,11 +341,42 @@ void Gpu2D::drawScanline(int line)
     switch (dispCnt & 0x7)
     {
         case 0:
-            if (dispCnt & BIT(11)) drawText(3, line, bgMosaicLine);
-            if (dispCnt & BIT(10)) drawText(2, line, bgMosaicLine);
-            if (dispCnt & BIT(9))  drawText(1, line, bgMosaicLine);
-            if (dispCnt & BIT(8))  drawText(0, line, bgMosaicLine);
+        {
+            // Mode 0 contains only text backgrounds (including 3D BG0).
+            // Visit the strongest layers first so an opaque tile can hide
+            // later tile fetch/decode work. Resolve equal priorities by BG ID
+            // explicitly instead of relying on the old 3,2,1,0 draw order.
+            uint8_t order[4];
+            int count = 0;
+            for (int bg = 0; bg < 4; bg++)
+            {
+                if (!(dispCnt & BIT(8 + bg))) continue;
+                int at = count++;
+                while (at && (bgCnt[order[at - 1]] & 3) > (bgCnt[bg] & 3))
+                {
+                    order[at] = order[at - 1];
+                    at--;
+                }
+                order[at] = bg;
+            }
+            // Sorting pays when there are more BGs than observable slots.
+            // Keep the original compact path when neither layer can be hidden.
+            textFrontToBack = count > (bldCnt != 0 ? 2 : 1);
+            if (textFrontToBack)
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    textFirstBackground = i == 0;
+                    drawText(order[i], line, bgMosaicLine);
+                }
+            }
+            else
+            {
+                for (int bg = 3; bg >= 0; bg--)
+                    if (dispCnt & BIT(8 + bg)) drawText(bg, line, bgMosaicLine);
+            }
             break;
+        }
 
         case 1:
             if (dispCnt & BIT(11)) drawAffine(3, line);
@@ -747,11 +782,27 @@ FORCE_INLINE void Gpu2D::buildWindowMask(int line)
 // otherwise emits calls from the inner loops, repeatedly computing the layer
 // addresses and spilling caller registers. Keep the priority/window/blend
 // decisions in the caller so its loop can reuse those addresses and values.
+FORCE_INLINE bool Gpu2D::bgAbove(int bg, int x, int layer,
+    int8_t priority) const
+{
+    // Preserve the original priority contract: lower priority wins; equal
+    // priority BGs use the lower BG ID, and BGs replace an equal-priority OBJ.
+    // Other modes and GBA retain their existing back-to-front insertion order.
+    return textFrontToBack
+        ? (priority < priorities[layer][x] ||
+            (priority == priorities[layer][x] && bg <= blendBits[layer][x]))
+        : priority <= priorities[layer][x];
+}
+
 FORCE_INLINE void Gpu2D::drawBgPixelNoWindow(int bg, int x,
     uint32_t pixel, int8_t priority)
 {
-    if (priority <= priorities[0][x])
+    if (bgAbove(bg, x, 0, priority))
     {
+        if (textFrontToBack &&
+            (bldCnt != 0 ? (blendBits[1][x] >= 4 && blendBits[0][x] < 4)
+                         : blendBits[0][x] >= 4))
+            textCoveredPixels++;
         // With blending disabled only the top visible layer can affect the
         // final framebuffer. Avoid maintaining the second layer for every BG
         // pixel; it is cleared again before any later scanline can use it.
@@ -766,8 +817,9 @@ FORCE_INLINE void Gpu2D::drawBgPixelNoWindow(int bg, int x,
         priorities[0][x] = priority;
         blendBits[0][x] = bg;
     }
-    else if (bldCnt != 0 && priority <= priorities[1][x])
+    else if (bldCnt != 0 && bgAbove(bg, x, 1, priority))
     {
+        if (textFrontToBack && blendBits[1][x] >= 4) textCoveredPixels++;
         layers[1][x] = pixel;
         priorities[1][x] = priority;
         blendBits[1][x] = bg;
@@ -783,32 +835,7 @@ FORCE_INLINE void Gpu2D::drawBgPixel(int bg, int line, int x, uint32_t pixel)
         !(windowMask[x] & BIT(bg)))
         return;
 
-    // Draw the pixel to one of 2 layers, depending on priority, for later
-    // blending. If BLDCNT is zero the lower layer is unobservable, so skip
-    // those stores while keeping identical top-layer priority semantics.
-    const int8_t priority = bgCnt[bg] & 0x3;
-    if (priority <= priorities[0][x]) // Higher than topmost
-    {
-        if (bldCnt != 0)
-        {
-            // Move the topmost pixel to the second topmost
-            layers[1][x] = layers[0][x];
-            priorities[1][x] = priorities[0][x];
-            blendBits[1][x] = blendBits[0][x];
-        }
-
-        // Update the topmost pixel
-        layers[0][x] = pixel;
-        priorities[0][x] = priority;
-        blendBits[0][x] = bg;
-    }
-    else if (bldCnt != 0 && priority <= priorities[1][x])
-    {
-        // Update the second topmost
-        layers[1][x] = pixel;
-        priorities[1][x] = priority;
-        blendBits[1][x] = bg;
-    }
+    drawBgPixelNoWindow(bg, x, pixel, bgCnt[bg] & 3);
 }
 
 FORCE_INLINE void Gpu2D::drawObjPixelNoWindow(int x,
@@ -851,6 +878,15 @@ void Gpu2D::drawObjPixel(int line, int x, uint32_t pixel, int8_t priority)
 
 void Gpu2D::drawText(int bg, int line, int mosaicLine)
 {
+    if (textFrontToBack)
+        drawTextOrdered<true>(bg, line, mosaicLine);
+    else
+        drawTextOrdered<false>(bg, line, mosaicLine);
+}
+
+template<bool Ordered>
+void Gpu2D::drawTextOrdered(int bg, int line, int mosaicLine)
+{
 #ifdef NOODS_PROFILE
     ProfileScope profile(this, GPU2D_PROFILE_TEXT);
 #endif
@@ -864,6 +900,16 @@ void Gpu2D::drawText(int bg, int line, int mosaicLine)
         textDetail->calls++;
     }
 #endif
+
+    // Every previously drawn BG precedes this one in the stable priority
+    // order. Once the last observable layer is covered by BG pixels across
+    // the full line, later BGs cannot contribute, including at equal priority.
+    // OBJ/backdrop pixels do not count: a later BG may still outrank them.
+    if (Ordered && textCoveredPixels == 256)
+    {
+        GPU2D_DETAIL_INC(textDetail, culledTiles, 32 + ((bgHOfs[bg] & 7) != 0));
+        return;
+    }
 
     // If 3D is enabled, override BG0 in text mode. The normal text path
     // already bypasses per-pixel window checks when no windows are active;
@@ -933,19 +979,82 @@ void Gpu2D::drawText(int bg, int line, int mosaicLine)
         noWindows || (windowAllMask & BIT(bg));
     GPU2D_DETAIL_INC(textDetail, windowed, noWindows ? 0 : 1);
     const int8_t bgPriority = bgCnt[bg] & 0x3;
-    // Resolve visibility and priority before reading the palette. The text
-    // renderer often draws several opaque backgrounds, and pixels behind both
-    // compositing layers cannot contribute to the scanline.
+    const int fineX = bgHOfs[bg] & 7;
+    const int tileCount = 32 + (fineX != 0);
+    int8_t destination[256];
+    bool visibleTiles[33] = {};
+    const bool simpleTop = Ordered && textFirstBackground &&
+        !(dispCnt & BIT(12)) && layerUnmasked;
+    if (simpleTop)
+        memset(visibleTiles, 1, sizeof(visibleTiles));
+    else if (Ordered)
+    {
+        // A BG visits each destination pixel at most once, so determine its
+        // insertion layer once, before touching the tile map or VRAM. Index 0
+        // remains transparent and leaves that destination available to later
+        // BGs. The lower layer is still required for every nonzero BLDCNT,
+        // including semi-transparent OBJ and special 3D alpha composition.
+        for (int x = 0; x < 256; x++)
+        {
+            int target = -1;
+            if (layerUnmasked || (windowMask[x] & BIT(bg)))
+            {
+                if (bgAbove(bg, x, 0, bgPriority)) target = 0;
+                else if (bldCnt != 0 && bgAbove(bg, x, 1, bgPriority)) target = 1;
+            }
+            destination[x] = target;
+            if (target >= 0) visibleTiles[(x + fineX) >> 3] = true;
+        }
+    }
+
     auto putTextPixel = [&](int x, const uint8_t *pal, uint8_t index)
     {
         GPU2D_DETAIL_INC(textDetail, writes, 1);
-        if (!layerUnmasked && !(windowMask[x] & BIT(bg)))
+        if (!Ordered)
+        {
+            // Keep the original insertion path for single-BG, GBA and mixed
+            // modes. Specialization removes all coverage/destination logic.
+            if (!layerUnmasked && !(windowMask[x] & BIT(bg)))
+            {
+                GPU2D_DETAIL_INC(textDetail, rejected, 1);
+                return;
+            }
+            if (bgPriority <= priorities[0][x])
+            {
+                if (bldCnt != 0)
+                {
+                    layers[1][x] = layers[0][x];
+                    priorities[1][x] = priorities[0][x];
+                    blendBits[1][x] = blendBits[0][x];
+                }
+                GPU2D_DETAIL_INC(textDetail, paletteReads, 1);
+                layers[0][x] = gpu2dLoad16(pal, index * 2) | BIT(15);
+                priorities[0][x] = bgPriority;
+                blendBits[0][x] = bg;
+            }
+            else if (bldCnt != 0 && bgPriority <= priorities[1][x])
+            {
+                GPU2D_DETAIL_INC(textDetail, paletteReads, 1);
+                layers[1][x] = gpu2dLoad16(pal, index * 2) | BIT(15);
+                priorities[1][x] = bgPriority;
+                blendBits[1][x] = bg;
+            }
+            else
+                GPU2D_DETAIL_INC(textDetail, rejected, 1);
+            return;
+        }
+        const int target = simpleTop ? 0 : destination[x];
+        if (target < 0)
         {
             GPU2D_DETAIL_INC(textDetail, rejected, 1);
             return;
         }
-        if (bgPriority <= priorities[0][x])
+        if (target == 0)
         {
+            if (Ordered &&
+                (bldCnt != 0 ? (blendBits[1][x] >= 4 && blendBits[0][x] < 4)
+                             : blendBits[0][x] >= 4))
+                textCoveredPixels++;
             if (bldCnt != 0)
             {
                 layers[1][x] = layers[0][x];
@@ -957,15 +1066,14 @@ void Gpu2D::drawText(int bg, int line, int mosaicLine)
             priorities[0][x] = bgPriority;
             blendBits[0][x] = bg;
         }
-        else if (bldCnt != 0 && bgPriority <= priorities[1][x])
+        else
         {
+            if (Ordered && blendBits[1][x] >= 4) textCoveredPixels++;
             GPU2D_DETAIL_INC(textDetail, paletteReads, 1);
             layers[1][x] = gpu2dLoad16(pal, index * 2) | BIT(15);
             priorities[1][x] = bgPriority;
             blendBits[1][x] = bg;
         }
-        else
-            GPU2D_DETAIL_INC(textDetail, rejected, 1);
     };
     Gpu2DDirectPageCache tilePageCache;
     Gpu2DDirectPageCache indexPageCache;
@@ -974,8 +1082,6 @@ void Gpu2D::drawText(int bg, int line, int mosaicLine)
     // tiles when aligned and fetch the 33rd only when a partial tile is
     // actually visible. Advance tile-map X directly instead of rebuilding the
     // wrapped pixel coordinate for every tile.
-    const int fineX = bgHOfs[bg] & 7;
-    const int tileCount = 32 + (fineX != 0);
     const int firstTileX = (bgHOfs[bg] >> 3) & 0x3F;
     const bool wide = (bgCnt[bg] & BIT(14)) != 0;
 
@@ -997,6 +1103,11 @@ void Gpu2D::drawText(int bg, int line, int mosaicLine)
         for (int tileIndex = 0; tileIndex < tileCount; tileIndex++)
         {
             GPU2D_DETAIL_INC(textDetail, tiles, 1);
+            if (Ordered && !visibleTiles[tileIndex])
+            {
+                GPU2D_DETAIL_INC(textDetail, culledTiles, 1);
+                continue;
+            }
             const int i = tileIndex << 3;
             const int tileX = (firstTileX + tileIndex) & 0x3F;
             uint32_t tileAddr = tileBase + ((tileX & 0x1F) << 1);
@@ -1115,6 +1226,11 @@ void Gpu2D::drawText(int bg, int line, int mosaicLine)
         for (int tileIndex = 0; tileIndex < tileCount; tileIndex++)
         {
             GPU2D_DETAIL_INC(textDetail, tiles, 1);
+            if (Ordered && !visibleTiles[tileIndex])
+            {
+                GPU2D_DETAIL_INC(textDetail, culledTiles, 1);
+                continue;
+            }
             const int i = tileIndex << 3;
             const int tileX = (firstTileX + tileIndex) & 0x3F;
             uint32_t tileAddr = tileBase + ((tileX & 0x1F) << 1);
@@ -1836,6 +1952,8 @@ void Gpu2D::drawObjects(int line, bool window)
     uint8_t normalOrder[128];
     uint8_t windowCount = 0;
     uint8_t normalCount = 0;
+    uint8_t priorityOrder[4][128];
+    uint8_t priorityCount[4] = {};
     for (int i = 0; i < 128; i++)
     {
         GPU2D_DETAIL_INC(objDetail, spritesScanned, 1);
@@ -1856,9 +1974,24 @@ void Gpu2D::drawObjects(int line, bool window)
         }
         else
         {
-            normalOrder[normalCount++] = static_cast<uint8_t>(i);
+            if (gba)
+                normalOrder[normalCount++] = static_cast<uint8_t>(i);
+            else
+            {
+                const unsigned priority = (oam[i * 8 + 5] >> 2) & 3;
+                priorityOrder[priority][priorityCount[priority]++] = i;
+            }
         }
     }
+
+    // DS OBJ keeps only one visible sprite per pixel. Stable priority buckets
+    // make covering sprites available first, while equal priorities retain
+    // lower OAM index precedence. GBA keeps its transparent-priority quirk and
+    // original traversal. Object-window sprites always remain the first pass.
+    if (!gba)
+        for (int priority = 0; priority < 4; priority++)
+            for (int i = 0; i < priorityCount[priority]; i++)
+                normalOrder[normalCount++] = priorityOrder[priority][i];
 
     const int orderedCount =
         static_cast<int>(windowCount) + static_cast<int>(normalCount);
@@ -1942,6 +2075,33 @@ void Gpu2D::drawObjects(int line, bool window)
 
         // Objects are higher priority than background layers, so the priority is given a little boost
         int8_t priority = ((object[2] >> 10) & 0x3) - 1;
+
+        if (!gba && type != 2)
+        {
+            // A covered sprite cannot contribute to any later BG/blend
+            // operation: the OBJ pass retains only the winning OBJ. Reject
+            // before affine setup, texture fetches or palette reads. Bounds
+            // include affine double-size; transparent holes in earlier
+            // sprites stay uncovered and keep this fallback live.
+            const int left = std::max(0, x);
+            const int right = std::min(256, x + width2);
+            bool visible = false;
+            for (int px = left; px < right; px++)
+            {
+                if (!noWindows && windowMaskReady && !(windowMask[px] & BIT(4)))
+                    continue;
+                if (!(layers[0][px] & BIT(15)) || priority < priorities[0][px])
+                {
+                    visible = true;
+                    break;
+                }
+            }
+            if (!visible)
+            {
+                GPU2D_DETAIL_INC(objDetail, culledSprites, 1);
+                continue;
+            }
+        }
 
         // Draw bitmap objects
         if (!gba && type == 3)
