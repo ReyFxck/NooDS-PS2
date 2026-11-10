@@ -743,7 +743,11 @@ FORCE_INLINE void Gpu2D::buildWindowMask(int line)
     windowMaskReady = true;
 }
 
-void Gpu2D::drawBgPixelNoWindow(int bg, int x,
+// These helpers run for every opaque BG texel. At -O2 the R5900 compiler
+// otherwise emits calls from the inner loops, repeatedly computing the layer
+// addresses and spilling caller registers. Keep the priority/window/blend
+// decisions in the caller so its loop can reuse those addresses and values.
+FORCE_INLINE void Gpu2D::drawBgPixelNoWindow(int bg, int x,
     uint32_t pixel, int8_t priority)
 {
     if (priority <= priorities[0][x])
@@ -770,7 +774,7 @@ void Gpu2D::drawBgPixelNoWindow(int bg, int x,
     }
 }
 
-void Gpu2D::drawBgPixel(int bg, int line, int x, uint32_t pixel)
+FORCE_INLINE void Gpu2D::drawBgPixel(int bg, int line, int x, uint32_t pixel)
 {
     (void)line;
     // Skip the pixel if it's in the bounds of a window that has its layer disabled
