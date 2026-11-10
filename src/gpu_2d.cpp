@@ -277,6 +277,7 @@ void Gpu2D::drawGbaScanline(int line)
             }
         }
         }
+
     }
 
     {
@@ -404,19 +405,20 @@ void Gpu2D::drawScanline(int line)
             composeDetail->calls++;
         }
 #endif
-        // With blending disabled and normal layer output selected, conversion
-        // can go straight to the framebuffer. This avoids writing converted
-        // pixels back to layers[0] only to memcpy them immediately afterwards.
+        // Engine A's composed scanline is also the source for display capture,
+        // even when the display is off or shows VRAM. Compose it before master
+        // brightness and preserve it in layers[0] for Gpu::scanline256().
         if (bldCnt == 0)
         {
             GPU2D_DETAIL_INC(composeDetail, noBlendCalls, 1);
-            if (displayMode == 1)
+            if (displayMode == 1 || !engine)
             {
-                directLayerOutput = true;
+                directLayerOutput = displayMode == 1;
                 const uint64_t threeDMask =
                     static_cast<uint64_t>(BIT(26)) |
                     (static_cast<uint64_t>(BIT(26)) << 32);
-                uint32_t *output = &framebuffer[line * 256];
+                uint32_t *output = directLayerOutput
+                    ? &framebuffer[line * 256] : layers[0];
 
                 GPU2D_DETAIL_INC(composeDetail, pixels, 256);
                 GPU2D_DETAIL_INC(composeDetail, directWrites, 256);
@@ -456,14 +458,12 @@ void Gpu2D::drawScanline(int line)
                 }
             }
         }
-        else if (displayMode == 1)
+        else if (displayMode == 1 || !engine)
         {
             GPU2D_DETAIL_INC(composeDetail, blendedCalls, 1);
-            // Compose directly into the final scanline. The old path rewrote
-            // layers[0] and then memcpy'd all 256 pixels to framebuffer even
-            // though no later stage consumes the composed layer buffer.
-            directLayerOutput = true;
-            uint32_t *output = &framebuffer[line * 256];
+            directLayerOutput = displayMode == 1;
+            uint32_t *output = directLayerOutput
+                ? &framebuffer[line * 256] : layers[0];
             const uint8_t mode = (bldCnt >> 6) & 0x3;
             const bool noWindows = (dispCnt & 0x0000E000u) == 0;
             const bool effectsUnmasked =
@@ -596,6 +596,10 @@ void Gpu2D::drawScanline(int line)
                 output[i] = pixel;
             }
         }
+
+        if (!engine && directLayerOutput)
+            std::memcpy(layers[0], &framebuffer[line * 256],
+                256 * sizeof(uint32_t));
     }
 
     {
@@ -1024,6 +1028,10 @@ void Gpu2D::drawText(int bg, int line, int mosaicLine)
                     (static_cast<uint64_t>(core->memory.read<uint32_t>(gba, indexAddr + 4)) << 32);
             }
 
+            // A zero row is entirely transparent regardless of flip/scroll.
+            if (!indices)
+                continue;
+
             // Draw the current line of the tile, flipped horizontally if enabled
             const int xStep = (tile & BIT(10)) ? -1 : 1;
             const int firstX = i - fineX + ((tile & BIT(10)) ? 7 : 0);
@@ -1134,6 +1142,10 @@ void Gpu2D::drawText(int bg, int line, int mosaicLine)
                 GPU2D_DETAIL_INC(textDetail, indexFallbackReads, 1);
                 indices = core->memory.read<uint32_t>(gba, indexAddr);
             }
+
+            // A zero row is entirely transparent regardless of flip/scroll.
+            if (!indices)
+                continue;
 
             // Draw the current line of the tile, flipped horizontally if enabled
             const int xStep = (tile & BIT(10)) ? -1 : 1;

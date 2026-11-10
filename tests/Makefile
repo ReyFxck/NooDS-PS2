@@ -1,7 +1,7 @@
 CXX ?= g++
 
 TARGETS := cartridge_io_test arm_alu_test scheduler_queue_test gpu_2d_math_test \
-	gpu_3d_math_test thumb_alu_math_test thumb_dynarec_test gpu_color_test memory_page_cache_test r5900_carry_flags_test
+	gpu_3d_math_test thumb_alu_math_test thumb_dynarec_test gpu_color_test memory_page_cache_test r5900_carry_flags_test gpu_2d_capture_test
 
 CXXFLAGS := -O2 -Wall -Wextra -std=gnu++11 -fno-rtti \
 	-DNOODS_PS2 -DNOODS_PS2_PORTABLE_TEST -DNOODS_PROFILE -ffunction-sections -fdata-sections -I../src
@@ -22,6 +22,9 @@ r5900_carry_flags_test: r5900_carry_flags_test.cpp ../src/ps2/arm_alu.cpp
 
 scheduler_queue_test: scheduler_queue_test.cpp
 	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -o $@
+
+gpu_2d_capture_test: gpu_2d_capture_test.cpp $(wildcard ../src/*.cpp)
+	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -pthread -o $@
 
 gpu_2d_math_test: gpu_2d_math_test.cpp
 	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -o $@
@@ -47,6 +50,7 @@ test: $(TARGETS)
 	./r5900_carry_flags_test
 	./scheduler_queue_test
 	./gpu_2d_math_test
+	./gpu_2d_capture_test
 	./gpu_3d_math_test
 	./thumb_alu_math_test
 	./thumb_dynarec_test
