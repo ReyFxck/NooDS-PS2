@@ -1024,16 +1024,30 @@ void Gpu2D::drawText(int bg, int line, int mosaicLine)
 
             // Draw the current line of the tile, flipped horizontally if enabled
             const int xStep = (tile & BIT(10)) ? -1 : 1;
-            for (int x = i - fineX + ((tile & BIT(10)) ? 7 : 0);
-                indices != 0; x += xStep, indices >>= 8)
+            const int firstX = i - fineX + ((tile & BIT(10)) ? 7 : 0);
+            int begin, end;
+            gpu2dVisibleTextTile(firstX, xStep, begin, end);
+            if (begin >= end)
+                continue;
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+            if (textDetail)
+            {
+                uint64_t skipped = indices;
+                for (int j = 0; j < begin && skipped; j++, skipped >>= 8)
+                {
+                    textDetail->pixelsVisited++;
+                    textDetail->clipped++;
+                }
+            }
+#endif
+            indices >>= begin * 8;
+            int x = firstX + begin * xStep;
+            for (int j = begin; j < end && indices;
+                j++, x += xStep, indices >>= 8)
             {
                 GPU2D_DETAIL_INC(textDetail, pixelsVisited, 1);
                 const uint8_t index = indices & 0xFF;
-                if (x < 0 || x >= 256)
-                {
-                    GPU2D_DETAIL_INC(textDetail, clipped, 1);
-                }
-                else if (!index)
+                if (!index)
                 {
                     GPU2D_DETAIL_INC(textDetail, transparent, 1);
                 }
@@ -1044,6 +1058,16 @@ void Gpu2D::drawText(int bg, int line, int mosaicLine)
                     putBgPixel(x, gpu2dLoad16(pal, index * 2) | BIT(15));
                 }
             }
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+            if (textDetail)
+            {
+                for (int j = end; j < 8 && indices; j++, indices >>= 8)
+                {
+                    textDetail->pixelsVisited++;
+                    textDetail->clipped++;
+                }
+            }
+#endif
         }
     }
     else // 4-bit
@@ -1111,16 +1135,30 @@ void Gpu2D::drawText(int bg, int line, int mosaicLine)
 
             // Draw the current line of the tile, flipped horizontally if enabled
             const int xStep = (tile & BIT(10)) ? -1 : 1;
-            for (int x = i - fineX + ((tile & BIT(10)) ? 7 : 0);
-                indices != 0; x += xStep, indices >>= 4)
+            const int firstX = i - fineX + ((tile & BIT(10)) ? 7 : 0);
+            int begin, end;
+            gpu2dVisibleTextTile(firstX, xStep, begin, end);
+            if (begin >= end)
+                continue;
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+            if (textDetail)
+            {
+                uint32_t skipped = indices;
+                for (int j = 0; j < begin && skipped; j++, skipped >>= 4)
+                {
+                    textDetail->pixelsVisited++;
+                    textDetail->clipped++;
+                }
+            }
+#endif
+            indices >>= begin * 4;
+            int x = firstX + begin * xStep;
+            for (int j = begin; j < end && indices;
+                j++, x += xStep, indices >>= 4)
             {
                 GPU2D_DETAIL_INC(textDetail, pixelsVisited, 1);
                 const uint8_t index = indices & 0xF;
-                if (x < 0 || x >= 256)
-                {
-                    GPU2D_DETAIL_INC(textDetail, clipped, 1);
-                }
-                else if (!index)
+                if (!index)
                 {
                     GPU2D_DETAIL_INC(textDetail, transparent, 1);
                 }
@@ -1131,6 +1169,16 @@ void Gpu2D::drawText(int bg, int line, int mosaicLine)
                     putBgPixel(x, gpu2dLoad16(pal, index * 2) | BIT(15));
                 }
             }
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+            if (textDetail)
+            {
+                for (int j = end; j < 8 && indices; j++, indices >>= 4)
+                {
+                    textDetail->pixelsVisited++;
+                    textDetail->clipped++;
+                }
+            }
+#endif
         }
     }
 }

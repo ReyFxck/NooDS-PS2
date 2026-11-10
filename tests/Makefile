@@ -46,6 +46,7 @@ test: $(TARGETS)
 	./gpu_3d_math_test
 	./thumb_alu_math_test
 	./thumb_dynarec_test
+	./gpu_color_test
 	./memory_page_cache_test
 
 clean:

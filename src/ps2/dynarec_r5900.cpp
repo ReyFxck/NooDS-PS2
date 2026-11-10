@@ -6,6 +6,7 @@
 #include "thumb_alu.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 
 #ifdef NOODS_PROFILE
@@ -6139,6 +6140,25 @@ bool DynarecR5900::emitThumbSequence(const uint16_t *opcodes,
 
 bool DynarecR5900::runArmAluSelfTest()
 {
+    // A failed gate disables the entire ARM9 JIT. Name the failing group so
+    // an emulator log can distinguish an emitter regression from a missing
+    // memory mapping without weakening any of the safety checks.
+    const char *stage = "base ARM ALU";
+    unsigned int caseNumber = 0;
+    bool passed = false;
+    struct FailureReport
+    {
+        const char *&stage;
+        unsigned int &caseNumber;
+        bool &passed;
+        ~FailureReport()
+        {
+            if (!passed)
+                std::printf("[PS2][JIT-SELFTEST] failed stage=%s case=%u\n",
+                    stage, caseNumber);
+        }
+    } report = { stage, caseNumber, passed };
+
     struct Test
     {
         uint32_t opcode;
@@ -6183,6 +6203,7 @@ bool DynarecR5900::runArmAluSelfTest()
 
     for (size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); i++)
     {
+        caseNumber = static_cast<unsigned int>(i);
         uint32_t *entry = nullptr;
         uint8_t rd = 0;
         if (!emitArmAluBlock(tests[i].opcode, &entry, &rd) || rd != tests[i].rd)
@@ -6193,12 +6214,19 @@ bool DynarecR5900::runArmAluSelfTest()
         function(&state);
 
         if (state.r[rd] != tests[i].expected)
+        {
+            std::printf("[PS2][JIT-SELFTEST] opcode=%08lX r%u expected=%08lX actual=%08lX\n",
+                static_cast<unsigned long>(tests[i].opcode), static_cast<unsigned int>(rd),
+                static_cast<unsigned long>(tests[i].expected), static_cast<unsigned long>(state.r[rd]));
             return false;
+        }
     }
 
     // Deterministically gate the ARM register-shift timing too. This exact
     // form appears in real hot blocks (MOV Rd,Rm,LSL Rs) and must match the
     // interpreter's +1 cycle before such blocks can pass the differential gate.
+    stage = "ARM register shift timing";
+    caseNumber = 0;
     {
         const uint32_t opcode = 0xE1A02013u; // MOV r2,r3,LSL r0
         ArmAluState expected = {};
@@ -6222,6 +6250,8 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
+    stage = "Thumb register shift timing";
+    caseNumber = 0;
     // Thumb register shifts reuse the ARM data path but are one-cycle
     // operations on ARM7. Gate the cycle override in generated R5900 code,
     // not only in the portable decoder.
@@ -6235,13 +6265,23 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
         expected.cycles = 1u;
 
-        uint32_t *code = cache.reserveWords(96);
+        // This emitter form is used inside a Thumb block: CPSR is resident
+        // in v1 and the cycle delta in t8. Match the real block prologue and
+        // epilogue instead of calling its body with uninitialized host regs.
+        uint32_t *code = cache.reserveWords(104);
         if (!code)
             return false;
-        size_t words = emitArmAluInstruction(opcode, code,
+        size_t words = 0;
+        code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
+        code[words++] = R5900::or_(R5900::R_T8,
+            R5900::R_ZERO, R5900::R_ZERO);
+        size_t emitted = emitArmAluInstruction(opcode, code + words,
             true, true, -1, false, true);
-        if (!words)
+        if (!emitted)
             return false;
+        words += emitted;
+        code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
+        code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
         code[words++] = R5900::jr(R5900::R_RA);
         code[words++] = R5900::nop();
         cache.commitWords(words);
@@ -6259,9 +6299,20 @@ bool DynarecR5900::runArmAluSelfTest()
         if (actual.r[0] != expected.r[0] ||
             actual.cpsr != expected.cpsr ||
             actual.cycles != expected.cycles)
+        {
+            std::printf("[PS2][JIT-SELFTEST] Thumb shift r0=%08lX/%08lX cpsr=%08lX/%08lX cycles=%lu/%lu (actual/expected)\n",
+                static_cast<unsigned long>(actual.r[0]),
+                static_cast<unsigned long>(expected.r[0]),
+                static_cast<unsigned long>(actual.cpsr),
+                static_cast<unsigned long>(expected.cpsr),
+                static_cast<unsigned long>(actual.cycles),
+                static_cast<unsigned long>(expected.cycles));
             return false;
+        }
     }
 
+    stage = "Thumb ARM7 multiply timing";
+    caseNumber = 0;
     // Thumb MUL maps old Rd onto ARM Rs so ARM7's variable multiplier timing
     // is identical to Interpreter::mulDpT(). Exercise all four timing buckets.
     {
@@ -6273,6 +6324,7 @@ bool DynarecR5900::runArmAluSelfTest()
         for (size_t i = 0;
             i < sizeof(multipliers) / sizeof(multipliers[0]); i++)
         {
+            caseNumber = static_cast<unsigned int>(i);
             ArmAluState expected = {};
             expected.r[0] = multipliers[i];
             expected.r[1] = 3u;
@@ -6282,13 +6334,21 @@ bool DynarecR5900::runArmAluSelfTest()
                 expected.cycles != expectedCycles[i])
                 return false;
 
-            uint32_t *code = cache.reserveWords(96);
+            // Exercise the same resident CPSR/cycle ABI as a Thumb sequence.
+            uint32_t *code = cache.reserveWords(104);
             if (!code)
                 return false;
-            size_t words = emitArmMultiplyInstruction(opcode, code,
+            size_t words = 0;
+            code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
+            code[words++] = R5900::or_(R5900::R_T8,
+                R5900::R_ZERO, R5900::R_ZERO);
+            size_t emitted = emitArmMultiplyInstruction(opcode, code + words,
                 true, true, false, 1);
-            if (!words)
+            if (!emitted)
                 return false;
+            words += emitted;
+            code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
+            code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
             code[words++] = R5900::jr(R5900::R_RA);
             code[words++] = R5900::nop();
             cache.commitWords(words);
@@ -6307,10 +6367,22 @@ bool DynarecR5900::runArmAluSelfTest()
             if (actual.r[0] != expected.r[0] ||
                 actual.cpsr != expected.cpsr ||
                 actual.cycles != expected.cycles)
+            {
+                std::printf("[PS2][JIT-SELFTEST] Thumb MUL case=%lu r0=%08lX/%08lX cpsr=%08lX/%08lX cycles=%lu/%lu (actual/expected)\n",
+                    static_cast<unsigned long>(i),
+                    static_cast<unsigned long>(actual.r[0]),
+                    static_cast<unsigned long>(expected.r[0]),
+                    static_cast<unsigned long>(actual.cpsr),
+                    static_cast<unsigned long>(expected.cpsr),
+                    static_cast<unsigned long>(actual.cycles),
+                    static_cast<unsigned long>(expected.cycles));
                 return false;
+            }
         }
     }
 
+    stage = "Thumb ARM9 multiply and LDM";
+    caseNumber = 0;
     // Gate the first ARM9 Thumb timing differences in generated R5900
     // code. MULS is fixed at four cycles on ARM9, while a one-register LDMIA
     // costs two cycles even though the equivalent ARM LDM costs one.
@@ -6371,12 +6443,14 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
-    // Gate Thumb POP {r0,r2,pc} through generated R5900 code. This is
-    // read-only and uses whatever words are already present in direct ARM7 RAM,
-    // so the self-test leaves guest memory untouched.
+    stage = "Thumb ARM9 POP PC";
+    caseNumber = 0;
+    // This ARM9 dynarec must be checked against ARM9 POP semantics: an even
+    // target switches to ARM, whereas an odd target stays in Thumb. Use the
+    // existing mapped RAM contents without changing guest memory.
     {
         const uint32_t stackBase = 0x02000000u;
-        uint8_t *page = memory ? memory->getDirectReadPage(1, stackBase) :
+        uint8_t *page = memory ? memory->getDirectReadPage(0, stackBase) :
             nullptr;
         if (!page)
             return false;
@@ -6391,7 +6465,11 @@ bool DynarecR5900::runArmAluSelfTest()
         };
         const uint32_t expectedR0 = readWord(0);
         const uint32_t expectedR2 = readWord(4);
-        const uint32_t expectedPc = readWord(8);
+        const uint32_t loadedPc = readWord(8);
+        const uint32_t expectedPc = loadedPc &
+            ((loadedPc & 1u) ? ~1u : ~3u);
+        const uint32_t expectedCpsr = (loadedPc & 1u)
+            ? 0x00000032u : 0x00000012u;
 
         const uint16_t thumbOpcode = 0xBD05u; // POP {r0,r2,pc}
         uint32_t *entry = nullptr;
@@ -6407,7 +6485,7 @@ bool DynarecR5900::runArmAluSelfTest()
         state.cpsr = 0x00000032u; // Thumb, IRQ mode
         state.nextPc = 0x0F000002u;
         state.memory = memory;
-        state.cpuId = 1;
+        state.cpuId = 0;
         typedef void (*ThumbPopPcFunction)(ArmAluState *);
         ThumbPopPcFunction function =
             reinterpret_cast<ThumbPopPcFunction>(entry);
@@ -6418,11 +6496,29 @@ bool DynarecR5900::runArmAluSelfTest()
             state.r[2] != expectedR2 ||
             state.r[13] != stackBase + 12u ||
             state.nextPc != expectedPc ||
-            state.cpsr != 0x00000032u ||
+            state.cpsr != expectedCpsr ||
             state.cycles != 7u)
+        {
+            std::printf("[PS2][JIT-SELFTEST] POP PC fault=%u r0=%08lX/%08lX r2=%08lX/%08lX sp=%08lX/%08lX pc=%08lX/%08lX (loaded=%08lX) cpsr=%08lX/%08lX cycles=%lu/7 (actual/expected)\n",
+                state.memoryFault ? 1u : 0u,
+                static_cast<unsigned long>(state.r[0]),
+                static_cast<unsigned long>(expectedR0),
+                static_cast<unsigned long>(state.r[2]),
+                static_cast<unsigned long>(expectedR2),
+                static_cast<unsigned long>(state.r[13]),
+                static_cast<unsigned long>(stackBase + 12u),
+                static_cast<unsigned long>(state.nextPc),
+                static_cast<unsigned long>(expectedPc),
+                static_cast<unsigned long>(loadedPc),
+                static_cast<unsigned long>(state.cpsr),
+                static_cast<unsigned long>(expectedCpsr),
+                static_cast<unsigned long>(state.cycles));
             return false;
+        }
     }
 
+    stage = "conditional ARM register shift";
+    caseNumber = 0;
     // A failed ARM condition is resolved before operand2/register-shift
     // decoding in Interpreter::runOpcode(), so the extra shift cycle must not
     // be charged on the not-taken path.
@@ -6466,6 +6562,8 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
+    stage = "ARM PSR transfer";
+    caseNumber = 0;
     // Gate the hot ARM7 CPSR MRS/MSR pair in generated R5900 code.
     // Mode-changing MSR must fault out before commit; same-mode control writes
     // and MRS execute with the exact interpreter timing.
@@ -6503,6 +6601,7 @@ bool DynarecR5900::runArmAluSelfTest()
 
         for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
         {
+            caseNumber = static_cast<unsigned int>(i);
             uint32_t *code = cache.reserveWords(96);
             if (!code)
                 return false;
@@ -6532,6 +6631,8 @@ bool DynarecR5900::runArmAluSelfTest()
         }
     }
 
+    stage = "ARM ADC SBC RSC";
+    caseNumber = 0;
     // Gate ADC/SBC/RSC directly in emitted R5900 code. Include carry-in,
     // signed overflow, no-S CPSR preservation and a failed condition.
     {
@@ -6562,6 +6663,7 @@ bool DynarecR5900::runArmAluSelfTest()
 
         for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
         {
+            caseNumber = static_cast<unsigned int>(i);
             ArmAluState expected = {};
             expected.r[0] = cases[i].left;
             expected.r[1] = cases[i].right;
@@ -6677,6 +6779,8 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
+    stage = "ARM register shift carry";
+    caseNumber = 0;
     // Gate register-shift carry boundaries directly in generated R5900 code.
     struct RegShiftFlagTest
     {
@@ -6722,6 +6826,8 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
+    stage = "ARM short multiply";
+    caseNumber = 0;
     // Gate short ARM MUL/MLA directly in generated R5900 code. Expected
     // state and timing come from the portable implementation above.
     {
@@ -6768,6 +6874,8 @@ bool DynarecR5900::runArmAluSelfTest()
         }
     }
 
+    stage = "ARM7 multiply timing";
+    caseNumber = 0;
     // Gate ARM7 data-dependent MUL/MLA timing against known cycle counts,
     // not only against the portable helper. Include the exact negative
     // early-termination boundaries (-256, -65536 and -2^24).
@@ -6836,6 +6944,8 @@ bool DynarecR5900::runArmAluSelfTest()
         }
     }
 
+    stage = "ARM long multiply";
+    caseNumber = 0;
     // Gate ARM long multiplies directly in generated R5900 code. Cover
     // unsigned/signed, accumulate, S flags, failed condition and ARM7's
     // data-dependent m timing independently of live game code.
@@ -6915,6 +7025,8 @@ bool DynarecR5900::runArmAluSelfTest()
         }
     }
 
+    stage = "LDR ALU forwarding";
+    caseNumber = 0;
     // Gate writeback-load -> ALU forwarding with dead intermediate-store
     // elimination. The LDR result is deliberately not committed to state.r1;
     // ADD must consume the still-live t2 value while LDR also updates r0.
@@ -6964,6 +7076,7 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
+    stage = "MUL ALU forwarding";
     // Gate MUL -> ALU host-register forwarding and dead intermediate store
     // elimination. ADD consumes the multiply result directly from t2.
     {
@@ -7010,6 +7123,7 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
+    stage = "self-loop budget";
     // Gate the resident self-loop guest counter and scheduler budget.
     // MOV + B back to the block start costs 4 cycles per iteration, so a
     // 12-cycle budget must execute exactly three iterations (6 guest ops).
@@ -7054,6 +7168,7 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
+    stage = "CMP branch fusion";
     // Gate CMP -> B.CS/B.CC fusion with both taken and not-taken paths.
     // This is the pattern used by bounded copy/scan loops: CMP's T0/T1 remain
     // live after exact NZCV generation, so the fused branch may test borrow
@@ -7163,6 +7278,7 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
+    stage = "direct stores and rollback";
     // Gate direct STRB post-index with transactional rollback.
     const uint32_t byteAddress = 0x02000010u;
     uint8_t *bytePage = memory->getDirectWritePage(0, byteAddress);
@@ -7359,6 +7475,7 @@ bool DynarecR5900::runArmAluSelfTest()
     if (bytePage[postRorBase & 0xFFFu] != postRorBefore)
         return false;
 
+    stage = "literal load";
     // Gate LDR literal with an explicit guest PC+8 base.
     const uint32_t literalPc = 0x02000000u;
     uint8_t *literalPage = memory->getDirectReadPage(0, literalPc + 8u);
@@ -7584,6 +7701,7 @@ bool DynarecR5900::runArmAluSelfTest()
     if (arm7BlockStoreRestored != arm7BlockStoreBefore)
         return false;
 
+    stage = "inline multi-register transfer";
     // Gate the new 2-4 register inline block-transfer path independently of
     // the portable helper. LDMIA {r1,r2} checks ascending register order and
     // IA writeback; STMDB {r1-r4} checks DB address order, native ARM9/ARM7
@@ -7999,6 +8117,7 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
+    stage = "ARM BX and BLX";
     // Gate BX, including ARM<->THUMB state selection, through generated code.
     uint32_t *bxCode = cache.reserveWords(32);
     if (!bxCode)
@@ -8124,6 +8243,7 @@ bool DynarecR5900::runArmAluSelfTest()
         loadPage[3] != static_cast<uint8_t>(beforeStore >> 8))
         return false;
 
+    stage = "direct word transfer";
     // Gate ordinary 32-bit LDR/STR through the same direct-page helper ABI.
     uint32_t expectedWord = static_cast<uint32_t>(loadPage[0]) |
         (static_cast<uint32_t>(loadPage[1]) << 8) |
@@ -8535,6 +8655,7 @@ bool DynarecR5900::runArmAluSelfTest()
     if (arm7HalfRestored != arm7BeforeHalf)
         return false;
 
+    stage = "signed halfword load";
     // Gate signed extra loads with known negative values. The hot aligned path
     // must use EE LB/LH directly; ARM7 odd LDRSH deliberately faults out of the
     // JIT so the Interpreter keeps its special misaligned semantics.
@@ -8651,6 +8772,7 @@ bool DynarecR5900::runArmAluSelfTest()
         }
     }
 
+    stage = "ARM7 register-offset load";
     // Gate ARM7 register-offset loads. The decoder already excludes PC/RRX;
     // these cases verify shifted word addressing plus byte/halfword Rm forms
     // and their native 3-cycle load timing.
@@ -8773,6 +8895,7 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
+    stage = "ARM7 register-offset store";
     // Gate ARM7 register-offset stores with native timing and exact
     // transactional rollback. The word case also proves failed-condition
     // timing stays at one cycle.
@@ -9062,6 +9185,7 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
+    stage = "load writeback";
     // Gate pre-index load writeback. Word exercises cache hit, cache miss
     // (including t0 preservation across the refill helper) and a failed ARM
     // condition. Byte/halfword verify the same CPU1 timing and Rn update.
@@ -9460,6 +9584,7 @@ bool DynarecR5900::runArmAluSelfTest()
             return false;
     }
 
+    passed = true;
     return true;
 }
 

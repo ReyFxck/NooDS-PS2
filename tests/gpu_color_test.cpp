@@ -36,6 +36,18 @@ int main()
                 color, expected, actual);
             return 1;
         }
+
+        // GS CT16 stores the high five bits of each NDS channel, with
+        // opaque alpha; renderer metadata must not leak into the texture.
+        uint16_t ct16 = static_cast<uint16_t>(0x8000u |
+            (((color >> 1) & 0x1Fu) << 0) |
+            (((color >> 7) & 0x1Fu) << 5) |
+            (((color >> 13) & 0x1Fu) << 10));
+        if (gpuRgb6ToGsCt16(color | 0xFFFC0000u) != ct16)
+        {
+            std::fprintf(stderr, "RGB6 -> GS CT16 mismatch color=%05X\n", color);
+            return 1;
+        }
     }
 
     // Exhaust every possible RGB5 pixel used by the GBA path.
@@ -48,6 +60,12 @@ int main()
             std::fprintf(stderr,
                 "RGB5 mismatch color=%04X expected=%08X actual=%08X\n",
                 color, expected, actual);
+            return 1;
+        }
+        if (gpuRgb5ToGsCt16(color | 0xFFFF8000u) !=
+            (color | 0x8000u))
+        {
+            std::fprintf(stderr, "RGB5 -> GS CT16 mismatch color=%04X\n", color);
             return 1;
         }
     }

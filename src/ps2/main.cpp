@@ -1829,8 +1829,8 @@ int main(int argc, char **argv)
         // boot/logo frames as soon as the game produces them.
         constexpr size_t FRAME_PIXELS = 256 * 192 * 2;
         constexpr int MAX_BOOT_FRAMES = 1;
-        uint32_t *frame = static_cast<uint32_t*>(
-            memalign(128, FRAME_PIXELS * sizeof(uint32_t)));
+        uint16_t *frame = static_cast<uint16_t*>(
+            memalign(128, FRAME_PIXELS * sizeof(uint16_t)));
         if (!frame)
             throw std::bad_alloc();
 
@@ -1854,7 +1854,7 @@ int main(int argc, char **argv)
                 pollPadIntoNds(core);
             core->runFrame();
 
-            if (!core->gpu.getFrame(frame, false))
+            if (!core->gpu.getFrame16(frame))
             {
                 PS2_LOG("[PS2][ERROR] M4: frame %d executed but GPU had no completed framebuffer.\n", frameNo);
                 free(frame);
@@ -1864,13 +1864,13 @@ int main(int argc, char **argv)
 
             gotFrame = true;
 
-            uint32_t hash = 2166136261u; // FNV-1a over 32-bit pixels
+            uint32_t hash = 2166136261u; // FNV-1a over CT16 pixels
             uint32_t white = 0;
             for (size_t i = 0; i < FRAME_PIXELS; i++)
             {
                 hash ^= frame[i];
                 hash *= 16777619u;
-                if (frame[i] == 0xFFFFFFFFu)
+                if (frame[i] == 0xFFFFu)
                     white++;
             }
 
@@ -1880,7 +1880,7 @@ int main(int argc, char **argv)
 
             if (frameNo == 1 || (frameNo % 5) == 0 || white != FRAME_PIXELS)
             {
-                PS2_LOG("[PS2] M4: frame=%d hash=%08lX white=%lu/%u cycles=%lu\n",
+                PS2_LOG("[PS2] M4: frame=%d CT16 hash=%08lX white=%lu/%u cycles=%lu\n",
                     frameNo,
                     static_cast<unsigned long>(hash),
                     static_cast<unsigned long>(white),
@@ -1920,7 +1920,7 @@ int main(int argc, char **argv)
 
         if (nonWhiteFrame)
         {
-            PS2_LOG("[PS2][OK] M4: first non-white framebuffer at frame %d. hash=%08lX white=%lu/%u\n",
+            PS2_LOG("[PS2][OK] M4: first non-white CT16 framebuffer at frame %d. hash=%08lX white=%lu/%u\n",
                 selectedFrame,
                 static_cast<unsigned long>(selectedHash),
                 static_cast<unsigned long>(selectedWhite),
@@ -1932,9 +1932,8 @@ int main(int argc, char **argv)
                 MAX_BOOT_FRAMES, static_cast<unsigned long>(selectedHash));
         }
 
-        // M5: first real PS2 GS presentation path. Keep it intentionally
-        // simple: one framebuffer, no Z-buffer, two 256x192 CT32 textures.
-        // This proves the frontend path before attempting continuous emulation.
+        // CT16 matches the NDS's 5-bit channels closely, halves the GIF
+        // transfer, and avoids a 384 KiB intermediate RGB8888 frame.
         PS2_LOG("[PS2] M5: initializing GS and presenting selected frame %d (%s)...\n",
             selectedFrame, nonWhiteFrame ? "non-white" : "still all-white");
         fflush(stdout);
@@ -1973,17 +1972,16 @@ int main(int argc, char **argv)
         gsKit_set_test(gsGlobal, GS_ZTEST_OFF);
 
         // Both DS screens are contiguous in EE memory. Upload them as one
-        // 256x384 texture so gsKit only builds/waits for one GIF DMA transfer
-        // per NDS frame instead of two independent 256x192 transfers.
+        // 256x384 CT16 texture in a single GIF DMA transfer.
         GSTEXTURE stacked = {};
         stacked.Width = 256;
         stacked.Height = 384;
-        stacked.PSM = GS_PSM_CT32;
+        stacked.PSM = GS_PSM_CT16;
         stacked.Filter = GS_FILTER_NEAREST;
-        static_assert(sizeof(uint32_t) == sizeof(u32), "PS2 GS texture word must be 32-bit");
+        static_assert(sizeof(uint16_t) == 2, "PS2 GS CT16 texel must be 16-bit");
         stacked.Mem = reinterpret_cast<u32*>(&frame[0]);
 
-        const int textureBytes = gsKit_texture_size(256, 384, GS_PSM_CT32);
+        const int textureBytes = gsKit_texture_size(256, 384, GS_PSM_CT16);
         stacked.Vram = gsKit_vram_alloc(gsGlobal, textureBytes, GSKIT_ALLOC_USERBUFFER);
 
         if (stacked.Vram == GSKIT_ALLOC_ERROR)
@@ -2182,7 +2180,7 @@ int main(int argc, char **argv)
             profFrames++;
             profTick = clock();
 #endif
-            bool frameReady = core->gpu.getFrame(frame, false);
+            bool frameReady = core->gpu.getFrame16(frame);
 #ifdef NOODS_PROFILE
             profGetFrameTicks += clock() - profTick;
 #endif
@@ -2585,16 +2583,16 @@ int main(int argc, char **argv)
                 {
                     topHash ^= frame[i];
                     topHash *= 16777619u;
-                    if (frame[i] == 0xFFFFFFFFu)
+                    if (frame[i] == 0xFFFFu)
                         topWhite++;
 
                     bottomHash ^= frame[256 * 192 + i];
                     bottomHash *= 16777619u;
-                    if (frame[256 * 192 + i] == 0xFFFFFFFFu)
+                    if (frame[256 * 192 + i] == 0xFFFFu)
                         bottomWhite++;
                 }
 
-                PS2_LOG("[PS2] M5 stream: frame=%d top(hash=%08lX white=%lu/49152) bottom(hash=%08lX white=%lu/49152) cycles=%lu\n",
+                PS2_LOG("[PS2] M5 stream CT16: frame=%d top(hash=%08lX white=%lu/49152) bottom(hash=%08lX white=%lu/49152) cycles=%lu\n",
                     frameNo,
                     static_cast<unsigned long>(topHash),
                     static_cast<unsigned long>(topWhite),
