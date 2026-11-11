@@ -167,13 +167,13 @@ void Gpu2D::drawGbaScanline(int line)
         // consumed, so avoid clearing 240 pixels and metadata unnecessarily.
         uint16_t backdrop = gpu2dLoad16(palette, 0) & ~BIT(15);
         gpu2dFill32(layers[0], 240, backdrop);
-        memset(priorities[0], 4, 240 * sizeof(uint8_t));
-        memset(blendBits[0], 5, 240 * sizeof(uint8_t));
+        gpu2dFillBytes(priorities[0], 240 * sizeof(uint8_t), 4);
+        gpu2dFillBytes(blendBits[0], 240 * sizeof(uint8_t), 5);
         if (bldCnt != 0)
         {
             gpu2dFill32(layers[1], 240, backdrop);
-            memset(priorities[1], 4, 240 * sizeof(uint8_t));
-            memset(blendBits[1], 5, 240 * sizeof(uint8_t));
+            gpu2dFillBytes(priorities[1], 240 * sizeof(uint8_t), 4);
+            gpu2dFillBytes(blendBits[1], 240 * sizeof(uint8_t), 5);
         }
     }
 
@@ -322,13 +322,13 @@ void Gpu2D::drawScanline(int line)
         // pixel path below and halving this fixed scanline clear.
         uint16_t backdrop = gpu2dLoad16(palette, 0) & ~BIT(15);
         gpu2dFill32(layers[0], 256, backdrop);
-        memset(priorities[0], 4, 256 * sizeof(uint8_t));
-        memset(blendBits[0], 5, 256 * sizeof(uint8_t));
+        gpu2dFillBytes(priorities[0], 256 * sizeof(uint8_t), 4);
+        gpu2dFillBytes(blendBits[0], 256 * sizeof(uint8_t), 5);
         if (bldCnt != 0)
         {
             gpu2dFill32(layers[1], 256, backdrop);
-            memset(priorities[1], 4, 256 * sizeof(uint8_t));
-            memset(blendBits[1], 5, 256 * sizeof(uint8_t));
+            gpu2dFillBytes(priorities[1], 256 * sizeof(uint8_t), 4);
+            gpu2dFillBytes(blendBits[1], 256 * sizeof(uint8_t), 5);
         }
     }
 

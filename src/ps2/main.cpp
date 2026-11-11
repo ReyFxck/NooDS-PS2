@@ -1383,6 +1383,7 @@ int main(int argc, char **argv)
     PS2_LOG(" Renderer: 2D priority culling / 3D perspective Z stepping\n");
     PS2_LOG(" Cartridge: cached DMA triggers / direct ROM MMIO word reads\n");
     PS2_LOG(" Sprite selection: per-line OAM cache\n");
+    PS2_LOG(" 2D clear: aligned SDK memset\n");
     PS2_LOG("============================================================\n");
 
     if (argc > 0 && argv[0] && argv[0][0])
