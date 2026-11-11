@@ -1443,19 +1443,13 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
             layer = 1;
         }
 
-        // Interpolate the vertex color at the current pixel
-        uint32_t r = (linearFill ? linearR.current() :
-            fillValue(r1, r2)) >> 3;
-        uint32_t g = (linearFill ? linearG.current() :
-            fillValue(g1, g2)) >> 3;
-        uint32_t b = (linearFill ? linearB.current() :
-            fillValue(b1, b2)) >> 3;
-        uint32_t color = ((polygon->alpha ? polygon->alpha : 0x3F) << 18) | (b << 12) | (g << 6) | r;
-
-        // Blend the texture with the vertex color
+        uint32_t texel = 0;
+#ifdef NOODS_PS2
         if (polygon->textureFmt != 0)
         {
-            // Interpolate the texture coordinates at the current pixel
+            // Sample first: modulation and toon multiply texture alpha by
+            // polygon alpha. A zero result can never write color or depth.
+            // Decal/shadow retain polygon alpha and must not take this path.
             int s = static_cast<int>(linearFill ?
                 linearS.current() :
                 fillValue(static_cast<uint32_t>(s1 + 0xFFFF),
@@ -1464,11 +1458,45 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
                 linearT.current() :
                 fillValue(static_cast<uint32_t>(t1 + 0xFFFF),
                     static_cast<uint32_t>(t2 + 0xFFFF))) - 0xFFFF;
-
-            // Read a texel from the texture
-            uint32_t texel = readTexture(polygon, s >> 4, t >> 4, basePalette,
+            texel = readTexture(polygon, s >> 4, t >> 4, basePalette,
                 textureSizeShiftS, profileSampled);
 
+            if (!(texel & 0xFC0000u) &&
+                (polygon->mode == 0 || polygon->mode == 2))
+            {
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+                if (profileSampled)
+                    detailProfile.alphaRejects++;
+#endif
+                continue;
+            }
+        }
+
+#endif
+        // Interpolate the vertex color at the current pixel.
+        uint32_t r = (linearFill ? linearR.current() :
+            fillValue(r1, r2)) >> 3;
+        uint32_t g = (linearFill ? linearG.current() :
+            fillValue(g1, g2)) >> 3;
+        uint32_t b = (linearFill ? linearB.current() :
+            fillValue(b1, b2)) >> 3;
+        uint32_t color = ((polygon->alpha ? polygon->alpha : 0x3F) << 18) | (b << 12) | (g << 6) | r;
+
+        // Blend the texture with the vertex color.
+        if (polygon->textureFmt != 0)
+        {
+#ifndef NOODS_PS2
+            int s = static_cast<int>(linearFill ?
+                linearS.current() :
+                fillValue(static_cast<uint32_t>(s1 + 0xFFFF),
+                    static_cast<uint32_t>(s2 + 0xFFFF))) - 0xFFFF;
+            int t = static_cast<int>(linearFill ?
+                linearT.current() :
+                fillValue(static_cast<uint32_t>(t1 + 0xFFFF),
+                    static_cast<uint32_t>(t2 + 0xFFFF))) - 0xFFFF;
+            texel = readTexture(polygon, s >> 4, t >> 4, basePalette,
+                textureSizeShiftS, profileSampled);
+#endif
             // Apply texture blending
             // These formulas are a translation of the pseudocode from GBATEK to C++
             switch (polygon->mode)
