@@ -1088,6 +1088,11 @@ void logGpu2DProfile(const char *label, const Gpu2DRunProfile &profile)
         static_cast<unsigned long long>(profile.phaseCount[GPU2D_PROFILE_BRIGHTNESS]),
         averageUs(GPU2D_PROFILE_BRIGHTNESS), estimatedMs(GPU2D_PROFILE_BRIGHTNESS));
 
+    PS2_LOG("[PS2][PROF] %s obj-order-cache: hit=%llu miss=%llu invalidations=%llu\n",
+        label, static_cast<unsigned long long>(profile.objOrderHits),
+        static_cast<unsigned long long>(profile.objOrderMisses),
+        static_cast<unsigned long long>(profile.objOrderInvalidations));
+
 #if NOODS_PROFILE_LEVEL >= 2
     const char *modeNames[GPU2D_EXTENDED_MODE_COUNT] =
         { "direct", "indexed", "tiled" };
@@ -1377,6 +1382,7 @@ int main(int argc, char **argv)
 #endif
     PS2_LOG(" Renderer: 2D priority culling / 3D perspective Z stepping\n");
     PS2_LOG(" Cartridge: cached DMA triggers / direct ROM MMIO word reads\n");
+    PS2_LOG(" Sprite selection: per-line OAM cache\n");
     PS2_LOG("============================================================\n");
 
     if (argc > 0 && argv[0] && argv[0][0])

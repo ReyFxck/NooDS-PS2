@@ -22,6 +22,9 @@
 #include "gpu_2d.h"
 #include "gpu_2d_math.h"
 #include "core.h"
+#ifdef NOODS_PS2
+#include "settings.h"
+#endif
 
 #if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
 #define GPU2D_DETAIL_INC(ptr, field, amount) \
@@ -1948,51 +1951,122 @@ void Gpu2D::drawObjects(int line, bool window)
 
     // Classify OAM once. Object-window sprites must be rendered before
     // normal sprites because drawObjPixel() consults the completed mask.
-    uint8_t windowOrder[128];
-    uint8_t normalOrder[128];
+    uint8_t localWindowOrder[128];
+    uint8_t localNormalOrder[128];
+    uint8_t *windowOrder = localWindowOrder;
+    uint8_t *normalOrder = localNormalOrder;
     uint8_t windowCount = 0;
     uint8_t normalCount = 0;
     uint8_t priorityOrder[4][128];
     uint8_t priorityCount[4] = {};
-    for (int i = 0; i < 128; i++)
+#ifdef NOODS_PS2
+    const bool cacheable = !gba && !Settings::getThreaded2D() && line >= 0 && line < 192;
+    if (cacheable && (!objCacheEpoch || objCacheWindow != window ||
+        objCacheMosaic != objMosaicSize || std::memcmp(objOamSnapshot, oam, 1024) != 0))
     {
-        GPU2D_DETAIL_INC(objDetail, spritesScanned, 1);
-        const uint8_t byte = oam[i * 8 + 1];
-        const uint8_t type = (byte >> 2) & 0x3;
-        if ((byte & 0x3) == 2)
+        std::memcpy(objOamSnapshot, oam, 1024);
+#ifdef NOODS_PROFILE
+        if (profileEnabled) runProfile.objOrderInvalidations++;
+#endif
+        if (++objCacheEpoch == 0)
         {
-            GPU2D_DETAIL_INC(objDetail, spritesDisabled, 1);
-            continue;
+            for (int y = 0; y < 192; y++) objLineOrder[y].epoch = 0;
+            objCacheEpoch = 1;
         }
-
-        if (type == 2)
+        objCacheWindow = window;
+        objCacheMosaic = objMosaicSize;
+    }
+    ObjLineOrder *cached = cacheable ? &objLineOrder[line] : nullptr;
+    if (cached && cached->epoch == objCacheEpoch)
+    {
+#ifdef NOODS_PROFILE
+        if (profileEnabled) runProfile.objOrderHits++;
+#endif
+        windowCount = cached->windowCount;
+        normalCount = cached->normalCount;
+        windowOrder = cached->order;
+        normalOrder = cached->order + windowCount;
+    }
+    else
+#endif
+    {
+#if defined(NOODS_PROFILE) && defined(NOODS_PS2)
+    if (cached && profileEnabled) runProfile.objOrderMisses++;
+#endif
+        for (int i = 0; i < 128; i++)
         {
-            if (window)
-                windowOrder[windowCount++] = static_cast<uint8_t>(i);
-            else
+            GPU2D_DETAIL_INC(objDetail, spritesScanned, 1);
+            const uint8_t byte = oam[i * 8 + 1];
+            const uint8_t type = (byte >> 2) & 0x3;
+            if ((byte & 0x3) == 2)
+            {
                 GPU2D_DETAIL_INC(objDetail, spritesDisabled, 1);
-        }
-        else
-        {
-            if (gba)
-                normalOrder[normalCount++] = static_cast<uint8_t>(i);
+                continue;
+            }
+
+#ifdef NOODS_PS2
+            if (cacheable)
+            {
+                // Invalid dimensions keep the original path (including logging).
+                static const uint8_t heights[16] = {8,16,32,64,8,8,16,32,16,32,32,64,0,0,0,0};
+                const uint16_t attr0 = gpu2dLoad16(oam, i * 8);
+                const uint16_t attr1 = gpu2dLoad16(oam, i * 8 + 2);
+                const int height = heights[((attr0 >> 12) & 12) | (attr1 >> 14)];
+                if (height)
+                {
+                    int y = attr0 & 255;
+                    if (y >= 192) y -= 256;
+                    const int size = height * (((attr0 & 0x300) == 0x300) ? 2 : 1);
+                    const int spriteLine = (attr0 & BIT(12)) ? objMosaicLine : line;
+                    if (spriteLine - y < 0 || spriteLine - y >= size)
+                    {
+                        GPU2D_DETAIL_INC(objDetail, spritesOutsideY, 1);
+                        continue;
+                    }
+                }
+            }
+#endif
+            if (type == 2)
+            {
+                if (window)
+                    windowOrder[windowCount++] = static_cast<uint8_t>(i);
+                else
+                    GPU2D_DETAIL_INC(objDetail, spritesDisabled, 1);
+            }
             else
             {
-                const unsigned priority = (oam[i * 8 + 5] >> 2) & 3;
-                priorityOrder[priority][priorityCount[priority]++] = i;
+                if (gba)
+                    normalOrder[normalCount++] = static_cast<uint8_t>(i);
+                else
+                {
+                    const unsigned priority = (oam[i * 8 + 5] >> 2) & 3;
+                    priorityOrder[priority][priorityCount[priority]++] = i;
+                }
             }
         }
+
+        // DS OBJ keeps only one visible sprite per pixel. Stable priority buckets
+        // make covering sprites available first, while equal priorities retain
+        // lower OAM index precedence. GBA keeps its transparent-priority quirk and
+        // original traversal. Object-window sprites always remain the first pass.
+        if (!gba)
+            for (int priority = 0; priority < 4; priority++)
+                for (int i = 0; i < priorityCount[priority]; i++)
+                    normalOrder[normalCount++] = priorityOrder[priority][i];
+
+#ifdef NOODS_PS2
+        if (cached)
+        {
+            cached->windowCount = windowCount;
+            cached->normalCount = normalCount;
+            std::memcpy(cached->order, windowOrder, windowCount);
+            std::memcpy(cached->order + windowCount, normalOrder, normalCount);
+            cached->epoch = objCacheEpoch;
+            windowOrder = cached->order;
+            normalOrder = cached->order + windowCount;
+        }
+#endif
     }
-
-    // DS OBJ keeps only one visible sprite per pixel. Stable priority buckets
-    // make covering sprites available first, while equal priorities retain
-    // lower OAM index precedence. GBA keeps its transparent-priority quirk and
-    // original traversal. Object-window sprites always remain the first pass.
-    if (!gba)
-        for (int priority = 0; priority < 4; priority++)
-            for (int i = 0; i < priorityCount[priority]; i++)
-                normalOrder[normalCount++] = priorityOrder[priority][i];
-
     const int orderedCount =
         static_cast<int>(windowCount) + static_cast<int>(normalCount);
     for (int order = 0; order < orderedCount; order++)

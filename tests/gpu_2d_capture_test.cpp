@@ -258,6 +258,27 @@ int main()
             assert((gpu.getRawLine()[x] & 0x3FFFFu) == expected);
         }
     }
+    // Prime the same scanline, then change OAM without changing the frame.
+    // The first sprite moves onto it and wins the priority tie.
+    for (int i = 0; i < 128; ++i) oam[i * 8 + 1] = 2; // disabled
+    oam[0] = 10; oam[1] = 0; oam[2] = oam[3] = oam[4] = oam[5] = 0;
+    gpu.writeDispCnt(0xFFFFFFFFu, (1u << 16) | (1u << 12) | (1u << 4));
+    gpu.writeBldCnt(0xFFFFu, 0); gpu.writeMasterBright(0xFFFFu, 0);
+    gpu.drawScanline(0); gpu.drawScanline(0);
+    assert((gpu.getFramebuffer()[0] & 0x3FFFFu) == 0);
+    oam[0] = 0; // move directly into the cached scanline
+    gpu.drawScanline(0);
+    assert((gpu.getFramebuffer()[0] & 0x3FFFFu) == 62u);
+    palette[0x202] = 0xE0; palette[0x203] = 0x03; // palette change, OAM unchanged
+    gpu.drawScanline(0);
+    assert((gpu.getFramebuffer()[0] & 0x3FFFFu) == (62u << 6));
+    palette[0x202] = colors[0]; palette[0x203] = colors[0] >> 8;
+    oam[1] = 2; // disable the visible sprite mid-frame
+    gpu.drawScanline(0);
+    assert((gpu.getFramebuffer()[0] & 0x3FFFFu) == 0);
+
+    // Restore the overlap case for the L2 culling assertion.
+    for (int i = 0; i < 128; ++i) { oam[i * 8] = 0; oam[i * 8 + 1] = 0; }
 #if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
     gpu.resetProfile();
     gpu.setProfileEnabled(true);
