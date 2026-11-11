@@ -72,6 +72,7 @@ struct Gpu2DTextDetailCounters
     uint64_t threeD = 0;
     uint64_t windowed = 0;
     uint64_t tiles = 0;
+    uint64_t culledTiles = 0;
     uint64_t hFlipTiles = 0;
     uint64_t vFlipTiles = 0;
     uint64_t tilePageHits = 0;
@@ -84,6 +85,7 @@ struct Gpu2DTextDetailCounters
     uint64_t transparent = 0;
     uint64_t clipped = 0;
     uint64_t paletteReads = 0;
+    uint64_t rejected = 0;
     uint64_t writes = 0;
 };
 
@@ -95,6 +97,7 @@ struct Gpu2DObjDetailCounters
     uint64_t spritesDisabled = 0;
     uint64_t spritesOutsideY = 0;
     uint64_t spritesVisible = 0;
+    uint64_t culledSprites = 0;
     uint64_t affineSprites = 0;
     uint64_t bitmapSprites = 0;
     uint64_t bpp8Sprites = 0;
@@ -135,6 +138,11 @@ struct Gpu2DRunProfile
     uint64_t phaseTicks[GPU2D_PROFILE_PHASE_COUNT] = {};
     uint64_t phaseSamples[GPU2D_PROFILE_PHASE_COUNT] = {};
     uint32_t phaseSampleState[GPU2D_PROFILE_PHASE_COUNT] = {};
+#ifdef NOODS_PS2
+    uint64_t objOrderHits = 0;
+    uint64_t objOrderMisses = 0;
+    uint64_t objOrderInvalidations = 0;
+#endif
 #if NOODS_PROFILE_LEVEL >= 2
     uint64_t extendedModeCount[GPU2D_EXTENDED_MODE_COUNT] = {};
     uint64_t extendedModeTicks[GPU2D_EXTENDED_MODE_COUNT] = {};
@@ -210,6 +218,23 @@ class Gpu2D
         uint8_t *palette, *oam;
         uint8_t **extPalettes;
 
+#ifdef NOODS_PS2
+        // Ordered, Y-visible sprites for each DS scanline. OAM is compared at
+        // every draw so DMA and mid-frame CPU writes cannot leave stale lists.
+        struct ObjLineOrder
+        {
+            uint8_t order[128];
+            uint8_t windowCount;
+            uint8_t normalCount;
+            uint32_t epoch;
+        };
+        ObjLineOrder objLineOrder[192] = {};
+        uint8_t objOamSnapshot[1024] = {};
+        uint8_t objCacheMosaic = 0;
+        bool objCacheWindow = false;
+        uint32_t objCacheEpoch = 0;
+#endif
+
         alignas(8) uint32_t framebuffer[256 * 192] = {};
         alignas(8) uint32_t layers[2][256] = {};
         int8_t priorities[2][256] = {};
@@ -217,6 +242,11 @@ class Gpu2D
         uint8_t windowMask[256] = {};
         uint8_t windowAllMask = 0x3F;
         bool windowMaskReady = false;
+        bool textFrontToBack = false;
+        bool textFirstBackground = false;
+        uint16_t textCoveredPixels = 0;
+
+        bool bgAbove(int bg, int x, int layer, int8_t priority) const;
 
         int internalX[2] = {};
         int internalY[2] = {};
@@ -291,6 +321,8 @@ class Gpu2D
         void drawObjPixelNoWindow(int x, uint32_t pixel,
             int8_t priority);
 
+        template<bool Ordered>
+        void drawTextOrdered(int bg, int line, int mosaicLine);
         void drawText(int bg, int line, int mosaicLine);
         void drawAffine(int bg, int line);
         void drawExtended(int bg, int line);

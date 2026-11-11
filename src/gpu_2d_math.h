@@ -127,6 +127,25 @@ inline void gpu2dFill32(uint32_t *destination, int count, uint32_t value)
         *destination++ = value;
 }
 
+// PS2SDK memset takes a byte-at-a-time path unless its destination is
+// 16-byte aligned. Align the beginning without assuming the allocation or
+// engine layout, then let the SDK use its wide stores for the remainder.
+inline void gpu2dFillBytes(void *destination, size_t count, uint8_t value)
+{
+#ifdef NOODS_PS2
+    uint8_t *bytes = static_cast<uint8_t *>(destination);
+    while (count && (reinterpret_cast<uintptr_t>(bytes) & 15u))
+    {
+        *bytes++ = value;
+        --count;
+    }
+    if (count)
+        std::memset(bytes, value, count);
+#else
+    std::memset(destination, value, count);
+#endif
+}
+
 inline uint32_t gpu2dRgb5ToRgb6(uint32_t color)
 {
     // Preserve renderer metadata in bits 18..31 while expanding each RGB5
