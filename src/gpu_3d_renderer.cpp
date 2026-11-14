@@ -1287,22 +1287,24 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
     const bool linearFill = (w1 == w2 && !(w1 & 0x007F));
     const uint32_t fillSpan = x4 - x1;
 
-    // The linear-fill path dominated the PS2 profile. Build exact incremental
-    // interpolators once per polygon scanline so R/G/B/S/T/Z no longer each
-    // execute an integer division for every pixel.
-    Gpu3DLinearStepper linearR(r1, r2, fillSpan);
-    Gpu3DLinearStepper linearG(g1, g2, fillSpan);
-    Gpu3DLinearStepper linearB(b1, b2, fillSpan);
+    // RGB/ST only use linear interpolation for equal W. Avoid constructing
+    // five quotient/remainder steppers that perspective polygons never use.
+    const uint32_t attributeSpan = linearFill ? fillSpan : 0;
+    Gpu3DLinearStepper linearR(r1, r2, attributeSpan);
+    Gpu3DLinearStepper linearG(g1, g2, attributeSpan);
+    Gpu3DLinearStepper linearB(b1, b2, attributeSpan);
     Gpu3DLinearStepper linearS(
         static_cast<uint32_t>(s1 + 0xFFFF),
-        static_cast<uint32_t>(s2 + 0xFFFF), fillSpan);
+        static_cast<uint32_t>(s2 + 0xFFFF), attributeSpan);
     Gpu3DLinearStepper linearT(
         static_cast<uint32_t>(t1 + 0xFFFF),
-        static_cast<uint32_t>(t2 + 0xFFFF), fillSpan);
-    Gpu3DLinearStepper linearZ(z1, z2, fillSpan);
-    const bool linearZExact =
-        Gpu3DLinearStepper::matchesWrappedUint32Formula(
-            z1, z2, fillSpan);
+        static_cast<uint32_t>(t2 + 0xFFFF), attributeSpan);
+    // Z is screen-linear even when RGB/ST use perspective correction. Keep
+    // the wrapped-product fallback: exact incremental arithmetic would change
+    // the original result when its uint32_t multiplication overflows.
+    const bool linearZExact = !polygon->wBuffer &&
+        Gpu3DLinearStepper::matchesWrappedUint32Formula(z1, z2, fillSpan);
+    Gpu3DLinearStepper linearZ(z1, z2, linearZExact ? fillSpan : 0);
     uint32_t linearX = x1;
 
     // Draw a line segment
@@ -1325,6 +1327,7 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
         {
             if (x <= x1) return v1;
             if (x >= x4) return v2;
+            if (v1 == v2) return v1;
 
             if (linearFill)
                 return interpolateLinear(v1, v2, x1, x, x4);
@@ -1348,15 +1351,18 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
         // Invalid viewports can cause out-of-bounds vertices, so only draw within bounds
         if (x >= 256) break;
 
-        if (linearFill && x > linearX)
+        if (x > linearX)
         {
             const uint32_t advance = x - linearX;
-            linearR.advanceBy(advance);
-            linearG.advanceBy(advance);
-            linearB.advanceBy(advance);
-            linearS.advanceBy(advance);
-            linearT.advanceBy(advance);
-            linearZ.advanceBy(advance);
+            if (linearFill)
+            {
+                linearR.advanceBy(advance);
+                linearG.advanceBy(advance);
+                linearB.advanceBy(advance);
+                linearS.advanceBy(advance);
+                linearT.advanceBy(advance);
+            }
+            if (linearZExact) linearZ.advanceBy(advance);
             linearX = x;
         }
 
@@ -1376,7 +1382,7 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
         }
         else
         {
-            depth = (linearFill && linearZExact) ?
+            depth = linearZExact ?
                 static_cast<int32_t>(linearZ.current()) :
                 static_cast<int32_t>(
                     interpolateLinear(z1, z2, x1, x, x4));
@@ -1437,19 +1443,13 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
             layer = 1;
         }
 
-        // Interpolate the vertex color at the current pixel
-        uint32_t r = (linearFill ? linearR.current() :
-            fillValue(r1, r2)) >> 3;
-        uint32_t g = (linearFill ? linearG.current() :
-            fillValue(g1, g2)) >> 3;
-        uint32_t b = (linearFill ? linearB.current() :
-            fillValue(b1, b2)) >> 3;
-        uint32_t color = ((polygon->alpha ? polygon->alpha : 0x3F) << 18) | (b << 12) | (g << 6) | r;
-
-        // Blend the texture with the vertex color
+        uint32_t texel = 0;
+#ifdef NOODS_PS2
         if (polygon->textureFmt != 0)
         {
-            // Interpolate the texture coordinates at the current pixel
+            // Sample first: modulation and toon multiply texture alpha by
+            // polygon alpha. A zero result can never write color or depth.
+            // Decal/shadow retain polygon alpha and must not take this path.
             int s = static_cast<int>(linearFill ?
                 linearS.current() :
                 fillValue(static_cast<uint32_t>(s1 + 0xFFFF),
@@ -1458,11 +1458,45 @@ void Gpu3DRenderer::drawPolygon(int line, int polygonIndex)
                 linearT.current() :
                 fillValue(static_cast<uint32_t>(t1 + 0xFFFF),
                     static_cast<uint32_t>(t2 + 0xFFFF))) - 0xFFFF;
-
-            // Read a texel from the texture
-            uint32_t texel = readTexture(polygon, s >> 4, t >> 4, basePalette,
+            texel = readTexture(polygon, s >> 4, t >> 4, basePalette,
                 textureSizeShiftS, profileSampled);
 
+            if (!(texel & 0xFC0000u) &&
+                (polygon->mode == 0 || polygon->mode == 2))
+            {
+#if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
+                if (profileSampled)
+                    detailProfile.alphaRejects++;
+#endif
+                continue;
+            }
+        }
+
+#endif
+        // Interpolate the vertex color at the current pixel.
+        uint32_t r = (linearFill ? linearR.current() :
+            fillValue(r1, r2)) >> 3;
+        uint32_t g = (linearFill ? linearG.current() :
+            fillValue(g1, g2)) >> 3;
+        uint32_t b = (linearFill ? linearB.current() :
+            fillValue(b1, b2)) >> 3;
+        uint32_t color = ((polygon->alpha ? polygon->alpha : 0x3F) << 18) | (b << 12) | (g << 6) | r;
+
+        // Blend the texture with the vertex color.
+        if (polygon->textureFmt != 0)
+        {
+#ifndef NOODS_PS2
+            int s = static_cast<int>(linearFill ?
+                linearS.current() :
+                fillValue(static_cast<uint32_t>(s1 + 0xFFFF),
+                    static_cast<uint32_t>(s2 + 0xFFFF))) - 0xFFFF;
+            int t = static_cast<int>(linearFill ?
+                linearT.current() :
+                fillValue(static_cast<uint32_t>(t1 + 0xFFFF),
+                    static_cast<uint32_t>(t2 + 0xFFFF))) - 0xFFFF;
+            texel = readTexture(polygon, s >> 4, t >> 4, basePalette,
+                textureSizeShiftS, profileSampled);
+#endif
             // Apply texture blending
             // These formulas are a translation of the pseudocode from GBATEK to C++
             switch (polygon->mode)

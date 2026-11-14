@@ -126,6 +126,7 @@ void Dma::transfer(int channel)
     else
     {
         // End the transfer
+        triggerMasks[(dmaCnt[channel] >> 27) & 7] &= ~BIT(channel);
         dmaCnt[channel] &= ~BIT(31);
     }
 
@@ -136,14 +137,27 @@ void Dma::transfer(int channel)
 
 void Dma::trigger(int mode, uint8_t channels)
 {
-    // ARM7 DMAs don't use the lowest mode bit, so adjust accordingly
+    // A cart word, HBlank or sound request usually has no matching channel.
+    // Select enabled channels once per control write instead of rescanning all
+    // four on every event. Keep ascending channel/FIFO order and duplicate
+    // scheduling exactly as before; this does not coalesce pending transfers.
+    if (mode < 0 || mode > 7) return;
     if (cpu == 1) mode <<= 1;
+    if (mode > 7) return;
+    uint8_t pending = channels & triggerMasks[mode];
+    if (pending) triggerChannels(pending);
+}
 
-    // Schedule a transfer on channels that are enabled and set to the triggered mode
-    for (int i = 0; i < 4; i++)
+// Keep scheduler stack/register saves out of the common no-channel path on EE.
+#ifdef NOODS_PS2
+__attribute__((noinline))
+#endif
+void Dma::triggerChannels(uint8_t pending)
+{
+    for (int channel = 0; pending; channel++, pending >>= 1)
     {
-        if ((channels & BIT(i)) && (dmaCnt[i] & BIT(31)) && ((dmaCnt[i] & 0x38000000) >> 27) == mode)
-            core->schedule(Task(&transferTask[i], 1, TASK_PROFILE_DMA));
+        if (pending & 1)
+            core->schedule(Task(&transferTask[channel], 1, TASK_PROFILE_DMA));
     }
 }
 
@@ -168,6 +182,9 @@ void Dma::writeDmaCnt(int channel, uint32_t mask, uint32_t value)
     // Write to one of the DMACNT registers
     mask &= ((cpu == 0) ? 0xFFFFFFFF : (channel == 3 ? 0xF7E0FFFF : 0xF7E03FFF));
     dmaCnt[channel] = (dmaCnt[channel] & ~mask) | (value & mask);
+    triggerMasks[(old >> 27) & 7] &= ~BIT(channel);
+    if (dmaCnt[channel] & BIT(31))
+        triggerMasks[(dmaCnt[channel] >> 27) & 7] |= BIT(channel);
 
     // In GXFIFO mode, schedule a transfer on the channel immediately if the FIFO is already half empty
     // All other modes are only triggered at the moment when the event happens

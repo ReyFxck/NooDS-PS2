@@ -51,10 +51,12 @@ class Dma
         uint32_t dmaSad[4] = {};
         uint32_t dmaDad[4] = {};
         uint32_t dmaCnt[4] = {};
+        uint8_t triggerMasks[8] = {};
 
         std::function<void()> transferTask[4];
 
         void transfer(int channel);
+        void triggerChannels(uint8_t pending);
 };
 
 #endif // DMA_H

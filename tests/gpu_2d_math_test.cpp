@@ -112,6 +112,22 @@ bool testFill32()
     return true;
 }
 
+bool testFillBytes()
+{
+    alignas(16) uint8_t storage[288];
+    for (int offset = 0; offset < 16; offset++)
+        for (int count = 0; count <= 257; count++)
+        {
+            std::memset(storage, 0xA5, sizeof(storage));
+            const uint8_t value = static_cast<uint8_t>(nextRandom());
+            gpu2dFillBytes(storage + offset, count, value);
+            for (int i = 0; i < static_cast<int>(sizeof(storage)); i++)
+                if (storage[i] != ((i >= offset && i < offset + count) ? value : 0xA5))
+                    return false;
+        }
+    return true;
+}
+
 bool testRgb5ToRgb6()
 {
     for (uint32_t color = 0; color < 0x8000u; color++)
@@ -379,6 +395,11 @@ int main()
     if (!testNativeLoads())
     {
         std::fprintf(stderr, "native little-endian load mismatch\n");
+        return 1;
+    }
+    if (!testFillBytes())
+    {
+        std::fprintf(stderr, "testFillBytes failed\n");
         return 1;
     }
     if (!testFill32())

@@ -3,11 +3,13 @@
 #include "arm_alu.h"
 #include "dynarec_r5900.h"
 #include "r5900_emitter.h"
+#include "r5900_alu_flags.h"
 #include "thumb_alu.h"
 
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <type_traits>
 
 #ifdef NOODS_PROFILE
 #define DYNAREC_PROFILE(statement) do { statement; } while (0)
@@ -597,7 +599,8 @@ uint32_t arm7MultiplyM(int32_t value)
     return 4u;
 }
 
-bool applyArmPsrTransfer(uint32_t opcode, ArmAluState *state)
+// Generated non-leaf calls pass the state in a0 and the opcode in a1.
+bool applyArmPsrTransfer(ArmAluState *state, uint32_t opcode)
 {
     Ps2ArmAlu::DecodedPsrTransfer decoded;
     if (!state || !Ps2ArmAlu::decodePsrTransfer(opcode, &decoded))
@@ -2109,28 +2112,10 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
                 code[words++] = R5900::or_(R5900::R_A1,
                     R5900::R_A1, R5900::R_T3);
 
-                // Overflow is the OR of the two exact 32-bit additions:
-                // (T0+T1), then (+carry).
-                code[words++] = R5900::xor_(R5900::R_T3,
-                    R5900::R_T0, R5900::R_T1);
-                code[words++] = R5900::nor_(R5900::R_T3,
-                    R5900::R_T3, R5900::R_ZERO);
-                code[words++] = R5900::xor_(R5900::R_T4,
-                    R5900::R_T0, R5900::R_T6);
-                code[words++] = R5900::and_(R5900::R_T3,
-                    R5900::R_T3, R5900::R_T4);
-                code[words++] = R5900::xor_(R5900::R_T4,
-                    R5900::R_T6, R5900::R_T9);
-                code[words++] = R5900::nor_(R5900::R_T4,
-                    R5900::R_T4, R5900::R_ZERO);
-                code[words++] = R5900::xor_(R5900::R_T5,
-                    R5900::R_T6, R5900::R_T2);
-                code[words++] = R5900::and_(R5900::R_T4,
-                    R5900::R_T4, R5900::R_T5);
-                code[words++] = R5900::or_(R5900::R_V0,
-                    R5900::R_T3, R5900::R_T4);
-                code[words++] = R5900::srl(R5900::R_V0,
-                    R5900::R_V0, 31);
+                // The final result includes carry-in. Intermediate signed
+                // overflows can cancel, so use the original operands and the
+                // final result, matching the interpreter.
+                words += emitArmCarryOverflow(code + words, false, false);
             }
             break;
         }
@@ -2164,23 +2149,10 @@ size_t emitArmAluInstruction(uint32_t opcode, uint32_t *code,
                 code[words++] = R5900::and_(R5900::R_A1,
                     R5900::R_A1, R5900::R_T3);
 
-                // Overflow across the two exact subtractions.
-                code[words++] = R5900::xor_(R5900::R_T3,
-                    leftReg, rightReg);
-                code[words++] = R5900::xor_(R5900::R_T4,
-                    leftReg, R5900::R_T6);
-                code[words++] = R5900::and_(R5900::R_T3,
-                    R5900::R_T3, R5900::R_T4);
-                code[words++] = R5900::xor_(R5900::R_T4,
-                    R5900::R_T6, R5900::R_T9);
-                code[words++] = R5900::xor_(R5900::R_T5,
-                    R5900::R_T6, R5900::R_T2);
-                code[words++] = R5900::and_(R5900::R_T4,
-                    R5900::R_T4, R5900::R_T5);
-                code[words++] = R5900::or_(R5900::R_V0,
-                    R5900::R_T3, R5900::R_T4);
-                code[words++] = R5900::srl(R5900::R_V0,
-                    R5900::R_V0, 31);
+                // Use the original operands and final result; overflow in
+                // the first subtraction can be undone by the borrow input.
+                words += emitArmCarryOverflow(code + words, true,
+                    decoded.operation == 7);
             }
             break;
         }
@@ -4582,6 +4554,9 @@ size_t emitArmPsrTransferInstruction(uint32_t opcode, uint32_t *code,
         static_cast<uint16_t>(opcode >> 16));
     code[words++] = R5900::ori(R5900::R_A1, R5900::R_A1,
         static_cast<uint16_t>(opcode));
+    static_assert(std::is_same<decltype(&applyArmPsrTransfer),
+        bool (*)(ArmAluState *, uint32_t)>::value,
+        "R5900 PSR helper must receive state in a0 and opcode in a1");
     uintptr_t helper =
         reinterpret_cast<uintptr_t>(&applyArmPsrTransfer);
     code[words++] = R5900::lui(R5900::R_T9,
@@ -6600,15 +6575,28 @@ bool DynarecR5900::runArmAluSelfTest()
         };
 
         for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+        for (unsigned int abi = 0; abi < 4; abi++)
         {
-            caseNumber = static_cast<unsigned int>(i);
+            caseNumber = static_cast<unsigned int>(i * 4 + abi);
+            const bool registerCycles = (abi & 1u) != 0;
+            const bool registerCpsr = (abi & 2u) != 0;
             uint32_t *code = cache.reserveWords(96);
             if (!code)
                 return false;
-            size_t words = emitArmPsrTransferInstruction(
-                cases[i].opcode, code, false, false);
-            if (!words)
+            size_t words = 0;
+            if (registerCycles)
+                code[words++] = R5900::lw(R5900::R_T8, 84, R5900::R_A0);
+            if (registerCpsr)
+                code[words++] = R5900::lw(R5900::R_V1, 64, R5900::R_A0);
+            size_t bodyWords = emitArmPsrTransferInstruction(
+                cases[i].opcode, code + words, registerCycles, registerCpsr);
+            if (!bodyWords)
                 return false;
+            words += bodyWords;
+            if (registerCycles)
+                code[words++] = R5900::sw(R5900::R_T8, 84, R5900::R_A0);
+            if (registerCpsr)
+                code[words++] = R5900::sw(R5900::R_V1, 64, R5900::R_A0);
             code[words++] = R5900::jr(R5900::R_RA);
             code[words++] = R5900::nop();
             cache.commitWords(words);
@@ -6619,15 +6607,32 @@ bool DynarecR5900::runArmAluSelfTest()
             state.r[1] = 0u;
             state.r[2] = cases[i].r2;
             state.cpuId = cases[i].cpuId;
+            // Nonzero initial cycles catch accidental resets at the helper
+            // boundary, as well as a wrong ARM7/ARM9 MRS timing increment.
+            state.cycles = 7u;
             typedef void (*PsrFunction)(ArmAluState *);
             PsrFunction function = reinterpret_cast<PsrFunction>(code);
             function(&state);
 
             if (state.cpsr != cases[i].expectedCpsr ||
                 state.r[1] != cases[i].expectedR1 ||
-                state.cycles != cases[i].expectedCycles ||
+                state.cycles != 7u + cases[i].expectedCycles ||
                 state.memoryFault != cases[i].expectedFault)
+            {
+                std::printf("[PS2][JIT-SELFTEST] PSR opcode=%08lX cpu=%u abi=%u "
+                    "cpsr=%08lX/%08lX r1=%08lX/%08lX cycles=%lu/%lu fault=%lu/%lu\n",
+                    static_cast<unsigned long>(cases[i].opcode),
+                    static_cast<unsigned int>(cases[i].cpuId), abi,
+                    static_cast<unsigned long>(state.cpsr),
+                    static_cast<unsigned long>(cases[i].expectedCpsr),
+                    static_cast<unsigned long>(state.r[1]),
+                    static_cast<unsigned long>(cases[i].expectedR1),
+                    static_cast<unsigned long>(state.cycles),
+                    static_cast<unsigned long>(7u + cases[i].expectedCycles),
+                    static_cast<unsigned long>(state.memoryFault),
+                    static_cast<unsigned long>(cases[i].expectedFault));
                 return false;
+            }
         }
     }
 
@@ -6655,6 +6660,12 @@ bool DynarecR5900::runArmAluSelfTest()
               0x00000013u }, // SBCS: signed overflow
             { 0xE0F02001u, 0x80000000u, 0x00000000u,
               0x00000013u }, // RSCS reversed subtraction
+            { 0xE0B02001u, 0x80000000u, 0xFFFFFFFFu,
+              0x20000013u }, // ADCS intermediate overflow cancels
+            { 0xE0D02001u, 0x00000000u, 0x80000000u,
+              0x00000013u }, // SBCS intermediate overflow cancels
+            { 0xE0F02001u, 0x00000000u, 0x80000000u,
+              0x00000013u }, // RSCS borrow produces overflow
             { 0xE0A02001u, 0xFFFFFFFFu, 0x00000000u,
               0x20000013u }, // ADC S=0 preserves flags
             { 0x00B02001u, 0x12345678u, 0x9ABCDEF0u,
@@ -6691,7 +6702,18 @@ bool DynarecR5900::runArmAluSelfTest()
             if (actual.r[2] != expected.r[2] ||
                 actual.cpsr != expected.cpsr ||
                 actual.cycles != expected.cycles)
+            {
+                std::printf("[PS2][JIT-SELFTEST] ALU opcode=%08lX "
+                    "result=%08lX/%08lX cpsr=%08lX/%08lX cycles=%lu/%lu\n",
+                    static_cast<unsigned long>(cases[i].opcode),
+                    static_cast<unsigned long>(actual.r[2]),
+                    static_cast<unsigned long>(expected.r[2]),
+                    static_cast<unsigned long>(actual.cpsr),
+                    static_cast<unsigned long>(expected.cpsr),
+                    static_cast<unsigned long>(actual.cycles),
+                    static_cast<unsigned long>(expected.cycles));
                 return false;
+            }
         }
     }
 
@@ -9911,7 +9933,7 @@ int DynarecR5900::runArm9BlockShadowSelfTest(const Interpreter &cpu,
         Ps2ArmAlu::DecodedPsrTransfer psrTransfer;
         if (Ps2ArmAlu::decodePsrTransfer(opcodes[i], &psrTransfer))
         {
-            if (!applyArmPsrTransfer(opcodes[i], &expected))
+            if (!applyArmPsrTransfer(&expected, opcodes[i]))
                 return -1;
             continue;
         }
@@ -10243,7 +10265,7 @@ int DynarecR5900::runArm7AluBranchShadowSelfTest(const Interpreter &cpu,
         Ps2ArmAlu::DecodedPsrTransfer psrTransfer;
         if (Ps2ArmAlu::decodePsrTransfer(opcodes[i], &psrTransfer))
         {
-            if (!applyArmPsrTransfer(opcodes[i], &expected))
+            if (!applyArmPsrTransfer(&expected, opcodes[i]))
                 return -1;
             continue;
         }

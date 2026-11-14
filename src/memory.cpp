@@ -872,7 +872,13 @@ template <typename T> T Memory::ioRead9(uint32_t address)
             case 0x40001A4:
             case 0x40001A5:
             case 0x40001A6:
-            case 0x40001A7: base -= 0x40001A4; size = 4; data = core->cartridgeNds.readRomCtrl(0);    break; // ROMCTRL (ARM9)
+            case 0x40001A7:
+#ifdef NOODS_PS2
+                // The common aligned word needs no subregister assembly. Keep
+                // the normal path for narrow/mixed reads and MMIO profiling.
+                if (sizeof(T) == 4 && i == 0) return core->cartridgeNds.readRomCtrl(0);
+#endif
+                base -= 0x40001A4; size = 4; data = core->cartridgeNds.readRomCtrl(0); break; // ROMCTRL (ARM9)
             case 0x4000208: base -= 0x4000208; size = 1; data = core->interpreter[0].readIme();       break; // IME (ARM9)
             case 0x4000210:
             case 0x4000211:
@@ -1104,7 +1110,13 @@ template <typename T> T Memory::ioRead9(uint32_t address)
             case 0x4100010:
             case 0x4100011:
             case 0x4100012:
-            case 0x4100013: base -= 0x4100010; size = 4; data = core->cartridgeNds.readRomDataIn(0);  break; // ROMDATAIN (ARM9)
+            case 0x4100013:
+#ifdef NOODS_PS2
+                // The common aligned word needs no subregister assembly. Keep
+                // the normal path for narrow/mixed reads and MMIO profiling.
+                if (sizeof(T) == 4 && i == 0) return core->cartridgeNds.readRomDataIn(0);
+#endif
+                base -= 0x4100010; size = 4; data = core->cartridgeNds.readRomDataIn(0); break; // ROMDATAIN (ARM9)
 
             default:
             {
@@ -1258,7 +1270,13 @@ template <typename T> T Memory::ioRead7(uint32_t address)
             case 0x40001A4:
             case 0x40001A5:
             case 0x40001A6:
-            case 0x40001A7: base -= 0x40001A4; size = 4; data = core->cartridgeNds.readRomCtrl(1);    break; // ROMCTRL (ARM7)
+            case 0x40001A7:
+#ifdef NOODS_PS2
+                // The common aligned word needs no subregister assembly. Keep
+                // the normal path for narrow/mixed reads and MMIO profiling.
+                if (sizeof(T) == 4 && i == 0) return core->cartridgeNds.readRomCtrl(1);
+#endif
+                base -= 0x40001A4; size = 4; data = core->cartridgeNds.readRomCtrl(1); break; // ROMCTRL (ARM7)
             case 0x40001C0:
             case 0x40001C1: base -= 0x40001C0; size = 2; data = core->spi.readSpiCnt();               break; // SPICNT
             case 0x40001C2: base -= 0x40001C2; size = 1; data = core->spi.readSpiData();              break; // SPIDATA
@@ -1360,7 +1378,13 @@ template <typename T> T Memory::ioRead7(uint32_t address)
             case 0x4100010:
             case 0x4100011:
             case 0x4100012:
-            case 0x4100013: base -= 0x4100010; size = 4; data = core->cartridgeNds.readRomDataIn(1);  break; // ROMDATAIN (ARM7)
+            case 0x4100013:
+#ifdef NOODS_PS2
+                // The common aligned word needs no subregister assembly. Keep
+                // the normal path for narrow/mixed reads and MMIO profiling.
+                if (sizeof(T) == 4 && i == 0) return core->cartridgeNds.readRomDataIn(1);
+#endif
+                base -= 0x4100010; size = 4; data = core->cartridgeNds.readRomDataIn(1); break; // ROMDATAIN (ARM7)
             case 0x4800006:
             case 0x4800007: base -= 0x4800006; size = 2; data = core->wifi.readWModeWep();            break; // W_MODE_WEP
             case 0x4800010:
