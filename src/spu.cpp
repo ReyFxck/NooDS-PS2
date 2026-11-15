@@ -413,6 +413,13 @@ void Spu::runSample()
     int64_t mixerLeft = 0, mixerRight = 0;
     int64_t channelsLeft[2] = {}, channelsRight[2] = {};
 
+    // The mixed sample only feeds the audio buffer and the sound capture
+    // units. While neither exists (no frontend has asked for samples and no
+    // capture is running) the channel state machines still have to advance
+    // exactly as before, because games observe them through the busy flags,
+    // but the PCM fetch and the volume/pan arithmetic can be skipped.
+    const bool needOutput = bufferSize > 0 || ((sndCapCnt[0] | sndCapCnt[1]) & BIT(7));
+
     // Mix the sound channels
     for (int i = 0; i < 16; i++)
     {
@@ -424,7 +431,7 @@ void Spu::runSample()
         int64_t data = 0;
 
         // Read the sample data
-        switch (format)
+        if (needOutput) switch (format)
         {
             case 0: // PCM8
             {
@@ -572,6 +579,10 @@ void Spu::runSample()
             }
         }
 
+        // Nothing consumes the mixed sample, so stop after the state update
+        if (!needOutput)
+            continue;
+
         // Apply the volume divider
         // The sample now has 4 fractional bits
         int divShift = (soundCnt[i] & 0x00000300) >> 8;
@@ -650,6 +661,13 @@ void Spu::runSample()
                 }
             }
         }
+    }
+
+    // Without an output buffer the remaining stages produce nothing
+    if (!needOutput)
+    {
+        core->schedule(Task(&runSampleTask, 512 * 2, TASK_PROFILE_SPU));
+        return;
     }
 
     // Get the left output sample
