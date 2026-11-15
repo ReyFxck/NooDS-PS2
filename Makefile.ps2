@@ -58,11 +58,16 @@ OBJECTS := $(patsubst src/%.cpp,$(BUILD)/%.o,$(SOURCES))
 DEBUG ?= 0
 PROFILE ?= 0
 PROFILE_LEVEL ?= 2
+# How many cycles one CPU may run ahead of the other while executing native
+# blocks (see src/core_budget.h). 0 keeps the original lockstep interleaving.
+# Changing it needs a clean rebuild, e.g. make -f Makefile.ps2 clean all SYNC_QUANTUM=32
+SYNC_QUANTUM ?= 0
 
 COMMON_FLAGS := -D_EE -DNOODS_PS2 -G0 -Wall -Wextra -std=gnu++11 \
                 -fno-rtti \
                 -DNOODS_BUILD_REVISION=\"$(BUILD_REVISION)\" \
                 -DNOODS_BUILD_STATE=\"$(BUILD_STATE)\" \
+                -DNOODS_SYNC_QUANTUM_DEFAULT=$(SYNC_QUANTUM) \
                 -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include -I$(PS2SDK)/ports/include -I$(GSKIT)/include -Isrc
 
 ifeq ($(PROFILE),1)
