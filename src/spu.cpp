@@ -408,7 +408,35 @@ void Spu::runGbaSample()
     core->schedule(Task(&runGbaSampleTask, 512, TASK_PROFILE_SPU));
 }
 
+bool Spu::needsOutput() const
+{
+    // The mixed sample only feeds the audio buffer and the sound capture units
+    return bufferSize > 0 || ((sndCapCnt[0] | sndCapCnt[1]) & BIT(7));
+}
+
+void Spu::catchUp()
+{
+    // Run every NDS sample that is due at the current time. The scheduler task
+    // does this every few samples, and every SPU register access does it first
+    // so the registers always see (and change) the state of the right moment.
+    const int64_t now = core->getGlobalCycles();
+    while (lastSampleCycles + SAMPLE_CYCLES <= now)
+    {
+        lastSampleCycles += SAMPLE_CYCLES;
+        stepSample();
+    }
+}
+
 void Spu::runSample()
+{
+    catchUp();
+
+    // Run several samples per task while nothing consumes them
+    const int samples = needsOutput() ? 1 : NOODS_SPU_BATCH_SAMPLES;
+    core->schedule(Task(&runSampleTask, SAMPLE_CYCLES * samples, TASK_PROFILE_SPU));
+}
+
+void Spu::stepSample()
 {
     int64_t mixerLeft = 0, mixerRight = 0;
     int64_t channelsLeft[2] = {}, channelsRight[2] = {};
@@ -418,7 +446,7 @@ void Spu::runSample()
     // capture is running) the channel state machines still have to advance
     // exactly as before, because games observe them through the busy flags,
     // but the PCM fetch and the volume/pan arithmetic can be skipped.
-    const bool needOutput = bufferSize > 0 || ((sndCapCnt[0] | sndCapCnt[1]) & BIT(7));
+    const bool needOutput = needsOutput();
 
     // Mix the sound channels
     for (int i = 0; i < 16; i++)
@@ -665,10 +693,7 @@ void Spu::runSample()
 
     // Without an output buffer the remaining stages produce nothing
     if (!needOutput)
-    {
-        core->schedule(Task(&runSampleTask, 512 * 2, TASK_PROFILE_SPU));
         return;
-    }
 
     // Get the left output sample
     int64_t sampleLeft;
@@ -720,9 +745,6 @@ void Spu::runSample()
         if (bufferPointer == bufferSize)
             swapBuffers();
     }
-
-    // Reschedule the task for the next sample
-    core->schedule(Task(&runSampleTask, 512 * 2, TASK_PROFILE_SPU));
 }
 
 void Spu::swapBuffers()
@@ -965,6 +987,7 @@ void Spu::writeGbaFifoB(uint32_t mask, uint32_t value)
 
 void Spu::writeSoundCnt(int channel, uint32_t mask, uint32_t value)
 {
+    catchUp();
     bool enable = (!(soundCnt[channel] & BIT(31)) && (value & BIT(31)));
 
     // Write to one of the SOUNDCNT registers
@@ -980,6 +1003,7 @@ void Spu::writeSoundCnt(int channel, uint32_t mask, uint32_t value)
 
 void Spu::writeSoundSad(int channel, uint32_t mask, uint32_t value)
 {
+    catchUp();
     // Write to one of the SOUNDSAD registers
     mask &= 0x07FFFFFC;
     soundSad[channel] = (soundSad[channel] & ~mask) | (value & mask);
@@ -996,18 +1020,21 @@ void Spu::writeSoundSad(int channel, uint32_t mask, uint32_t value)
 
 void Spu::writeSoundTmr(int channel, uint16_t mask, uint16_t value)
 {
+    catchUp();
     // Write to one of the SOUNDTMR registers
     soundTmr[channel] = (soundTmr[channel] & ~mask) | (value & mask);
 }
 
 void Spu::writeSoundPnt(int channel, uint16_t mask, uint16_t value)
 {
+    catchUp();
     // Write to one of the SOUNDPNT registers
     soundPnt[channel] = (soundPnt[channel] & ~mask) | (value & mask);
 }
 
 void Spu::writeSoundLen(int channel, uint32_t mask, uint32_t value)
 {
+    catchUp();
     // Write to one of the SOUNDLEN registers
     mask &= 0x003FFFFF;
     soundLen[channel] = (soundLen[channel] & ~mask) | (value & mask);
@@ -1015,6 +1042,7 @@ void Spu::writeSoundLen(int channel, uint32_t mask, uint32_t value)
 
 void Spu::writeMainSoundCnt(uint16_t mask, uint16_t value)
 {
+    catchUp();
     bool enable = (!(mainSoundCnt & BIT(15)) && (value & BIT(15)));
 
     // Write to the main SOUNDCNT register
@@ -1039,6 +1067,7 @@ void Spu::writeMainSoundCnt(uint16_t mask, uint16_t value)
 
 void Spu::writeSoundBias(uint16_t mask, uint16_t value)
 {
+    catchUp();
     // Write to the SOUNDBIAS register
     mask &= 0x03FF;
     soundBias = (soundBias & ~mask) | (value & mask);
@@ -1046,6 +1075,7 @@ void Spu::writeSoundBias(uint16_t mask, uint16_t value)
 
 void Spu::writeSndCapCnt(int channel, uint8_t value)
 {
+    catchUp();
     // Start the capture if the enable bit changes from 0 to 1
     if (!(sndCapCnt[channel] & BIT(7)) && (value & BIT(7)))
     {
@@ -1059,6 +1089,7 @@ void Spu::writeSndCapCnt(int channel, uint8_t value)
 
 void Spu::writeSndCapDad(int channel, uint32_t mask, uint32_t value)
 {
+    catchUp();
     // Write to one of the SNDCAPDAD registers
     mask &= 0x07FFFFFC;
     sndCapDad[channel] = (sndCapDad[channel] & ~mask) | (value & mask);
@@ -1070,6 +1101,7 @@ void Spu::writeSndCapDad(int channel, uint32_t mask, uint32_t value)
 
 void Spu::writeSndCapLen(int channel, uint16_t mask, uint16_t value)
 {
+    catchUp();
     // Write to one of the SNDCAPLEN registers
     sndCapLen[channel] = (sndCapLen[channel] & ~mask) | (value & mask);
 }
