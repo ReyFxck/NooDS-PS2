@@ -1,3 +1,4 @@
+// (Drives Spu::stepSample() directly: one call = one 32768Hz sample.)
 // The SPU skips the PCM fetch and the volume/pan mixing while nothing consumes
 // the mixed samples (no audio buffer, no sound capture). The channel state
 // machines must still advance bit-for-bit like the full mixing path, because
@@ -127,8 +128,8 @@ int main()
 
         for (int sample = 0; sample < kSamples; sample++)
         {
-            fast->spu.runSample();
-            full->spu.runSample();
+            fast->spu.stepSample();
+            full->spu.stepSample();
             if ((sample & 63) == 63)
                 expectSameState(fast->spu, full->spu);
         }

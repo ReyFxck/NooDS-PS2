@@ -29,11 +29,26 @@
 
 class Core;
 
+// Number of NDS samples the SPU runs per scheduler task while nothing consumes
+// them (no audio buffer, no sound capture). The channel state is always brought
+// up to date before any SPU register is read or written, so games observe the
+// same state as with one task per sample; only the PCM/ADPCM data fetch and the
+// moment a finished one-shot channel's flag clears can shift by up to this many
+// samples (~30 us each), and only when the game does not touch the SPU in
+// between. With an audio buffer or capture active the SPU runs one sample per
+// task as before. Set to 1 to disable batching.
+#ifndef NOODS_SPU_BATCH_SAMPLES
+#define NOODS_SPU_BATCH_SAMPLES 4
+#endif
+
 class Spu
 {
     public:
         Spu(Core *core);
         ~Spu();
+
+        // Called when the core rebases its cycle counter
+        void resetCycles(uint32_t cycles) { lastSampleCycles -= cycles; }
 
         void scheduleInit();
         void gbaScheduleInit();
@@ -51,10 +66,10 @@ class Spu
         uint16_t readGbaSoundBias()     { return gbaSoundBias;     }
         uint8_t  readGbaWaveRam(int index);
 
-        uint32_t readSoundCnt(int channel)  { return soundCnt[channel];  }
+        uint32_t readSoundCnt(int channel)  { catchUp(); return soundCnt[channel];  }
         uint16_t readMainSoundCnt()         { return mainSoundCnt;       }
         uint16_t readSoundBias()            { return soundBias;          }
-        uint8_t  readSndCapCnt(int channel) { return sndCapCnt[channel]; }
+        uint8_t  readSndCapCnt(int channel) { catchUp(); return sndCapCnt[channel]; }
         uint32_t readSndCapDad(int channel) { return sndCapDad[channel]; }
 
         void writeGbaSoundCntL(int channel, uint8_t value);
@@ -139,8 +154,17 @@ class Spu
         std::function<void()> runGbaSampleTask;
         std::function<void()> runSampleTask;
 
+        // Core cycles between two NDS samples (32768Hz)
+        static const int SAMPLE_CYCLES = 512 * 2;
+
+        // Core cycle at which the last NDS sample was run
+        int64_t lastSampleCycles = 0;
+
         void runGbaSample();
         void runSample();
+        void stepSample();
+        void catchUp();
+        bool needsOutput() const;
 
         void swapBuffers();
         void startChannel(int channel);
