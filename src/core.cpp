@@ -131,6 +131,7 @@ void Core::resetCycles()
     arm7Cycles -= std::min(globalCycles, arm7Cycles);
     timers[0].resetCycles();
     timers[1].resetCycles();
+    spu.resetCycles(globalCycles);
     globalCycles -= globalCycles;
     schedule(Task(&resetCyclesTask, 0x7FFFFFFF, TASK_PROFILE_CORE));
 }
@@ -251,15 +252,11 @@ void Core::runNdsFrame()
                         if (profileEnabled)
                             runProfile.arm9BlockFilterHits++;
 #endif
-                        uint32_t cycleBudget = tasks.front().cycles - globalCycles;
-                        if (interpreter[1].shouldRun())
-                        {
-                            if (arm7Cycles <= globalCycles)
-                                cycleBudget = 0;
-                            else
-                                cycleBudget = std::min(cycleBudget,
-                                    arm7Cycles - globalCycles);
-                        }
+                        uint32_t cycleBudget = coreBlockBudget(
+                            tasks.front().cycles - globalCycles,
+                            interpreter[1].shouldRun(),
+                            (arm7Cycles > globalCycles) ? arm7Cycles - globalCycles : 0,
+                            syncQuantum);
 
                         uint32_t minCycles = arm9BlockMinCycles[hotSlot];
                         if (!minCycles)
@@ -498,16 +495,11 @@ void Core::runNdsFrame()
                         if (profileEnabled)
                             runProfile.arm7BlockFilterHits++;
 #endif
-                        uint32_t globalBudget =
-                            tasks.front().cycles - globalCycles;
-                        if (interpreter[0].shouldRun())
-                        {
-                            if (arm9Cycles <= globalCycles)
-                                globalBudget = 0;
-                            else
-                                globalBudget = std::min(globalBudget,
-                                    arm9Cycles - globalCycles);
-                        }
+                        uint32_t globalBudget = coreBlockBudget(
+                            tasks.front().cycles - globalCycles,
+                            interpreter[0].shouldRun(),
+                            (arm9Cycles > globalCycles) ? arm9Cycles - globalCycles : 0,
+                            syncQuantum);
 
                         arm7CycleBudget = globalBudget >> 1;
                         uint32_t minCycles = arm7BlockMinCycles[hotSlot];
