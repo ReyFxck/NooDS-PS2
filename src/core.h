@@ -27,6 +27,7 @@
 #include <string>
 #include <vector>
 
+#include "core_budget.h"
 #include "cartridge.h"
 #include "cp15.h"
 #include "defines.h"
@@ -132,6 +133,11 @@ class Core
 
         uint32_t getGlobalCycles() { return globalCycles; }
 
+        // See core_budget.h: how far one CPU may run ahead of the other while
+        // executing native blocks (0 = original lockstep interleaving).
+        void setSyncQuantum(uint32_t cycles) { syncQuantum = cycles; }
+        uint32_t getSyncQuantum() const { return syncQuantum; }
+
         // Optional architecture-neutral ARM9 block runner. Positive values are
         // exact committed cycles. Zero is a transient non-budget fallback.
         // Normal negative values mean the block is valid but needs at least
@@ -230,6 +236,7 @@ class Core
         CoreRunProfile runProfile;
         void *arm9BlockRunnerContext = nullptr;
         Arm9BlockRunner arm9BlockRunner = nullptr;
+        uint32_t syncQuantum = NOODS_SYNC_QUANTUM_DEFAULT;
 
         static constexpr size_t ARM9_BLOCK_FILTER_SLOTS = 512;
         uint32_t arm9BlockHotPc[ARM9_BLOCK_FILTER_SLOTS] = {};
