@@ -207,14 +207,9 @@ bool Gpu::getFrame16(uint16_t *out)
     }
     else
     {
-        // Four source pixels per iteration, no intermediate RGB8888 buffer.
-        for (int i = 0; i < 256 * 192 * 2; i += 4)
-        {
-            out[i + 0] = gpuRgb6ToGsCt16(source[i + 0]);
-            out[i + 1] = gpuRgb6ToGsCt16(source[i + 1]);
-            out[i + 2] = gpuRgb6ToGsCt16(source[i + 2]);
-            out[i + 3] = gpuRgb6ToGsCt16(source[i + 3]);
-        }
+        // Four source pixels per iteration with 64-bit loads/stores, no
+        // intermediate RGB8888 buffer.
+        gpuConvertRgb6ToGsCt16(source, out, 256 * 192 * 2);
     }
 
     recycleFrame();
