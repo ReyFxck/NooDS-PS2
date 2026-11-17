@@ -72,4 +72,44 @@ inline uint16_t gpuRgb5ToGsCt16(uint32_t color)
     return static_cast<uint16_t>(0x8000u | (color & 0x7FFFu));
 }
 
+// Two adjacent RGB6 pixels (one 64-bit load, little endian: first pixel in the
+// low half) to two CT16 pixels packed into 32 bits (first pixel in the low
+// half). Same arithmetic as gpuRgb6ToGsCt16(), done on both lanes at once.
+// Bits above the 18 colour bits of each lane (alpha/flags) are ignored.
+inline uint32_t gpuRgb6x2ToGsCt16(uint64_t pair)
+{
+    const uint64_t lanes = 0x0000800000008000ull |
+        ((pair >> 1) & 0x0000001F0000001Full) |
+        ((pair >> 2) & 0x000003E0000003E0ull) |
+        ((pair >> 3) & 0x00007C0000007C00ull);
+    return static_cast<uint32_t>(lanes | (lanes >> 16));
+}
+
+// Converts a run of RGB6 pixels (count must be a multiple of 4) to CT16. Uses
+// 64-bit loads and stores when both buffers are 8-byte aligned (always the case
+// for the PS2 frame buffers); any other alignment takes the scalar path.
+inline void gpuConvertRgb6ToGsCt16(const uint32_t *source, uint16_t *out, uint32_t count)
+{
+    typedef uint64_t __attribute__((may_alias, aligned(8))) Aligned64;
+
+    if (((reinterpret_cast<uintptr_t>(source) | reinterpret_cast<uintptr_t>(out)) & 7) == 0)
+    {
+        for (uint32_t i = 0; i < count; i += 4)
+        {
+            const uint64_t lo = gpuRgb6x2ToGsCt16(*reinterpret_cast<const Aligned64*>(source + i));
+            const uint64_t hi = gpuRgb6x2ToGsCt16(*reinterpret_cast<const Aligned64*>(source + i + 2));
+            *reinterpret_cast<Aligned64*>(out + i) = lo | (hi << 32);
+        }
+        return;
+    }
+
+    for (uint32_t i = 0; i < count; i += 4)
+    {
+        out[i + 0] = gpuRgb6ToGsCt16(source[i + 0]);
+        out[i + 1] = gpuRgb6ToGsCt16(source[i + 1]);
+        out[i + 2] = gpuRgb6ToGsCt16(source[i + 2]);
+        out[i + 3] = gpuRgb6ToGsCt16(source[i + 3]);
+    }
+}
+
 #endif // GPU_COLOR_H

@@ -1,7 +1,7 @@
 CXX ?= g++
 
 TARGETS := cartridge_io_test arm_alu_test scheduler_queue_test gpu_2d_math_test \
-	gpu_3d_math_test thumb_alu_math_test thumb_dynarec_test gpu_color_test memory_page_cache_test r5900_carry_flags_test gpu_2d_capture_test cart_dma_test gpu_3d_alpha_test spu_state_test core_budget_test spu_batch_test
+	gpu_3d_math_test thumb_alu_math_test thumb_dynarec_test gpu_color_test memory_page_cache_test r5900_carry_flags_test gpu_2d_capture_test cart_dma_test gpu_3d_alpha_test spu_state_test core_budget_test spu_batch_test gpu_color_convert_test
 
 CXXFLAGS := -O2 -Wall -Wextra -std=gnu++11 -fno-rtti \
 	-DNOODS_PS2 -DNOODS_PS2_PORTABLE_TEST -DNOODS_PROFILE -ffunction-sections -fdata-sections -I../src
@@ -59,6 +59,9 @@ core_budget_test: core_budget_test.cpp $(wildcard ../src/*.cpp)
 spu_batch_test: spu_batch_test.cpp $(wildcard ../src/*.cpp)
 	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -pthread -o $@
 
+gpu_color_convert_test: gpu_color_convert_test.cpp ../src/gpu_color.h
+	$(CXX) $(CXXFLAGS) $< $(LDFLAGS) -o $@
+
 test: $(TARGETS)
 	./cartridge_io_test
 	./arm_alu_test
@@ -76,6 +79,7 @@ test: $(TARGETS)
 	./spu_state_test
 	./core_budget_test
 	./spu_batch_test
+	./gpu_color_convert_test
 
 clean:
 	rm -f $(TARGETS) cartridge_io_test.nds cartridge_io_test.sav
