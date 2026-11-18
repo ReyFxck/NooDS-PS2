@@ -50,7 +50,8 @@ PS2_SOURCES := \
 	src/ps2/ps2_file.cpp \
 	src/ps2/arm_alu.cpp \
 	src/ps2/r5900_code_cache.cpp \
-	src/ps2/dynarec_r5900.cpp
+	src/ps2/dynarec_r5900.cpp \
+	src/ps2/present.cpp
 
 SOURCES := $(PS2_SOURCES) $(CORE_SOURCES)
 OBJECTS := $(patsubst src/%.cpp,$(BUILD)/%.o,$(SOURCES))
@@ -62,6 +63,9 @@ PROFILE_LEVEL ?= 2
 # blocks (see src/core_budget.h). 0 keeps the original lockstep interleaving.
 # Changing it needs a clean rebuild, e.g. make -f Makefile.ps2 clean all SYNC_QUANTUM=32
 SYNC_QUANTUM ?= 0
+# Presentation pacing (see src/ps2/present.cpp). "adaptive" skips the vsync wait
+# when the emulator is already slower than the display; "vsync" always waits.
+PRESENT ?= adaptive
 
 COMMON_FLAGS := -D_EE -DNOODS_PS2 -G0 -Wall -Wextra -std=gnu++11 \
                 -fno-rtti \
@@ -69,6 +73,10 @@ COMMON_FLAGS := -D_EE -DNOODS_PS2 -G0 -Wall -Wextra -std=gnu++11 \
                 -DNOODS_BUILD_STATE=\"$(BUILD_STATE)\" \
                 -DNOODS_SYNC_QUANTUM_DEFAULT=$(SYNC_QUANTUM) \
                 -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include -I$(PS2SDK)/ports/include -I$(GSKIT)/include -Isrc
+
+ifeq ($(PRESENT),vsync)
+COMMON_FLAGS += -DNOODS_PS2_PRESENT_VSYNC_ALWAYS
+endif
 
 ifeq ($(PROFILE),1)
 COMMON_FLAGS += -DNOODS_PROFILE -DNOODS_PROFILE_LEVEL=$(PROFILE_LEVEL)
