@@ -284,8 +284,9 @@ namespace VU1G3D
 
     void executeProgram(uint32_t programOffset)
     {
-        // Start VU1 microcode at programOffset
-        VU1_MSAR = programOffset;
+        // Start VU1 microcode at programOffset (byte offset → instruction address)
+        // MSAR register expects instruction index (byte_offset / 4)
+        VU1_MSAR = programOffset >> 2;
         VU1_STAT = 0;
         VU1_STAT |= 0x100;  // Run VU1 program
     }
