@@ -904,6 +904,38 @@ void Gpu2D::drawScanline(int line)
                         alphaMulB[(blend >> 12) & 0x3F], 63);
                     pixel = (b << 12) | (g << 6) | r;
                 }
+#ifdef NOODS_PS2
+                // MMI fast path: process 2 pixels at once for standard mode 1 alpha blend
+                // Conditions: mode==1, !forceAlpha, bottom not 3D (no BIT(26)), effectsUnmasked
+                else if (mode == 1 && !forceAlpha && effectsUnmasked && i + 1 < 256 &&
+                         !(layers[1][i] & BIT(26)) && !(layers[1][i + 1] & BIT(26)) &&
+                         !(layers[0][i] & BIT(26)) && !(layers[0][i + 1] & BIT(26)) &&
+                         (i == 0 || !(windowMask[i] & BIT(5))) && !(windowMask[i + 1] & BIT(5)))
+                {
+                    // Both pixels take standard mode 1 path - use MMI
+                    GPU2D_DETAIL_INC(composeDetail, alphaBlend, 2);
+                    
+                    // Get BLDALPHA factors
+                    const uint8_t eva = std::min<uint16_t>(bldAlpha & 0x1F, 16);
+                    const uint8_t evb = std::min<uint16_t>((bldAlpha >> 8) & 0x1F, 16);
+                    
+                    // Convert bottom layer pixels from RGB5 to RGB6
+                    uint32_t bot0 = rgb5ToRgb6(layers[1][i]);
+                    uint32_t bot1 = rgb5ToRgb6(layers[1][i + 1]);
+                    
+                    // Process both with MMI
+                    uint32_t top[2] = { pixel, layers[0][i + 1] };
+                    uint32_t bot[2] = { bot0, bot1 };
+                    uint32_t out[2];
+                    mmiAlphaBlend(top, bot, out, 2, eva, evb);
+                    
+                    output[i] = out[0];
+                    output[i + 1] = out[1];
+                    GPU2D_DETAIL_INC(composeDetail, directWrites, 2);
+                    i++; // Skip next pixel
+                    continue;
+                }
+#endif
                 else if (mode == 2)
                 {
                     GPU2D_DETAIL_INC(composeDetail, brightUp, 1);
