@@ -167,6 +167,81 @@ static inline void mmiBrightnessDecrease(uint32_t *pixels, int count, const uint
         pixels[i] = (b << 12) | (g << 6) | r;
     }
 }
+
+// MMI-accelerated alpha blending (mode 1, BLDALPHA)
+// Processes 2 pixels at a time using direct computation instead of lookup tables
+// Formula: result = min((A * eva + B * evb) >> 4, 63) per component
+static inline void mmiAlphaBlend(uint32_t *top, uint32_t *bottom, uint32_t *output, int count, uint8_t eva, uint8_t evb)
+{
+    // eva and evb are 0-16 (from BLDALPHA)
+    // For each component: result = min((top * eva + bottom * evb) >> 4, 63)
+    for (int i = 0; i + 1 < count; i += 2)
+    {
+        uint64_t topPair = *reinterpret_cast<uint64_t*>(&top[i]);
+        uint64_t botPair = *reinterpret_cast<uint64_t*>(&bottom[i]);
+
+        uint32_t t0 = static_cast<uint32_t>(topPair);
+        uint32_t t1 = static_cast<uint32_t>(topPair >> 32);
+        uint32_t b0 = static_cast<uint32_t>(botPair);
+        uint32_t b1 = static_cast<uint32_t>(botPair >> 32);
+
+        // Process first pixel
+        uint32_t tr0 = (t0 >> 0) & 0x3F;
+        uint32_t tg0 = (t0 >> 6) & 0x3F;
+        uint32_t tb0 = (t0 >> 12) & 0x3F;
+        uint32_t br0 = (b0 >> 0) & 0x3F;
+        uint32_t bg0 = (b0 >> 6) & 0x3F;
+        uint32_t bb0 = (b0 >> 12) & 0x3F;
+
+        uint32_t r0 = (tr0 * eva + br0 * evb) >> 4;
+        uint32_t g0 = (tg0 * eva + bg0 * evb) >> 4;
+        uint32_t b0c = (tb0 * eva + bb0 * evb) >> 4;
+        r0 = r0 > 0x3F ? 0x3F : r0;
+        g0 = g0 > 0x3F ? 0x3F : g0;
+        b0c = b0c > 0x3F ? 0x3F : b0c;
+        t0 = (b0c << 12) | (g0 << 6) | r0;
+
+        // Process second pixel
+        uint32_t tr1 = (t1 >> 0) & 0x3F;
+        uint32_t tg1 = (t1 >> 6) & 0x3F;
+        uint32_t tb1 = (t1 >> 12) & 0x3F;
+        uint32_t br1 = (b1 >> 0) & 0x3F;
+        uint32_t bg1 = (b1 >> 6) & 0x3F;
+        uint32_t bb1 = (b1 >> 12) & 0x3F;
+
+        uint32_t r1 = (tr1 * eva + br1 * evb) >> 4;
+        uint32_t g1 = (tg1 * eva + bg1 * evb) >> 4;
+        uint32_t b1c = (tb1 * eva + bb1 * evb) >> 4;
+        r1 = r1 > 0x3F ? 0x3F : r1;
+        g1 = g1 > 0x3F ? 0x3F : g1;
+        b1c = b1c > 0x3F ? 0x3F : b1c;
+        t1 = (b1c << 12) | (g1 << 6) | r1;
+
+        *reinterpret_cast<uint64_t*>(&output[i]) = (static_cast<uint64_t>(t1) << 32) | t0;
+    }
+
+    // Handle odd pixel
+    if (count & 1)
+    {
+        int i = count - 1;
+        uint32_t t = top[i];
+        uint32_t b = bottom[i];
+        uint32_t tr = (t >> 0) & 0x3F;
+        uint32_t tg = (t >> 6) & 0x3F;
+        uint32_t tb = (t >> 12) & 0x3F;
+        uint32_t br = (b >> 0) & 0x3F;
+        uint32_t bg = (b >> 6) & 0x3F;
+        uint32_t bb = (b >> 12) & 0x3F;
+
+        uint32_t r = (tr * eva + br * evb) >> 4;
+        uint32_t g = (tg * eva + bg * evb) >> 4;
+        uint32_t bc = (tb * eva + bb * evb) >> 4;
+        r = r > 0x3F ? 0x3F : r;
+        g = g > 0x3F ? 0x3F : g;
+        bc = bc > 0x3F ? 0x3F : bc;
+        output[i] = (bc << 12) | (g << 6) | r;
+    }
+}
 #endif
 
 Gpu2D::Gpu2D(Core *core, bool engine): core(core), engine(engine)
