@@ -86,7 +86,7 @@ vu1_mtx_mul_end:
 
 // Program 1: Vertex Transform (Clip Matrix * Vertex)
 // Input:  Clip matrix at 0x0200, Vertices at 0x0400 (count at 0x0320)
-// Output: Transformed vertices at 0x1000, Screen coords at 0x1080
+// Output: Clip space vertices at 0x1000 (x, y, z, w) - NO perspective divide
 // Process up to 192 vertices
 
 .global vu1_vtx_xform_start
@@ -96,9 +96,6 @@ vu1_vtx_xform_start:
     lqc2    vf13, 0x0210(zero)   # Clip col 1
     lqc2    vf14, 0x0220(zero)   # Clip col 2
     lqc2    vf15, 0x0230(zero)   # Clip col 3
-
-    # Load viewport params
-    lqc2    vf16, 0x0300(zero)   # viewport: [width/2, height/2, x_offs, y_offs, zScale, 1.0, 0, 0]
 
     # Load vertex count (at 0x0300+32 = 0x0320)
     lqc2    vi00, 0x0320(zero)   # vi00.x = vertex_count
@@ -113,24 +110,14 @@ vtx_loop:
     # Load vertex (x, y, z, w) - 16 bytes
     lqc2    vf20, 0x0400(vi02)   # vertex in (x, y, z, w)
 
-    # Transform: v' = Clip * v
+    # Transform: v' = Clip * v (clip space, keep w for later perspective divide)
     vmulq.xyzw vf21, vf12, vf20[x]  # col0 * v.x
     vmaddq.xyzw vf21, vf13, vf20[y] # + col1 * v.y
     vmaddq.xyzw vf21, vf14, vf20[z] # + col2 * v.z
     vmaddq.xyzw vf21, vf15, vf20[w] # + col3 * v.w
 
-    # Perspective divide: x/w, y/w, z/w
-    vdiv    vf22, vf21[w], vf21[w]  # 1/w
-    vmulq.xyzw vf21, vf21, vf22     # (x/w, y/w, z/w, 1)
-
-    # Viewport transform:
-    vadd.xyzw  vf23, vf21, vf16[w]  # +1 for x, y, z (vf16.w = 1.0)
-    vmul.xyz   vf23, vf23, vf16[x]  # * width/2 for x, height/2 for y, scale_z for z
-    vadd.xyz   vf23, vf23, vf16[y]  # + viewport_x, viewport_y
-
-    # Store transformed vertex
-    sqc2    vf21, 0x1000(vi02)  # Store normalized (x/w, y/w, z/w, 1)
-    sqc2    vf23, 0x1080(vi02)  # Store viewport coords (x_screen, y_screen, z_screen, w)
+    # Store clip space vertex (x, y, z, w) - NO perspective divide yet
+    sqc2    vf21, 0x1000(vi02)
 
     iaddiu  vi02, vi02, 16       # Next vertex (16 bytes)
     j       vtx_loop

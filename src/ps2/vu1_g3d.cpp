@@ -37,15 +37,16 @@ static const uint32_t vu1_mtx_mul_program[] = {
 };
 static const uint32_t vu1_mtx_mul_size = sizeof(vu1_mtx_mul_program);
 
-// Vertex Transform Program (32 instructions = 128 bytes)
+// Vertex Transform Program (14 instructions = 56 bytes) - ONLY matrix multiply, no perspective divide
 static const uint32_t vu1_vtx_xform_program[] = {
-    0xC4C00000, 0xC4D00000, 0xC4E00000, 0xC4F00000,
-    0xC5000000, 0xC2000000, 0x14010000, 0x14020000,
-    0x14410000, 0x00000000, 0xC5400000, 0x48000000,
-    0x48900000, 0x48A00000, 0x48B00000, 0x44220000,
-    0x49500000, 0x48F00000, 0x49800000, 0x48F00000,
-    0xD5400000, 0xD5400080, 0x14820010, 0x08000000,
-    0x00000000, 0x00000000, 0x00000000, 0x00000000
+    0xC4C00000, 0xC4D00000, 0xC4E00000, 0xC4F00000,  // load clip matrix
+    0xC2000000, 0x14010000, 0x14020000,              // load count, init indices
+    0x14410000, 0x00000000,                          // loop start: beq + nop
+    0xC5400000,                                      // load vertex
+    0x48000000, 0x48900000, 0x48A00000, 0x48B00000, // matrix multiply
+    0xD5400000,                                      // store result
+    0x14820010, 0x08000000,                          // iaddiu + j loop
+    0x00000000, 0x00000000                           // nops
 };
 static const uint32_t vu1_vtx_xform_size = sizeof(vu1_vtx_xform_program);
 
@@ -233,7 +234,7 @@ namespace VU1G3D
         executeProgram(PROG_VTX_XFORM);
         waitForVU1();
 
-        // Copy results back
+        // Copy results back (clip space vertices at VU1_VTX_OUT)
         vu1MemCopy(output, (void*)(VU1_MEM_BASE + VU1_VTX_OUT), count * sizeof(VertexOut));
 
         return count;

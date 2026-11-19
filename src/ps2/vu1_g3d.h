@@ -41,10 +41,11 @@ namespace VU1G3D
         float x, y, z, w;
     };
 
+    // VU1 outputs clip-space vertices (no perspective divide, no viewport transform)
+    // This matches the original GPU 3D pipeline where swapBuffers() does perspective divide
     struct VertexOut
     {
-        float x, y, z, w;      // Normalized (x/w, y/w, z/w, 1)
-        float sx, sy, sz, sw;  // Screen space
+        float x, y, z, w;  // Clip space (x, y, z, w) - perspective divide happens in swapBuffers()
     };
 
     // GS Triangle Packet (simplified)
@@ -75,8 +76,8 @@ namespace VU1G3D
     void setClipMatrix(const float* matrix);  // Column-major
     void setViewport(float width, float height, float x, float y, float zScale);
 
-    // Vertex transformation
-    // Returns number of vertices transformed
+    // Vertex transformation (clip matrix * vertex, NO perspective divide)
+// Returns number of vertices transformed
     int transformVertices(const VertexIn* vertices, int count, VertexOut* output);
 
     // Triangle clipping and GS packet generation
