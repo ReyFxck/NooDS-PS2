@@ -124,6 +124,44 @@ static void vu1MatrixMul(Matrix &result, const Matrix &a, const Matrix &b)
         int col = i % 4;
         result.data[row * 4 + col] = (int32_t)(resultFloat[col * 4 + row] * 4096.0f);
     }
+
+    // DEBUG: Compare VU1 vs CPU clip matrix
+    static int mtxDebugCount = 0;
+    if (mtxDebugCount < 5)
+    {
+        Matrix cpuResult;
+        for (int y = 0; y < 4; y++)
+        {
+            for (int x = 0; x < 4; x++)
+            {
+                cpuResult.data[y * 4 + x] = ((int64_t)a.data[y * 4 + 0] * b.data[0 + x] + (int64_t)a.data[y * 4 + 1] * b.data[4  + x] +
+                                          (int64_t)a.data[y * 4 + 2] * b.data[8 + x] + (int64_t)a.data[y * 4 + 3] * b.data[12 + x]) >> 12;
+            }
+        }
+
+        bool mismatch = false;
+        for (int i = 0; i < 16; i++)
+        {
+            if (result.data[i] != cpuResult.data[i])
+            {
+                mismatch = true;
+                break;
+            }
+        }
+
+        if (mismatch)
+        {
+            printf("[VU1DEBUG] ClipMatrix mismatch! VU1 vs CPU:\n");
+            for (int y = 0; y < 4; y++)
+            {
+                printf("  Row%d: VU1=(%d,%d,%d,%d) CPU=(%d,%d,%d,%d)\n",
+                    y,
+                    result.data[y*4+0], result.data[y*4+1], result.data[y*4+2], result.data[y*4+3],
+                    cpuResult.data[y*4+0], cpuResult.data[y*4+1], cpuResult.data[y*4+2], cpuResult.data[y*4+3]);
+            }
+        }
+        mtxDebugCount++;
+    }
 }
 
 // VU1-accelerated vertex transform (vertex * matrix)
@@ -166,6 +204,32 @@ static void vu1VertexMul(Vertex &result, const Vertex &vtx, const Matrix &mtx)
     result.y = (int32_t)(vout.y * 4096.0f);
     result.z = (int32_t)(vout.z * 4096.0f);
     result.w = (int32_t)(vout.w * 4096.0f);
+
+    // DEBUG: Compare VU1 vs CPU results
+    static int debugCount = 0;
+    if (debugCount < 10)
+    {
+        Vertex cpuResult;
+        cpuResult.x = ((int64_t)vtx.x * mtx.data[0] + (int64_t)vtx.y * mtx.data[4] + (int64_t)vtx.z * mtx.data[8]  + (int64_t)vtx.w * mtx.data[12]) >> 12;
+        cpuResult.y = ((int64_t)vtx.x * mtx.data[1] + (int64_t)vtx.y * mtx.data[5] + (int64_t)vtx.z * mtx.data[9]  + (int64_t)vtx.w * mtx.data[13]) >> 12;
+        cpuResult.z = ((int64_t)vtx.x * mtx.data[2] + (int64_t)vtx.y * mtx.data[6] + (int64_t)vtx.z * mtx.data[10] + (int64_t)vtx.w * mtx.data[14]) >> 12;
+        cpuResult.w = ((int64_t)vtx.x * mtx.data[3] + (int64_t)vtx.y * mtx.data[7] + (int64_t)vtx.z * mtx.data[11] + (int64_t)vtx.w * mtx.data[15]) >> 12;
+
+        int dx = result.x - cpuResult.x;
+        int dy = result.y - cpuResult.y;
+        int dz = result.z - cpuResult.z;
+        int dw = result.w - cpuResult.w;
+
+        if (dx != 0 || dy != 0 || dz != 0 || dw != 0)
+        {
+            printf("[VU1DEBUG] Vertex mismatch: VU1=(%d,%d,%d,%d) CPU=(%d,%d,%d,%d) diff=(%d,%d,%d,%d) vtx=(%d,%d,%d,%d)\n",
+                result.x, result.y, result.z, result.w,
+                cpuResult.x, cpuResult.y, cpuResult.z, cpuResult.w,
+                dx, dy, dz, dw,
+                vtx.x, vtx.y, vtx.z, vtx.w);
+        }
+        debugCount++;
+    }
 }
 #endif
 
