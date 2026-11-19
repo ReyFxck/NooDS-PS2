@@ -11624,7 +11624,8 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         current->maxMemoryWrites > 0 && current->maxMemoryWrites <= 8)
     {
         // Known hot memcpy loops
-        if (current->guestPc == 0x0210F490)
+        // Block starts at 0210F48C (CMP), includes 0210F490 (LDMIA), 0210F494 (STMIA), 0210F498 (B.LT)
+        if (current->guestPc == 0x0210F48C || current->guestPc == 0x0210F490)
         {
             state.nextPc = current->guestPc;
             if (guestInstructions)
