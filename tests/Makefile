@@ -49,7 +49,7 @@ gpu_color_test: gpu_color_test.cpp
 	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -o $@
 
 memory_page_cache_test: memory_page_cache_test.cpp
-	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -o $@
+	$(CXX) $(CXXFLAGS) -DNOODS_PS2 $^ $(LDFLAGS) -o $@
 
 spu_state_test: spu_state_test.cpp $(wildcard ../src/*.cpp)
 	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -pthread -o $@
