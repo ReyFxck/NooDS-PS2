@@ -183,6 +183,23 @@ namespace VU1G3D
         uint32_t srcA = VU1_MTX_STACK + srcAIndex * 64;
         uint32_t srcB = VU1_MTX_STACK + srcBIndex * 64;
 
+        // DEBUG: Read back input matrices before multiply
+        static int mulDebugCount = 0;
+        if (mulDebugCount < 3)
+        {
+            float mtxA[16], mtxB[16];
+            vu1MemCopy(mtxA, (void*)(VU1_MEM_BASE + srcA), 64);
+            vu1MemCopy(mtxB, (void*)(VU1_MEM_BASE + srcB), 64);
+            printf("[VU1DEBUG] multiplyMatrix(%d,%d,%d) inputs:\n", dstIndex, srcAIndex, srcBIndex);
+            printf("  A (col-major): [%.4f,%.4f,%.4f,%.4f] [%.4f,%.4f,%.4f,%.4f] [%.4f,%.4f,%.4f,%.4f] [%.4f,%.4f,%.4f,%.4f]\n",
+                mtxA[0],mtxA[1],mtxA[2],mtxA[3], mtxA[4],mtxA[5],mtxA[6],mtxA[7],
+                mtxA[8],mtxA[9],mtxA[10],mtxA[11], mtxA[12],mtxA[13],mtxA[14],mtxA[15]);
+            printf("  B (col-major): [%.4f,%.4f,%.4f,%.4f] [%.4f,%.4f,%.4f,%.4f] [%.4f,%.4f,%.4f,%.4f] [%.4f,%.4f,%.4f,%.4f]\n",
+                mtxB[0],mtxB[1],mtxB[2],mtxB[3], mtxB[4],mtxB[5],mtxB[6],mtxB[7],
+                mtxB[8],mtxB[9],mtxB[10],mtxB[11], mtxB[12],mtxB[13],mtxB[14],mtxB[15]);
+            mulDebugCount++;
+        }
+
         // Copy to microcode expected locations
         vu1MemCopy((void*)(VU1_MEM_BASE + 0x0100), (void*)(VU1_MEM_BASE + srcA), 64);
         vu1MemCopy((void*)(VU1_MEM_BASE + 0x0140), (void*)(VU1_MEM_BASE + srcB), 64);
@@ -190,6 +207,17 @@ namespace VU1G3D
         // Execute matrix multiply program
         executeProgram(PROG_MTX_MUL);
         waitForVU1();
+
+        // DEBUG: Read back result from microcode output location
+        if (mulDebugCount <= 3)
+        {
+            float result[16];
+            vu1MemCopy(result, (void*)(VU1_MEM_BASE + 0x0180), 64);
+            printf("[VU1DEBUG] multiplyMatrix result at 0x0180:\n");
+            printf("  [%.4f,%.4f,%.4f,%.4f] [%.4f,%.4f,%.4f,%.4f] [%.4f,%.4f,%.4f,%.4f] [%.4f,%.4f,%.4f,%.4f]\n",
+                result[0],result[1],result[2],result[3], result[4],result[5],result[6],result[7],
+                result[8],result[9],result[10],result[11], result[12],result[13],result[14],result[15]);
+        }
 
         // Copy result back to destination
         uint32_t dst = VU1_MTX_STACK + dstIndex * 64;
