@@ -106,9 +106,12 @@ static void vu1MatrixMul(Matrix &result, const Matrix &a, const Matrix &b)
     }
 
     // Use VU1 matrix multiply (stack index 0 for temp A, 1 for temp B, 2 for result)
-    VU1G3D::loadMatrix4x4(0, mtxA);
-    VU1G3D::loadMatrix4x4(1, mtxB);
-    VU1G3D::multiplyMatrix(2, 0, 1);
+    // NOTE: Column-major matrices multiply in REVERSE order: (A*B)^T = B^T * A^T
+    // CPU: clip = coordinate * projection (row-major)
+    // VU1: clip_col_major = projection_col_major * coordinate_col_major
+    VU1G3D::loadMatrix4x4(0, mtxA);  // coordinate
+    VU1G3D::loadMatrix4x4(1, mtxB);  // projection
+    VU1G3D::multiplyMatrix(2, 1, 0); // projection * coordinate (reversed!)
 
     // Read back result (column-major float)
     float resultFloat[16];
