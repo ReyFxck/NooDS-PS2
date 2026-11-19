@@ -26,10 +26,13 @@ namespace VU1G3D
     constexpr uint32_t VU1_TRI_OUT = 0x1C00;
     constexpr uint32_t VU1_SCRATCH = 0x2000;
 
-    // Microcode program offsets
+    // Microcode program offsets (aligned to 128-byte boundaries, no overlap)
+    // Matrix multiply: 368 bytes (46 instruction pairs) → use 0x0180 (384) space
     constexpr uint32_t PROG_MTX_MUL = 0x0000;
-    constexpr uint32_t PROG_VTX_XFORM = 0x0080;
-    constexpr uint32_t PROG_TRI_CLIP = 0x0180;
+    // Vertex transform: 256 bytes (32 instruction pairs) → use 0x0100 (256) space
+    constexpr uint32_t PROG_VTX_XFORM = 0x0180;
+    // Triangle clip: 16 bytes (2 instruction pairs)
+    constexpr uint32_t PROG_TRI_CLIP = 0x0280;
 
     // Max vertices/polygons
     constexpr int MAX_VERTICES = 192;

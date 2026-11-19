@@ -1,0 +1,40 @@
+.vu
+	.align 4
+	.global	VU1VtxXform_CodeStart
+	.global	VU1VtxXform_CodeEnd
+VU1VtxXform_CodeStart:
+                    nop                             iaddiu VI00, VI00, 0
+                    nop                             ilw.w VI01, 0x320(VI00)
+                    nop                             lq VF12, 0x200(VI00)
+                    nop                             lq VF13, 0x210(VI00)
+                    nop                             lq VF14, 0x220(VI00)
+                    nop                             lq VF15, 0x230(VI00)
+                    nop                             iaddiu VI02, VI00, 0
+vtx_loop:
+                    nop                             nop
+                    nop                             ibeq VI01, VI02, vtx_done
+                    nop                             nop
+                    nop                             nop
+                    nop                             lq VF20, 0x400(VI02)
+                    nop                             nop
+                    nop                             nop
+                    nop                             nop
+                    mulax.xyzw ACC, VF12, VF20x     nop
+                    madday.xyzw ACC, VF13, VF20y    nop
+                    maddaz.xyzw ACC, VF14, VF20z    nop
+                    maddw.xyzw VF21, VF15, VF20w    nop
+                    nop                             nop
+                    nop                             nop
+                    nop                             nop
+                    nop                             sq VF21, 0x1000(VI02)
+                    nop                             iaddiu VI02, VI02, 16
+                    nop                             nop
+                    nop                             ibne VI01, VI02, vtx_loop
+                    nop                             nop
+vtx_done:
+                    nop                             nop
+                    nop                             nop
+                    nop[E]                          nop
+                    nop                             nop
+	.align 4
+VU1VtxXform_CodeEnd:

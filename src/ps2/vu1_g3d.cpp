@@ -21,38 +21,42 @@
 #define VU1_STAT            VU1_STAT_REG
 #define VU1_FBRST           VU1_FBRST_REG
 
-// VU1 Microcode programs embedded in C++ (to avoid linking issues with .s file)
-// These match the .rodata section from the original assembly file
+// VU1 Microcode programs - assembled from .vsm files with dvp-as
+// These are proper VU1 microcode binaries (not MIPS assembly!)
 
-// Matrix Multiply Program (32 instructions = 128 bytes)
+// Matrix Multiply Program (46 instruction pairs = 184 bytes)
+// C = A * B (4x4 column-major): A at 0x0100, B at 0x0140, result at 0x0180
+// Compiled from VCL via openvcl -> VSM -> dvp-as
 static const uint32_t vu1_mtx_mul_program[] = {
-    0xC4000000, 0xC4100000, 0xC4200000, 0xC4300000,
-    0xC4400000, 0xC4500000, 0xC4600000, 0xC4700000,
-    0x48000000, 0x48900000, 0x48A00000, 0x48B00000,
-    0x49000000, 0x49900000, 0x49A00000, 0x49B00000,
-    0x4A000000, 0x4A900000, 0x4AA00000, 0x4AB00000,
-    0x4B000000, 0x4B900000, 0x4BA00000, 0x4BB00000,
-    0xD4800000, 0xD4900000, 0xD4A00000, 0xD4B00000,
-    0x00000000, 0x00000000
+    0x10000000, 0x000002FF, 0x01E00100, 0x000002FF, 0x01E40140, 0x000002FF, 0x01E10110, 0x000002FF,
+    0x01E20120, 0x000002FF, 0x01E30130, 0x000002FF, 0x01E50150, 0x01E401BC, 0x01E60160, 0x01E408BD,
+    0x01E70170, 0x01E410BE, 0x8000033C, 0x01E41A0B, 0x8000033C, 0x01E501BC, 0x8000033C, 0x01E508BD,
+    0x8000033C, 0x01E510BE, 0x03E04180, 0x01E51A4B, 0x8000033C, 0x01E601BC, 0x8000033C, 0x01E608BD,
+    0x8000033C, 0x01E610BE, 0x03E04990, 0x01E61A8B, 0x8000033C, 0x01E701BC, 0x8000033C, 0x01E708BD,
+    0x8000033C, 0x01E710BE, 0x03E051A0, 0x01E71ACB, 0x8000033C, 0x000002FF, 0x8000033C, 0x000002FF,
+    0x8000033C, 0x000002FF, 0x03E059B0, 0x000002FF, 0x8000033C, 0x000002FF, 0x8000033C, 0x000002FF,
+    0x8000033C, 0x400002FF, 0x8000033C, 0x000002FF,
 };
 static const uint32_t vu1_mtx_mul_size = sizeof(vu1_mtx_mul_program);
 
-// Vertex Transform Program (14 instructions = 56 bytes) - ONLY matrix multiply, no perspective divide
+// Vertex Transform Program (32 instruction pairs = 128 bytes)
+// Clip space vertex transform (no perspective divide, no viewport)
+// Compiled from VCL via openvcl -> VSM -> dvp-as
 static const uint32_t vu1_vtx_xform_program[] = {
-    0xC4C00000, 0xC4D00000, 0xC4E00000, 0xC4F00000,  // load clip matrix
-    0xC2000000, 0x14010000, 0x14020000,              // load count, init indices
-    0x14410000, 0x00000000,                          // loop start: beq + nop
-    0xC5400000,                                      // load vertex
-    0x48000000, 0x48900000, 0x48A00000, 0x48B00000, // matrix multiply
-    0xD5400000,                                      // store result
-    0x14820010, 0x08000000,                          // iaddiu + j loop
-    0x00000000, 0x00000000                           // nops
+    0x10000000, 0x000002FF, 0x08210320, 0x000002FF, 0x01EC0200, 0x000002FF, 0x01ED0210, 0x000002FF,
+    0x01EE0220, 0x000002FF, 0x01EF0230, 0x000002FF, 0x10020000, 0x000002FF, 0x8000033C, 0x000002FF,
+    0x50011012, 0x000002FF, 0x8000033C, 0x000002FF, 0x8000033C, 0x000002FF, 0x01F41400, 0x000002FF,
+    0x8000033C, 0x000002FF, 0x8000033C, 0x000002FF, 0x8000033C, 0x000002FF, 0x8000033C, 0x01F461BC,
+    0x8000033C, 0x01F468BD, 0x8000033C, 0x01F470BE, 0x8000033C, 0x01F47D4B, 0x8000033C, 0x000002FF,
+    0x8000033C, 0x000002FF, 0x8000033C, 0x000002FF, 0x03E2A800, 0x000002FF, 0x10021010, 0x000002FF,
+    0x8000033C, 0x000002FF, 0x520117ED, 0x000002FF, 0x8000033C, 0x000002FF, 0x8000033C, 0x000002FF,
+    0x8000033C, 0x000002FF, 0x8000033C, 0x400002FF, 0x8000033C, 0x000002FF, 0x00000000, 0x00000000,
 };
 static const uint32_t vu1_vtx_xform_size = sizeof(vu1_vtx_xform_program);
 
-// Triangle Clip Program (placeholder, 2 instructions = 8 bytes)
+// Triangle Clip Program (placeholder, 2 instruction pairs = 8 bytes)
 static const uint32_t vu1_tri_clip_program[] = {
-    0x00000000, 0x00000000
+    0x8000033C, 0x000002FF, 0x8000033C, 0x000002FF,
 };
 static const uint32_t vu1_tri_clip_size = sizeof(vu1_tri_clip_program);
 
@@ -63,6 +67,7 @@ namespace VU1G3D
     static bool g_vu1_available = false;
 
     static Stats g_stats;
+    static int mulDebugCount = 0;
 
     // Direct memory copy to VU1 (using aligned 128-bit loads/stores)
     static inline void vu1MemCopy(void* vu1Dest, const void* eeSrc, uint32_t size)
@@ -110,7 +115,11 @@ namespace VU1G3D
         // Reset VU1
         VU1_STAT = 0;
         VU1_FBRST = 1;
+        // Small delay after FBRST set
+        for (volatile int i = 0; i < 1000; i++);
         VU1_FBRST = 0;
+        // Small delay after FBRST clear
+        for (volatile int i = 0; i < 1000; i++);
 
         // Clear VU1 memory
         vu1MemClear();
@@ -184,7 +193,6 @@ namespace VU1G3D
         uint32_t srcB = VU1_MTX_STACK + srcBIndex * 64;
 
         // DEBUG: Read back input matrices before multiply
-        static int mulDebugCount = 0;
         if (mulDebugCount < 3)
         {
             float mtxA[16], mtxB[16];
@@ -205,8 +213,23 @@ namespace VU1G3D
         vu1MemCopy((void*)(VU1_MEM_BASE + 0x0140), (void*)(VU1_MEM_BASE + srcB), 64);
 
         // Execute matrix multiply program
+        // DEBUG: Check VU1 status before execution
+        if (mulDebugCount < 3)
+        {
+            printf("[VU1DEBUG] Before execute: VU1_STAT=0x%08X, MSAR=0x%08X\n", VU1_STAT, VU1_MSAR);
+        }
         executeProgram(PROG_MTX_MUL);
+        // DEBUG: Check VU1 status after start
+        if (mulDebugCount < 3)
+        {
+            printf("[VU1DEBUG] After start: VU1_STAT=0x%08X\n", VU1_STAT);
+        }
         waitForVU1();
+        // DEBUG: Check VU1 status after wait
+        if (mulDebugCount < 3)
+        {
+            printf("[VU1DEBUG] After wait: VU1_STAT=0x%08X\n", VU1_STAT);
+        }
 
         // DEBUG: Read back result from microcode output location
         if (mulDebugCount <= 3)
@@ -315,8 +338,15 @@ namespace VU1G3D
         // Start VU1 microcode at programOffset (byte offset → instruction address)
         // MSAR register expects instruction index (byte_offset / 4)
         VU1_MSAR = programOffset >> 2;
-        VU1_STAT = 0;
-        VU1_STAT |= 0x100;  // Run VU1 program
+        // Write RUN bit directly (single write, not read-modify-write)
+        VU1_STAT = 0x100;
+        // DEBUG: Read back immediately
+        if (mulDebugCount < 3)
+        {
+            uint32_t stat = VU1_STAT;
+            uint32_t msar = VU1_MSAR;
+            printf("[VU1DEBUG] executeProgram: wrote STAT=0x100, read STAT=0x%08lX, MSAR=0x%08lX\n", (unsigned long)stat, (unsigned long)msar);
+        }
     }
 
     void waitForVU1()

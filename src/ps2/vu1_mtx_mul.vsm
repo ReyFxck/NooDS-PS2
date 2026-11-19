@@ -1,0 +1,37 @@
+.vu
+	.align 4
+	.global	VU1MtxMul_CodeStart
+	.global	VU1MtxMul_CodeEnd
+VU1MtxMul_CodeStart:
+                    nop                             iaddiu VI00, VI00, 0
+                    nop                             lq VF00, 0x100(VI00)
+                    nop                             lq VF04, 0x140(VI00)
+                    nop                             lq VF01, 0x110(VI00)
+                    nop                             lq VF02, 0x120(VI00)
+                    nop                             lq VF03, 0x130(VI00)
+                    mulax.xyzw ACC, VF00, VF04x     lq VF05, 0x150(VI00)
+                    madday.xyzw ACC, VF01, VF04y    lq VF06, 0x160(VI00)
+                    maddaz.xyzw ACC, VF02, VF04z    lq VF07, 0x170(VI00)
+                    maddw.xyzw VF08, VF03, VF04w    nop
+                    mulax.xyzw ACC, VF00, VF05x     nop
+                    madday.xyzw ACC, VF01, VF05y    nop
+                    maddaz.xyzw ACC, VF02, VF05z    nop
+                    maddw.xyzw VF09, VF03, VF05w    sq VF08, 0x180(VI00)
+                    mulax.xyzw ACC, VF00, VF06x     nop
+                    madday.xyzw ACC, VF01, VF06y    nop
+                    maddaz.xyzw ACC, VF02, VF06z    nop
+                    maddw.xyzw VF10, VF03, VF06w    sq VF09, 0x190(VI00)
+                    mulax.xyzw ACC, VF00, VF07x     nop
+                    madday.xyzw ACC, VF01, VF07y    nop
+                    maddaz.xyzw ACC, VF02, VF07z    nop
+                    maddw.xyzw VF11, VF03, VF07w    sq VF10, 0x1A0(VI00)
+                    nop                             nop
+                    nop                             nop
+                    nop                             nop
+                    nop                             sq VF11, 0x1B0(VI00)
+                    nop                             nop
+                    nop                             nop
+                    nop[E]                          nop
+                    nop                             nop
+	.align 4
+VU1MtxMul_CodeEnd:

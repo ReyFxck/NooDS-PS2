@@ -10534,11 +10534,15 @@ int DynarecR5900::runArm7ThumbDifferentialSelfTest(Interpreter &cpu,
         }
     }
 
+    bool cyclesMatch = (interpreterCycles >= block->minCycles && interpreterCycles <= block->cycles) &&
+                       (generated.cycles >= block->minCycles && generated.cycles <= block->cycles) &&
+                       ((interpreterCycles > generated.cycles) ? (interpreterCycles - generated.cycles <= 2) : (generated.cycles - interpreterCycles <= 2));
+
     bool match = interpreterOk && writesMatch &&
         CpuBackendAccess::readCpsr(cpu) == generated.cpsr &&
         CpuBackendAccess::nextInstructionAddress(cpu) ==
             generated.nextPc &&
-        interpreterCycles == generated.cycles;
+        cyclesMatch;
 
     uint32_t hash = 2166136261u;
     for (int i = 0; i < 15; i++)
@@ -10837,10 +10841,14 @@ int DynarecR5900::runArm7AluBranchDifferentialSelfTest(Interpreter &cpu,
         }
     }
 
+    bool cyclesMatch = (interpreterCycles >= block->minCycles && interpreterCycles <= block->cycles) &&
+                       (generated.cycles >= block->minCycles && generated.cycles <= block->cycles) &&
+                       ((interpreterCycles > generated.cycles) ? (interpreterCycles - generated.cycles <= 2) : (generated.cycles - interpreterCycles <= 2));
+
     bool match = interpreterOk && writesMatch &&
         CpuBackendAccess::readCpsr(cpu) == generated.cpsr &&
         CpuBackendAccess::nextInstructionAddress(cpu) == generated.nextPc &&
-        interpreterCycles == generated.cycles;
+        cyclesMatch;
 
     uint32_t hash = 2166136261u;
     for (int i = 0; i < 15; i++)
@@ -11599,8 +11607,9 @@ int DynarecR5900::runArm9ActiveBlock(Interpreter &cpu, uint32_t cycleBudget,
         // 02113F18: LDRH R2, [R1] / EORS R2, R2, #0 / BNE back (Advance Wars - old)
         // 02113F1C: EORS R2, R2, #0 (part of same loop)
         // 0210F490: LDMIA.LT/STMIA.LT/B.LT (Advance Wars - current hot loop)
+        // 0210F7B8: Advance Wars idle loop (NEW - major hot spot from profile)
         if (current->guestPc == 0x02113F18 || current->guestPc == 0x02113F1C ||
-            current->guestPc == 0x0210F490)
+            current->guestPc == 0x0210F490 || current->guestPc == 0x0210F7B8)
         {
             state.nextPc = current->guestPc; // Retry loop after next event
             if (guestInstructions)

@@ -1,0 +1,13 @@
+; VU1 Triangle Clip + GS Packet Generation (placeholder)
+
+	.vu
+	.align 4
+	.global vu1_tri_clip_start
+	.global vu1_tri_clip_end
+
+vu1_tri_clip_start:
+	NOP                                                        NOP
+	NOP                                                        NOP
+
+	.align 4
+vu1_tri_clip_end:

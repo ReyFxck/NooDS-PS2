@@ -54,17 +54,9 @@ PS2_SOURCES := \
 	src/ps2/present.cpp \
 	src/ps2/vu1_g3d.cpp
 
-# Assembly sources
-ASM_SOURCES := \
-	src/ps2/vu1_g3d.s
-
 SOURCES := $(PS2_SOURCES) $(CORE_SOURCES)
 OBJECTS := $(patsubst src/%.cpp,$(BUILD)/%.o,$(SOURCES))
-ASM_OBJECTS := $(patsubst src/%.s,$(BUILD)/%.o,$(ASM_SOURCES))
-ALL_OBJECTS := $(OBJECTS) $(ASM_OBJECTS)
-
-SOURCES := $(PS2_SOURCES) $(CORE_SOURCES)
-OBJECTS := $(patsubst src/%.cpp,$(BUILD)/%.o,$(SOURCES))
+ALL_OBJECTS := $(OBJECTS)
 
 DEBUG ?= 0
 PROFILE ?= 0
@@ -126,10 +118,6 @@ $(BUILD)/%.o: src/%.cpp
 	@mkdir -p $(dir $@)
 	$(EE_CXX) $(CXXFLAGS) -c $< -o $@
 
-$(BUILD)/%.o: src/%.s
-	@mkdir -p $(dir $@)
-	$(EE_CXX) $(CXXFLAGS) -c $< -o $@
-
 # Parallel build helper - use 'make -j$(JOBS) -f Makefile.ps2' to build with JOBS parallel jobs
 # The -pipe flag in COMMON_FLAGS reduces temporary file I/O and memory usage.
 # For memory-constrained systems, try: make -f Makefile.ps2 JOBS=2
@@ -148,7 +136,6 @@ info:
 	@echo "PROFILE=$(PROFILE) PROFILE_LEVEL=$(PROFILE_LEVEL)"
 	@echo "Core sources: $(words $(CORE_SOURCES))"
 	@echo "PS2 sources: $(words $(PS2_SOURCES))"
-	@echo "ASM sources: $(words $(ASM_SOURCES))"
 
 clean:
 	rm -rf $(BUILD) $(TARGET)
