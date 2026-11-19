@@ -259,7 +259,27 @@ namespace VU1G3D
 
     void dmaFromVU1(void* eeAddr, uint32_t vu1Addr, uint32_t size)
     {
-        vu1MemCopy(eeAddr, (void*)(VU1_MEM_BASE + vu1Addr), size);
+        // Copy from VU1 to CPU (reverse of vu1MemCopy)
+        uint32_t* dest = (uint32_t*)eeAddr;
+        const uint32_t* src = (const uint32_t*)(VU1_MEM_BASE + vu1Addr);
+        uint32_t qwords = size / 16;
+        uint32_t rem = size % 16;
+
+        for (uint32_t i = 0; i < qwords; i++)
+        {
+            dest[i*4 + 0] = src[i*4 + 0];
+            dest[i*4 + 1] = src[i*4 + 1];
+            dest[i*4 + 2] = src[i*4 + 2];
+            dest[i*4 + 3] = src[i*4 + 3];
+        }
+
+        if (rem)
+        {
+            uint8_t* d = (uint8_t*)(dest + qwords*4);
+            const uint8_t* s = (uint8_t*)(src + qwords*4);
+            for (uint32_t i = 0; i < rem; i++)
+                d[i] = s[i];
+        }
     }
 
     void executeProgram(uint32_t programOffset)
