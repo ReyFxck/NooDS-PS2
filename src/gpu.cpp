@@ -184,34 +184,27 @@ bool Gpu::getFrame16(uint16_t *out)
     if (!ready.load())
         return false;
 
-    uint32_t *source = framebuffers.front();
-    if (core->isGbaMode())
+    mutex.lock();
+    if (framebuffersCT16.empty())
     {
-        const int offset = (powCnt1 & BIT(15)) ? 0 : (256 * 192);
-        const uint32_t base = 0x6800000 + gbaBlock * 0x20000;
-        gbaBlock = !gbaBlock;
-        for (int y = 0; y < 192; y++)
-        {
-            for (int x = 0; x < 256; x++)
-            {
-                const uint32_t color = (x >= 8 && x < 248 &&
-                    y >= 16 && y < 176)
-                    ? source[(y - 16) * 256 + x - 8]
-                    : core->memory.read<uint16_t>(0,
-                        base + (y * 256 + x) * 2);
-                out[offset + y * 256 + x] = gpuRgb5ToGsCt16(color);
-            }
-        }
-        // GS textures require alpha=1 even on the empty GBA display.
-        std::fill_n(&out[256 * 192 - offset], 256 * 192, 0x8000u);
+        mutex.unlock();
+        return false;
     }
-    else
-    {
-        // Four source pixels per iteration with 64-bit loads/stores, no
-        // intermediate RGB8888 buffer.
-        gpuConvertRgb6ToGsCt16(source, out, 256 * 192 * 2);
-    }
+    uint16_t *sourceCT16 = framebuffersCT16.front();
+    framebuffersCT16.pop();
+    bool wasEmpty = framebuffersCT16.empty();
+    mutex.unlock();
 
+    // Fast path: just memcpy CT16 data (no conversion needed)
+    memcpy(out, sourceCT16, 256 * 192 * 2 * sizeof(uint16_t));
+
+    // Recycle the CT16 buffer
+    mutex.lock();
+    recycledFramebuffersCT16.push(sourceCT16);
+    ready.store(!wasEmpty);
+    mutex.unlock();
+
+    // Also recycle the RGB6 buffer to keep queues in sync
     recycleFrame();
     return true;
 }
@@ -593,27 +586,56 @@ void Gpu::scanline355()
                 if (!framebuffer)
                     framebuffer = new uint32_t[256 * 192 * 2];
 
+#ifdef NOODS_PS2
+                // Also manage CT16 framebuffers for direct GS upload
+                uint16_t *framebufferCT16 = nullptr;
+                mutex.lock();
+                if (!recycledFramebuffersCT16.empty())
+                {
+                    framebufferCT16 = recycledFramebuffersCT16.front();
+                    recycledFramebuffersCT16.pop();
+                }
+                mutex.unlock();
+
+                if (!framebufferCT16)
+                    framebufferCT16 = new uint16_t[256 * 192 * 2];
+#endif
+
                 if (powCnt1 & BIT(0)) // LCDs enabled
                 {
                     if (powCnt1 & BIT(15)) // Display swap
                     {
                         memcpy(&framebuffer[0],         core->gpu2D[0].getFramebuffer(), 256 * 192 * sizeof(uint32_t));
                         memcpy(&framebuffer[256 * 192], core->gpu2D[1].getFramebuffer(), 256 * 192 * sizeof(uint32_t));
+#ifdef NOODS_PS2
+                        gpuConvertRgb6ToGsCt16(core->gpu2D[0].getFramebuffer(), &framebufferCT16[0], 256 * 192);
+                        gpuConvertRgb6ToGsCt16(core->gpu2D[1].getFramebuffer(), &framebufferCT16[256 * 192], 256 * 192);
+#endif
                     }
                     else
                     {
                         memcpy(&framebuffer[0],         core->gpu2D[1].getFramebuffer(), 256 * 192 * sizeof(uint32_t));
                         memcpy(&framebuffer[256 * 192], core->gpu2D[0].getFramebuffer(), 256 * 192 * sizeof(uint32_t));
+#ifdef NOODS_PS2
+                        gpuConvertRgb6ToGsCt16(core->gpu2D[1].getFramebuffer(), &framebufferCT16[0], 256 * 192);
+                        gpuConvertRgb6ToGsCt16(core->gpu2D[0].getFramebuffer(), &framebufferCT16[256 * 192], 256 * 192);
+#endif
                     }
                 }
                 else
                 {
                     memset(framebuffer, 0, 256 * 192 * 2 * sizeof(uint32_t));
+#ifdef NOODS_PS2
+                    memset(framebufferCT16, 0, 256 * 192 * 2 * sizeof(uint16_t));
+#endif
                 }
 
                 // Add the frame to the queue
                 mutex.lock();
                 framebuffers.push(framebuffer);
+#ifdef NOODS_PS2
+                framebuffersCT16.push(framebufferCT16);
+#endif
                 ready.store(true);
                 mutex.unlock();
             }

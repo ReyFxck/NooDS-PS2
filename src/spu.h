@@ -37,8 +37,9 @@ class Core;
 // samples (~30 us each), and only when the game does not touch the SPU in
 // between. With an audio buffer or capture active the SPU runs one sample per
 // task as before. Set to 1 to disable batching.
+// OPTIMIZATION: Increased batch size to reduce task scheduling overhead.
 #ifndef NOODS_SPU_BATCH_SAMPLES
-#define NOODS_SPU_BATCH_SAMPLES 4
+#define NOODS_SPU_BATCH_SAMPLES 16
 #endif
 
 class Spu

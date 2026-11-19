@@ -262,6 +262,17 @@ void Core::runNdsFrame()
                         if (!minCycles)
                             minCycles = 1;
 
+                        // For back-edge blocks (loops), allow entry with just
+                        // the per-iteration cycle cost instead of the full
+                        // block execution time. This avoids blockBudgetSkip
+                        // rejecting hot loops like the one at 02113F1C.
+                        if (arm9BlockBackEdge[hotSlot])
+                        {
+                            uint32_t iterCycles = arm9BlockIterCycles[hotSlot];
+                            if (iterCycles > 0 && iterCycles < minCycles)
+                                minCycles = iterCycles;
+                        }
+
                         if (!cycleBudget || cycleBudget < minCycles)
                         {
 #ifdef NOODS_PROFILE
@@ -315,6 +326,13 @@ void Core::runNdsFrame()
                                     uint32_t nextMin = arm9BlockMinCycles[nextSlot];
                                     if (!nextMin)
                                         nextMin = 1;
+                                    // For back-edge blocks, use per-iteration cost
+                                    if (arm9BlockBackEdge[nextSlot])
+                                    {
+                                        uint32_t iterCycles = arm9BlockIterCycles[nextSlot];
+                                        if (iterCycles > 0 && iterCycles < nextMin)
+                                            nextMin = iterCycles;
+                                    }
                                     if (remaining < nextMin)
                                         break;
 
@@ -859,7 +877,9 @@ void Core::sampleArm9HotPc(uint32_t pc, bool thumb)
     score = 0;
 }
 
-void Core::addArm9BlockHotPcs(const uint32_t *pcs, size_t count)
+void Core::addArm9BlockHotPcs(const uint32_t *pcs, size_t count,
+                             const bool *backEdge,
+                             const uint8_t *iterCycles)
 {
     if (!pcs)
         return;
@@ -886,6 +906,21 @@ void Core::addArm9BlockHotPcs(const uint32_t *pcs, size_t count)
         }
 
         arm9BlockHotPc[slot] = key;
+
+        // Store backEdge and iterCycles info for budget optimization
+        if (backEdge && backEdge[i])
+        {
+            arm9BlockBackEdge[slot] = 1;
+            if (iterCycles && iterCycles[i] > 0)
+                arm9BlockIterCycles[slot] = iterCycles[i];
+            else
+                arm9BlockIterCycles[slot] = 1; // Conservative default
+        }
+        else
+        {
+            arm9BlockBackEdge[slot] = 0;
+            arm9BlockIterCycles[slot] = 0;
+        }
     }
 }
 

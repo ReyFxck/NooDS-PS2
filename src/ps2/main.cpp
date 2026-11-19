@@ -743,7 +743,9 @@ void logActiveFallbackPcs(const char *label,
 #if NOODS_PROFILE_LEVEL >= 2
 size_t logDynarecHotBlocks(DynarecR5900 &dynarec,
     const InterpreterProfile &interpreterProfile,
-    uint32_t *activeHotPcs = nullptr, size_t activeHotCapacity = 0)
+    uint32_t *activeHotPcs = nullptr, size_t activeHotCapacity = 0,
+    bool *activeHotBackEdge = nullptr,
+    uint8_t *activeHotIterCycles = nullptr)
 {
     size_t activeHotCount = 0;
     InterpreterHotPc top[6] = {};
@@ -795,7 +797,12 @@ size_t logDynarecHotBlocks(DynarecR5900 &dynarec,
             analysis.instructions[analysis.instructionCount - 1]
                 .info.terminatesBlock)
         {
-            activeHotPcs[activeHotCount++] = analysis.startPc;
+            activeHotPcs[activeHotCount] = analysis.startPc;
+            if (activeHotBackEdge)
+                activeHotBackEdge[activeHotCount] = analysis.backEdge;
+            if (activeHotIterCycles)
+                activeHotIterCycles[activeHotCount] = static_cast<uint8_t>(analysis.instructionCount);
+            activeHotCount++;
         }
 
         // One bounded detailed snapshot per window; the remaining hot PCs get
@@ -2414,8 +2421,11 @@ int main(int argc, char **argv)
                 logInterpreterProfile("ARM9", arm9Profile);
 #if NOODS_PROFILE_LEVEL >= 2
                 uint32_t selectiveHotPcs[6] = {};
+                bool selectiveHotBackEdge[6] = {};
+                uint8_t selectiveHotIterCycles[6] = {};
                 size_t selectiveHotCount = logDynarecHotBlocks(
-                    dynarec, arm9Profile, selectiveHotPcs, 6);
+                    dynarec, arm9Profile, selectiveHotPcs, 6,
+                    selectiveHotBackEdge, selectiveHotIterCycles);
 #endif
                 const InterpreterProfile &arm7Profile =
                     core->interpreter[1].getProfile();
@@ -2544,7 +2554,7 @@ int main(int argc, char **argv)
                 if (arm9ActiveExecutorEnabled && selectiveHotCount)
                 {
                     core->addArm9BlockHotPcs(selectiveHotPcs,
-                        selectiveHotCount);
+                        selectiveHotCount, selectiveHotBackEdge, selectiveHotIterCycles);
                     PS2_LOG("[PS2][JIT] selective hot filter add count=%u pcs=%08lX,%08lX,%08lX,%08lX,%08lX,%08lX\n",
                         static_cast<unsigned>(selectiveHotCount),
                         static_cast<unsigned long>(selectiveHotPcs[0]),

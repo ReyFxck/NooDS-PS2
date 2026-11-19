@@ -174,6 +174,9 @@ class Gpu2D
         void drawScanline(int line);
 
         uint32_t *getFramebuffer() { return framebuffer; }
+#ifdef NOODS_PS2
+        uint16_t *getFramebuffer16() { return framebufferCT16; }
+#endif
         uint32_t *getRawLine()     { return layers[0];   }
 
 #ifdef NOODS_PROFILE
@@ -219,24 +222,46 @@ class Gpu2D
         uint8_t **extPalettes;
 
 #ifdef NOODS_PS2
-        // Ordered, Y-visible sprites for each DS scanline. OAM is compared at
-        // every draw so DMA and mid-frame CPU writes cannot leave stale lists.
-        struct ObjLineOrder
+        // Per-scanline Y-bucket sprite lists. Built once per frame when OAM is
+        // dirty (after VBlank copy). Each line holds up to 32 sprite indices
+        // (max 128 sprites / 192 lines ~ 0.66 avg, 32 is safe headroom).
+        // windowCount/normalCount split is preserved for object-window pass.
+        struct ObjLineBuckets
         {
-            uint8_t order[128];
-            uint8_t windowCount;
-            uint8_t normalCount;
-            uint32_t epoch;
+            uint8_t windowCount = 0;
+            uint8_t normalCount = 0;
+            uint8_t order[32];  // window sprites first, then normal by priority
         };
-        ObjLineOrder objLineOrder[192] = {};
+        ObjLineBuckets objLineBuckets[192] = {};
         uint8_t objOamSnapshot[1024] = {};
         uint8_t objCacheMosaic = 0;
         bool objCacheWindow = false;
-        uint32_t objCacheEpoch = 0;
+        bool objBucketsValid = false;
+
+        // Scratchpad RAM (0x70000000) working buffers for current scanline.
+        // Eliminates D-Cache write misses and preserves 8KB D-Cache for VRAM/palette.
+        // Layout (total ~4.5KB < 16KB Scratchpad):
+        //   layers[2][256]      : 2 * 256 * 4  = 2048 bytes (18-bit RGB6 + flags)
+        //   priorities[2][256]  : 2 * 256 * 1  = 512 bytes
+        //   blendBits[2][256]   : 2 * 256 * 1  = 512 bytes
+        //   windowMask[256]     : 256 bytes
+        //   scanlineOutput[256] : 256 * 4 = 1024 bytes (composed line before framebuffer copy)
+        //   fastPath16[256]     : 256 * 2 = 512 bytes (ABGR1555 for MMI compose)
+        alignas(128) uint32_t *spLayers[2] = {nullptr, nullptr};
+        alignas(128) int8_t *spPriorities[2] = {nullptr, nullptr};
+        alignas(128) int8_t *spBlendBits[2] = {nullptr, nullptr};
+        alignas(128) uint8_t *spWindowMask = nullptr;
+        alignas(128) uint32_t *spScanlineOutput = nullptr;
+        alignas(128) uint16_t *spFastPath16 = nullptr;
+        bool spBuffersInitialized = false;
 #endif
 
         alignas(8) uint32_t framebuffer[256 * 192] = {};
         alignas(8) uint32_t layers[2][256] = {};
+#ifdef NOODS_PS2
+        // CT16 framebuffer for direct GS upload - eliminates getFrame16 conversion
+        alignas(8) uint16_t framebufferCT16[256 * 192] = {};
+#endif
         int8_t priorities[2][256] = {};
         int8_t blendBits[2][256] = {};
         uint8_t windowMask[256] = {};

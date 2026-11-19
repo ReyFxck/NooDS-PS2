@@ -987,7 +987,8 @@ void Spu::writeGbaFifoB(uint32_t mask, uint32_t value)
 
 void Spu::writeSoundCnt(int channel, uint32_t mask, uint32_t value)
 {
-    catchUp();
+    // Lazy catch-up: defer SPU advancement to the scheduled task.
+    // Register state is updated immediately; sample processing happens in batch.
     bool enable = (!(soundCnt[channel] & BIT(31)) && (value & BIT(31)));
 
     // Write to one of the SOUNDCNT registers
@@ -1003,7 +1004,7 @@ void Spu::writeSoundCnt(int channel, uint32_t mask, uint32_t value)
 
 void Spu::writeSoundSad(int channel, uint32_t mask, uint32_t value)
 {
-    catchUp();
+    // Lazy catch-up: defer SPU advancement to the scheduled task.
     // Write to one of the SOUNDSAD registers
     mask &= 0x07FFFFFC;
     soundSad[channel] = (soundSad[channel] & ~mask) | (value & mask);
@@ -1020,21 +1021,21 @@ void Spu::writeSoundSad(int channel, uint32_t mask, uint32_t value)
 
 void Spu::writeSoundTmr(int channel, uint16_t mask, uint16_t value)
 {
-    catchUp();
+    // Lazy catch-up: defer SPU advancement to the scheduled task.
     // Write to one of the SOUNDTMR registers
     soundTmr[channel] = (soundTmr[channel] & ~mask) | (value & mask);
 }
 
 void Spu::writeSoundPnt(int channel, uint16_t mask, uint16_t value)
 {
-    catchUp();
+    // Lazy catch-up: defer SPU advancement to the scheduled task.
     // Write to one of the SOUNDPNT registers
     soundPnt[channel] = (soundPnt[channel] & ~mask) | (value & mask);
 }
 
 void Spu::writeSoundLen(int channel, uint32_t mask, uint32_t value)
 {
-    catchUp();
+    // Lazy catch-up: defer SPU advancement to the scheduled task.
     // Write to one of the SOUNDLEN registers
     mask &= 0x003FFFFF;
     soundLen[channel] = (soundLen[channel] & ~mask) | (value & mask);
@@ -1042,7 +1043,7 @@ void Spu::writeSoundLen(int channel, uint32_t mask, uint32_t value)
 
 void Spu::writeMainSoundCnt(uint16_t mask, uint16_t value)
 {
-    catchUp();
+    // Lazy catch-up: defer SPU advancement to the scheduled task.
     bool enable = (!(mainSoundCnt & BIT(15)) && (value & BIT(15)));
 
     // Write to the main SOUNDCNT register
@@ -1067,7 +1068,7 @@ void Spu::writeMainSoundCnt(uint16_t mask, uint16_t value)
 
 void Spu::writeSoundBias(uint16_t mask, uint16_t value)
 {
-    catchUp();
+    // Lazy catch-up: defer SPU advancement to the scheduled task.
     // Write to the SOUNDBIAS register
     mask &= 0x03FF;
     soundBias = (soundBias & ~mask) | (value & mask);
@@ -1075,7 +1076,7 @@ void Spu::writeSoundBias(uint16_t mask, uint16_t value)
 
 void Spu::writeSndCapCnt(int channel, uint8_t value)
 {
-    catchUp();
+    // Lazy catch-up: defer SPU advancement to the scheduled task.
     // Start the capture if the enable bit changes from 0 to 1
     if (!(sndCapCnt[channel] & BIT(7)) && (value & BIT(7)))
     {
@@ -1089,7 +1090,7 @@ void Spu::writeSndCapCnt(int channel, uint8_t value)
 
 void Spu::writeSndCapDad(int channel, uint32_t mask, uint32_t value)
 {
-    catchUp();
+    // Lazy catch-up: defer SPU advancement to the scheduled task.
     // Write to one of the SNDCAPDAD registers
     mask &= 0x07FFFFFC;
     sndCapDad[channel] = (sndCapDad[channel] & ~mask) | (value & mask);
@@ -1101,7 +1102,7 @@ void Spu::writeSndCapDad(int channel, uint32_t mask, uint32_t value)
 
 void Spu::writeSndCapLen(int channel, uint16_t mask, uint16_t value)
 {
-    catchUp();
+    // Lazy catch-up: defer SPU advancement to the scheduled task.
     // Write to one of the SNDCAPLEN registers
     sndCapLen[channel] = (sndCapLen[channel] & ~mask) | (value & mask);
 }

@@ -155,7 +155,9 @@ class Core
         // Add architecture-neutral hot block entry PCs. The scheduler checks
         // this tiny direct-mapped filter before calling a platform backend, so
         // a dynarec cannot impose a function-call/lookup tax on every opcode.
-        void addArm9BlockHotPcs(const uint32_t *pcs, size_t count);
+        void addArm9BlockHotPcs(const uint32_t *pcs, size_t count,
+                             const bool *backEdge = nullptr,
+                             const uint8_t *iterCycles = nullptr);
 
         using Arm7BlockRunner = Arm9BlockRunner;
         void setArm7BlockRunner(void *context, Arm7BlockRunner runner)
@@ -242,6 +244,8 @@ class Core
         uint32_t arm9BlockHotPc[ARM9_BLOCK_FILTER_SLOTS] = {};
         uint8_t arm9BlockHotFailures[ARM9_BLOCK_FILTER_SLOTS] = {};
         uint8_t arm9BlockMinCycles[ARM9_BLOCK_FILTER_SLOTS] = {};
+        uint8_t arm9BlockBackEdge[ARM9_BLOCK_FILTER_SLOTS] = {}; // 1 = has backward branch
+        uint8_t arm9BlockIterCycles[ARM9_BLOCK_FILTER_SLOTS] = {}; // guestCycles per iteration for back-edge blocks
         uint16_t arm9BlockHotCount = 0;
 
         // Always-on, bounded hot-PC discovery for PS2 dynarec backends. One

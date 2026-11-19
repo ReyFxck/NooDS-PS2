@@ -92,6 +92,11 @@ class Gpu
 
         std::queue<uint32_t*> framebuffers;
         std::queue<uint32_t*> recycledFramebuffers;
+#ifdef NOODS_PS2
+        // CT16 framebuffers for direct GS upload - avoids getFrame16 conversion
+        std::queue<uint16_t*> framebuffersCT16;
+        std::queue<uint16_t*> recycledFramebuffersCT16;
+#endif
         std::atomic<bool> ready;
         std::mutex mutex;
 

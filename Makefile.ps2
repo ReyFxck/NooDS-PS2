@@ -66,9 +66,11 @@ SYNC_QUANTUM ?= 0
 # Presentation pacing (see src/ps2/present.cpp). "adaptive" skips the vsync wait
 # when the emulator is already slower than the display; "vsync" always waits.
 PRESENT ?= adaptive
+# Parallel build jobs (default 4). Reduce if linking hits memory limits.
+JOBS ?= 4
 
 COMMON_FLAGS := -D_EE -DNOODS_PS2 -G0 -Wall -Wextra -std=gnu++11 \
-                -fno-rtti \
+                -fno-rtti -pipe \
                 -DNOODS_BUILD_REVISION=\"$(BUILD_REVISION)\" \
                 -DNOODS_BUILD_STATE=\"$(BUILD_STATE)\" \
                 -DNOODS_SYNC_QUANTUM_DEFAULT=$(SYNC_QUANTUM) \
@@ -87,11 +89,15 @@ endif
 ifeq ($(DEBUG),1)
 OPT_FLAGS := -Og -gdwarf-2 -DDEBUG
 else
-OPT_FLAGS := -O2
+ifeq ($(PROFILE),1)
+OPT_FLAGS := -O3 -flto -fomit-frame-pointer
+else
+OPT_FLAGS := -O3 -flto -fomit-frame-pointer
+endif
 endif
 
 CXXFLAGS := $(COMMON_FLAGS) $(OPT_FLAGS)
-LDFLAGS  := -T$(PS2SDK)/ee/startup/linkfile -L$(PS2SDK)/ee/lib -L$(PS2SDK)/ports/lib -L$(GSKIT)/lib -Wl,-zmax-page-size=128
+LDFLAGS  := -T$(PS2SDK)/ee/startup/linkfile -L$(PS2SDK)/ee/lib -L$(PS2SDK)/ports/lib -L$(GSKIT)/lib -Wl,-zmax-page-size=128 -flto
 
 # NooDS 2021 uses std::thread/mutex/condition_variable in GPU/SPU paths.
 # PS2SDK supplies pthread + pthreadglue; keep them in a group with libstdc++
@@ -103,12 +109,16 @@ LIBS := -Wl,--start-group -lgskit -ldmakit -lpad -lps2_drivers -lfileXio -lpatch
 all: $(TARGET)
 
 $(TARGET): $(OBJECTS)
-	$(EE_CXX) $(OPT_FLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
+	$(EE_CXX) $(OPT_FLAGS) -flto -o $@ $^ $(LDFLAGS) $(LIBS)
 	@echo "Built $@"
 
 $(BUILD)/%.o: src/%.cpp
 	@mkdir -p $(dir $@)
 	$(EE_CXX) $(CXXFLAGS) -c $< -o $@
+
+# Parallel build helper - use 'make -j$(JOBS) -f Makefile.ps2' to build with JOBS parallel jobs
+# The -pipe flag in COMMON_FLAGS reduces temporary file I/O and memory usage.
+# For memory-constrained systems, try: make -f Makefile.ps2 JOBS=2
 
 debug:
 	$(MAKE) -f Makefile.ps2 DEBUG=1 clean all

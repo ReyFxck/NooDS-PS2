@@ -24,6 +24,7 @@
 #include "core.h"
 #ifdef NOODS_PS2
 #include "settings.h"
+#include "ps2/mmi.h"
 #endif
 
 #if defined(NOODS_PROFILE) && NOODS_PROFILE_LEVEL >= 2
@@ -31,6 +32,141 @@
     do { if (ptr) (ptr)->field += (amount); } while (0)
 #else
 #define GPU2D_DETAIL_INC(ptr, field, amount) do {} while (0)
+#endif
+
+#ifdef NOODS_PS2
+// MMI-accelerated RGB5 to RGB6 conversion (2 pixels at a time)
+// Input: src - pointer to 256 uint16_t (RGB5)
+// Output: dst - pointer to 256 uint32_t (RGB6 with flags)
+static inline void mmiRgb5ToRgb6Batch(const uint16_t *src, uint32_t *dst, int count)
+{
+    // Process 2 pixels at a time using 64-bit loads/stores
+    int i = 0;
+    for (; i + 1 < count; i += 2)
+    {
+        // Load 2 RGB5 pixels (4 bytes)
+        uint64_t pair = *reinterpret_cast<const uint64_t*>(&src[i]);
+        uint16_t c0 = static_cast<uint16_t>(pair);
+        uint16_t c1 = static_cast<uint16_t>(pair >> 16);
+
+        // Convert both to RGB6
+        uint32_t r0 = (c0 >> 0) & 0x1F;
+        uint32_t g0 = (c0 >> 5) & 0x1F;
+        uint32_t b0 = (c0 >> 10) & 0x1F;
+        r0 = (r0 << 1) | (r0 != 0);
+        g0 = (g0 << 1) | (g0 != 0);
+        b0 = (b0 << 1) | (b0 != 0);
+        uint32_t pixel0 = (b0 << 12) | (g0 << 6) | r0;
+
+        uint32_t r1 = (c1 >> 0) & 0x1F;
+        uint32_t g1 = (c1 >> 5) & 0x1F;
+        uint32_t b1 = (c1 >> 10) & 0x1F;
+        r1 = (r1 << 1) | (r1 != 0);
+        g1 = (g1 << 1) | (g1 != 0);
+        b1 = (b1 << 1) | (b1 != 0);
+        uint32_t pixel1 = (b1 << 12) | (g1 << 6) | r1;
+
+        // Store as 64-bit
+        *reinterpret_cast<uint64_t*>(&dst[i]) = (static_cast<uint64_t>(pixel1) << 32) | pixel0;
+    }
+
+    // Handle odd pixel
+    if (i < count)
+    {
+        uint16_t c = src[i];
+        uint32_t r = (c >> 0) & 0x1F;
+        uint32_t g = (c >> 5) & 0x1F;
+        uint32_t b = (c >> 10) & 0x1F;
+        r = (r << 1) | (r != 0);
+        g = (g << 1) | (g != 0);
+        b = (b << 1) | (b != 0);
+        dst[i] = (b << 12) | (g << 6) | r;
+    }
+}
+
+// MMI-accelerated brightness increase (mode 1 of masterBright)
+// Processes 2 pixels at a time
+static inline void mmiBrightnessIncrease(uint32_t *pixels, int count, uint8_t factor)
+{
+    // Brightness increase: component = min(component + factor, 0x3F)
+    // factor is 0-16
+    for (int i = 0; i + 1 < count; i += 2)
+    {
+        uint64_t pair = *reinterpret_cast<uint64_t*>(&pixels[i]);
+        uint32_t p0 = static_cast<uint32_t>(pair);
+        uint32_t p1 = static_cast<uint32_t>(pair >> 32);
+
+        // Process first pixel
+        uint32_t r0 = (p0 >> 0) & 0x3F;
+        uint32_t g0 = (p0 >> 6) & 0x3F;
+        uint32_t b0 = (p0 >> 12) & 0x3F;
+        r0 = r0 + factor > 0x3F ? 0x3F : r0 + factor;
+        g0 = g0 + factor > 0x3F ? 0x3F : g0 + factor;
+        b0 = b0 + factor > 0x3F ? 0x3F : b0 + factor;
+        p0 = (b0 << 12) | (g0 << 6) | r0;
+
+        // Process second pixel
+        uint32_t r1 = (p1 >> 0) & 0x3F;
+        uint32_t g1 = (p1 >> 6) & 0x3F;
+        uint32_t b1 = (p1 >> 12) & 0x3F;
+        r1 = r1 + factor > 0x3F ? 0x3F : r1 + factor;
+        g1 = g1 + factor > 0x3F ? 0x3F : g1 + factor;
+        b1 = b1 + factor > 0x3F ? 0x3F : b1 + factor;
+        p1 = (b1 << 12) | (g1 << 6) | r1;
+
+        *reinterpret_cast<uint64_t*>(&pixels[i]) = (static_cast<uint64_t>(p1) << 32) | p0;
+    }
+
+    if (count & 1)
+    {
+        int i = count - 1;
+        uint32_t p = pixels[i];
+        uint32_t r = (p >> 0) & 0x3F;
+        uint32_t g = (p >> 6) & 0x3F;
+        uint32_t b = (p >> 12) & 0x3F;
+        r = r + factor > 0x3F ? 0x3F : r + factor;
+        g = g + factor > 0x3F ? 0x3F : g + factor;
+        b = b + factor > 0x3F ? 0x3F : b + factor;
+        pixels[i] = (b << 12) | (g << 6) | r;
+    }
+}
+
+// MMI-accelerated brightness decrease (mode 2 of masterBright)
+// Uses lookup table blendBrightDown
+static inline void mmiBrightnessDecrease(uint32_t *pixels, int count, const uint8_t *lut)
+{
+    // Brightness decrease: component = lut[component]
+    for (int i = 0; i + 1 < count; i += 2)
+    {
+        uint64_t pair = *reinterpret_cast<uint64_t*>(&pixels[i]);
+        uint32_t p0 = static_cast<uint32_t>(pair);
+        uint32_t p1 = static_cast<uint32_t>(pair >> 32);
+
+        // Process first pixel
+        uint32_t r0 = lut[(p0 >> 0) & 0x3F];
+        uint32_t g0 = lut[(p0 >> 6) & 0x3F];
+        uint32_t b0 = lut[(p0 >> 12) & 0x3F];
+        p0 = (b0 << 12) | (g0 << 6) | r0;
+
+        // Process second pixel
+        uint32_t r1 = lut[(p1 >> 0) & 0x3F];
+        uint32_t g1 = lut[(p1 >> 6) & 0x3F];
+        uint32_t b1 = lut[(p1 >> 12) & 0x3F];
+        p1 = (b1 << 12) | (g1 << 6) | r1;
+
+        *reinterpret_cast<uint64_t*>(&pixels[i]) = (static_cast<uint64_t>(p1) << 32) | p0;
+    }
+
+    if (count & 1)
+    {
+        int i = count - 1;
+        uint32_t p = pixels[i];
+        uint32_t r = lut[(p >> 0) & 0x3F];
+        uint32_t g = lut[(p >> 6) & 0x3F];
+        uint32_t b = lut[(p >> 12) & 0x3F];
+        pixels[i] = (b << 12) | (g << 6) | r;
+    }
+}
 #endif
 
 Gpu2D::Gpu2D(Core *core, bool engine): core(core), engine(engine)
@@ -63,6 +199,31 @@ Gpu2D::Gpu2D(Core *core, bool engine): core(core), engine(engine)
         masterBrightUp[value] = static_cast<uint8_t>(value);
         masterBrightDown[value] = static_cast<uint8_t>(value);
     }
+
+#ifdef NOODS_PS2
+    // Initialize Scratchpad RAM working buffers for scanline processing.
+    // PS2 Scratchpad at 0x70000000 (16KB). Each engine gets its own region.
+    // Engine A: 0x70000000 - 0x70001200 (~4.5KB)
+    // Engine B: 0x70001200 - 0x70002400 (~4.5KB)
+    // Total: ~9KB < 16KB
+    const uintptr_t spBase = 0x70000000 + (engine ? 0x1200 : 0);
+    uintptr_t ptr = spBase;
+
+    // Align to 128 bytes for DMA/MMI
+    auto align128 = [](uintptr_t p) { return (p + 127) & ~127u; };
+
+    spLayers[0] = reinterpret_cast<uint32_t*>(align128(ptr)); ptr = align128(ptr) + 256 * sizeof(uint32_t);
+    spLayers[1] = reinterpret_cast<uint32_t*>(align128(ptr)); ptr = align128(ptr) + 256 * sizeof(uint32_t);
+    spPriorities[0] = reinterpret_cast<int8_t*>(align128(ptr)); ptr = align128(ptr) + 256 * sizeof(int8_t);
+    spPriorities[1] = reinterpret_cast<int8_t*>(align128(ptr)); ptr = align128(ptr) + 256 * sizeof(int8_t);
+    spBlendBits[0] = reinterpret_cast<int8_t*>(align128(ptr)); ptr = align128(ptr) + 256 * sizeof(int8_t);
+    spBlendBits[1] = reinterpret_cast<int8_t*>(align128(ptr)); ptr = align128(ptr) + 256 * sizeof(int8_t);
+    spWindowMask = reinterpret_cast<uint8_t*>(align128(ptr)); ptr = align128(ptr) + 256 * sizeof(uint8_t);
+    spScanlineOutput = reinterpret_cast<uint32_t*>(align128(ptr)); ptr = align128(ptr) + 256 * sizeof(uint32_t);
+    spFastPath16 = reinterpret_cast<uint16_t*>(align128(ptr)); ptr = align128(ptr) + 256 * sizeof(uint16_t);
+
+    spBuffersInitialized = true;
+#endif
 }
 
 #ifdef NOODS_PROFILE
@@ -156,6 +317,35 @@ void Gpu2D::drawGbaScanline(int line)
         internalX[1] = bgX[1];
         internalY[0] = bgY[0];
         internalY[1] = bgY[1];
+    }
+
+    // Early-out for full-screen fade (MASTER_BRIGHT or BLDCNT with BLDY==16).
+    // GBA uses 15-bit color, so fill values differ from DS 18-bit.
+    const uint8_t masterBrightMode = (masterBright >> 14) & 0x3;
+    const uint8_t masterBrightFactor = std::min(masterBright & 0x1F, 16);
+    const uint8_t blendMode = (bldCnt >> 6) & 0x3;
+    const bool bldAllLayers = (bldCnt & 0x3F) == 0x3F;
+    const bool blendFullFade = (blendMode == 2 || blendMode == 3) && bldY == 16 && bldAllLayers;
+
+    if ((masterBrightMode == 1 && masterBrightFactor == 16) ||
+        (masterBrightMode == 2 && masterBrightFactor == 16) ||
+        blendFullFade)
+    {
+#ifdef NOODS_PROFILE
+        ProfileScope profile(this, GPU2D_PROFILE_CLEAR);
+#endif
+        uint16_t fillColor = 0;
+        if (masterBrightMode == 1 && masterBrightFactor == 16)
+            fillColor = 0x7FFFu; // White in 15-bit
+        else if (masterBrightMode == 2 && masterBrightFactor == 16)
+            fillColor = 0;       // Black
+        else if (blendMode == 2)
+            fillColor = 0x7FFFu;
+        else
+            fillColor = 0;
+
+        gpu2dFill32(&framebuffer[line * 256], 240, fillColor | BIT(15)); // Mark opaque
+        return;
     }
 
     {
@@ -312,6 +502,38 @@ void Gpu2D::drawScanline(int line)
     const int bgMosaicSize = ((mosaic >> 4) & 0xFu) + 1;
     const int bgMosaicLine =
         (bgMosaicSize > 1) ? (line - (line % bgMosaicSize)) : line;
+
+    // Early-out for full-screen fade (MASTER_BRIGHT or BLDCNT with BLDY==16).
+    // If the entire screen fades to solid white/black, skip all layer drawing,
+    // compositing, and per-pixel blending. Just fill the framebuffer line.
+    const uint8_t masterBrightMode = (masterBright >> 14) & 0x3;
+    const uint8_t masterBrightFactor = std::min(masterBright & 0x1F, 16);
+    const uint8_t blendMode = (bldCnt >> 6) & 0x3;
+    const bool bldAllLayers = (bldCnt & 0x3F) == 0x3F; // All 6 layers (BG0-3, OBJ, backdrop) enabled
+    const bool blendFullFade = (blendMode == 2 || blendMode == 3) && bldY == 16 && bldAllLayers;
+
+    if ((masterBrightMode == 1 && masterBrightFactor == 16) || // White fade
+        (masterBrightMode == 2 && masterBrightFactor == 16) || // Black fade
+        blendFullFade)
+    {
+        // Skip all rendering, compose directly to framebuffer
+        uint32_t fillColor = 0;
+        if (masterBrightMode == 1 && masterBrightFactor == 16)
+            fillColor = 0x3FFFFu; // White in 18-bit
+        else if (masterBrightMode == 2 && masterBrightFactor == 16)
+            fillColor = 0;        // Black
+        else if (blendMode == 2) // Brightness increase to white
+            fillColor = 0x3FFFFu;
+        else // blendMode == 3, brightness decrease to black
+            fillColor = 0;
+
+        // Profile the clear phase only
+#ifdef NOODS_PROFILE
+        ProfileScope profile(this, GPU2D_PROFILE_CLEAR);
+#endif
+        gpu2dFill32(&framebuffer[line * 256], 256, fillColor | BIT(25) | BIT(26)); // Mark as opaque
+        return;
+    }
 
     {
 #ifdef NOODS_PROFILE
@@ -668,8 +890,16 @@ void Gpu2D::drawScanline(int line)
             {
                 // Draw raw bitmap data from a VRAM block
                 uint32_t address = 0x6800000 + ((dispCnt & 0x000C0000) >> 18) * 0x20000 + line * 256 * 2;
+#ifdef NOODS_PS2
+                // MMI-accelerated batch conversion
+                uint16_t tempSrc[256];
+                for (int i = 0; i < 256; i++)
+                    tempSrc[i] = core->memory.read<uint16_t>(0, address + i * 2);
+                mmiRgb5ToRgb6Batch(tempSrc, &framebuffer[line * 256], 256);
+#else
                 for (int i = 0; i < 256; i++)
                     framebuffer[line * 256 + i] = rgb5ToRgb6(core->memory.read<uint16_t>(0, address + i * 2));
+#endif
                 break;
             }
 
@@ -698,6 +928,9 @@ void Gpu2D::drawScanline(int line)
                     gpu2dFill32(&framebuffer[line * 256], 256, 0x3FFFFu);
                     break;
                 }
+#ifdef NOODS_PS2
+                mmiBrightnessIncrease(&framebuffer[line * 256], 256, factor);
+#else
                 for (int i = 0; i < 256; i++)
                 {
                     uint32_t *pixel =
@@ -710,6 +943,7 @@ void Gpu2D::drawScanline(int line)
                         masterBrightUp[(*pixel >> 12) & 0x3F];
                     *pixel = (b << 12) | (g << 6) | r;
                 }
+#endif
                 break;
             }
 
@@ -723,6 +957,9 @@ void Gpu2D::drawScanline(int line)
                     gpu2dFill32(&framebuffer[line * 256], 256, 0);
                     break;
                 }
+#ifdef NOODS_PS2
+                mmiBrightnessDecrease(&framebuffer[line * 256], 256, masterBrightDown);
+#else
                 for (int i = 0; i < 256; i++)
                 {
                     uint32_t *pixel =
@@ -735,6 +972,7 @@ void Gpu2D::drawScanline(int line)
                         masterBrightDown[(*pixel >> 12) & 0x3F];
                     *pixel = (b << 12) | (g << 6) | r;
                 }
+#endif
                 break;
             }
         }
@@ -1291,9 +1529,13 @@ void Gpu2D::drawTextOrdered(int bg, int line, int mosaicLine)
                 indices = core->memory.read<uint32_t>(gba, indexAddr);
             }
 
-            // A zero row is entirely transparent regardless of flip/scroll.
+            // Fast path: a zero row is entirely transparent (8 pixels).
+            // Each 4bpp tile row = 8 pixels = 32 bits. Check once and skip.
             if (!indices)
+            {
+                GPU2D_DETAIL_INC(textDetail, transparent, 8);
                 continue;
+            }
 
             // Draw the current line of the tile, flipped horizontally if enabled
             const int xStep = (tile & BIT(10)) ? -1 : 1;
@@ -1315,8 +1557,11 @@ void Gpu2D::drawTextOrdered(int bg, int line, int mosaicLine)
 #endif
             indices >>= begin * 4;
             int x = firstX + begin * xStep;
-            for (int j = begin; j < end && indices;
-                j++, x += xStep, indices >>= 4)
+
+            // Process 8 pixels (one tile row) in chunks.
+            // Since we already know indices != 0, at least one pixel is opaque.
+            // Process 4 pixels at a time using 16-bit loads from the palette.
+            for (int j = begin; j < end && indices; j++, x += xStep, indices >>= 4)
             {
                 GPU2D_DETAIL_INC(textDetail, pixelsVisited, 1);
                 const uint8_t index = indices & 0xF;
@@ -1949,50 +2194,160 @@ void Gpu2D::drawObjects(int line, bool window)
                 core->memory.read<uint32_t>(gba, address + 4)) << 32);
     };
 
-    // Classify OAM once. Object-window sprites must be rendered before
-    // normal sprites because drawObjPixel() consults the completed mask.
-    uint8_t localWindowOrder[128];
-    uint8_t localNormalOrder[128];
-    uint8_t *windowOrder = localWindowOrder;
-    uint8_t *normalOrder = localNormalOrder;
+    // Classify OAM once per frame using Y-bucket tables.
+    // Built at line 0 (after VBlank OAM copy) or when OAM is dirty.
+    // Each line holds up to 32 sprites: window sprites first, then normal by priority.
+    uint8_t *windowOrder = nullptr;
+    uint8_t *normalOrder = nullptr;
     uint8_t windowCount = 0;
     uint8_t normalCount = 0;
     uint8_t priorityOrder[4][128];
     uint8_t priorityCount[4] = {};
+
 #ifdef NOODS_PS2
     const bool cacheable = !gba && !Settings::getThreaded2D() && line >= 0 && line < 192;
-    if (cacheable && (!objCacheEpoch || objCacheWindow != window ||
+    if (cacheable && (!objBucketsValid || objCacheWindow != window ||
         objCacheMosaic != objMosaicSize || std::memcmp(objOamSnapshot, oam, 1024) != 0))
     {
+        // OAM changed (typically after VBlank copy at 0210F48C -> 070007E8).
+        // Build Y-buckets for all 192 lines in a single pass through 128 sprites.
         std::memcpy(objOamSnapshot, oam, 1024);
 #ifdef NOODS_PROFILE
         if (profileEnabled) runProfile.objOrderInvalidations++;
 #endif
-        if (++objCacheEpoch == 0)
-        {
-            for (int y = 0; y < 192; y++) objLineOrder[y].epoch = 0;
-            objCacheEpoch = 1;
-        }
         objCacheWindow = window;
         objCacheMosaic = objMosaicSize;
+
+        // Clear all line buckets
+        for (int y = 0; y < 192; y++)
+        {
+            objLineBuckets[y].windowCount = 0;
+            objLineBuckets[y].normalCount = 0;
+        }
+
+        // Single pass through 128 sprites, distribute to Y-buckets
+        for (int i = 0; i < 128; i++)
+        {
+            GPU2D_DETAIL_INC(objDetail, spritesScanned, 1);
+            const uint8_t byte = oam[i * 8 + 1];
+            const uint8_t type = (byte >> 2) & 0x3;
+            if ((byte & 0x3) == 2)
+            {
+                GPU2D_DETAIL_INC(objDetail, spritesDisabled, 1);
+                continue;
+            }
+
+            // Compute sprite bounds once
+            static const uint8_t heights[16] = {8,16,32,64,8,8,16,32,16,32,32,64,0,0,0,0};
+            const uint16_t attr0 = gpu2dLoad16(oam, i * 8);
+            const uint16_t attr1 = gpu2dLoad16(oam, i * 8 + 2);
+            const int height = heights[((attr0 >> 12) & 12) | (attr1 >> 14)];
+            if (!height) continue;
+
+            int y = attr0 & 255;
+            if (y >= 192) y -= 256;
+            const int size = height * (((attr0 & 0x300) == 0x300) ? 2 : 1);
+
+            // For each scanline this sprite covers, add to that line's bucket
+            // (Mosaic handled per-line at render time via objMosaicLine)
+            for (int sy = 0; sy < size; sy++)
+            {
+                int lineY = y + sy;
+                if (lineY < 0 || lineY >= 192) continue;
+
+                ObjLineBuckets &bucket = objLineBuckets[lineY];
+                if (type == 2)
+                {
+                    if (window && bucket.windowCount < 32)
+                    {
+                        bucket.order[bucket.windowCount++] = static_cast<uint8_t>(i);
+                    }
+                }
+                else
+                {
+                    if (gba)
+                    {
+                        if (bucket.normalCount < 32)
+                            bucket.order[bucket.windowCount + bucket.normalCount++] = static_cast<uint8_t>(i);
+                    }
+                    else
+                    {
+                        // Defer priority sort: collect candidates, sort per-line below
+                        if (bucket.normalCount < 32)
+                            bucket.order[bucket.windowCount + bucket.normalCount++] = static_cast<uint8_t>(i);
+                    }
+                }
+            }
+        }
+
+        // Sort normal sprites by priority within each line's bucket (DS: lower priority = on top)
+        if (!gba)
+        {
+            for (int lineY = 0; lineY < 192; lineY++)
+            {
+                ObjLineBuckets &bucket = objLineBuckets[lineY];
+                if (bucket.normalCount <= 1) continue;
+
+                uint8_t tempOrder[32];
+                uint8_t tempCount[4] = {};
+                for (uint8_t k = 0; k < bucket.normalCount; k++)
+                {
+                    uint8_t sprIdx = bucket.order[bucket.windowCount + k];
+                    const unsigned priority = (oam[sprIdx * 8 + 5] >> 2) & 3;
+                    tempOrder[bucket.windowCount + tempCount[priority]++] = sprIdx;
+                }
+                // Rebuild by priority 0,1,2,3 (stable within priority)
+                uint8_t dst = bucket.windowCount;
+                uint8_t offset = 0;
+                for (int p = 0; p < 4; p++)
+                {
+                    for (uint8_t k = 0; k < tempCount[p]; k++)
+                        bucket.order[dst++] = tempOrder[bucket.windowCount + offset + k];
+                    offset += tempCount[p];
+                }
+            }
+        }
+
+        objBucketsValid = true;
     }
-    ObjLineOrder *cached = cacheable ? &objLineOrder[line] : nullptr;
-    if (cached && cached->epoch == objCacheEpoch)
+
+    // Use pre-built bucket for this scanline
+    if (cacheable)
     {
+        const ObjLineBuckets &bucket = objLineBuckets[line];
+        windowCount = bucket.windowCount;
+        normalCount = bucket.normalCount;
+        windowOrder = const_cast<uint8_t*>(bucket.order);
+        normalOrder = const_cast<uint8_t*>(bucket.order + windowCount);
+
 #ifdef NOODS_PROFILE
-        if (profileEnabled) runProfile.objOrderHits++;
+        if (profileEnabled)
+        {
+            if (windowCount == 0 && normalCount == 0)
+                runProfile.objOrderHits++; // Empty bucket = hit (no work)
+            else
+                runProfile.objOrderHits++;
+        }
 #endif
-        windowCount = cached->windowCount;
-        normalCount = cached->normalCount;
-        windowOrder = cached->order;
-        normalOrder = cached->order + windowCount;
+
+        // Early-out: no sprites on this line
+        if (windowCount == 0 && normalCount == 0)
+        {
+            GPU2D_DETAIL_INC(objDetail, culledSprites, 1);
+            return;
+        }
     }
     else
 #endif
     {
-#if defined(NOODS_PROFILE) && defined(NOODS_PS2)
-    if (cached && profileEnabled) runProfile.objOrderMisses++;
-#endif
+        // Non-cacheable path (GBA, threaded, or out of bounds) - original logic
+        uint8_t localWindowOrder[128];
+        uint8_t localNormalOrder[128];
+        windowOrder = localWindowOrder;
+        normalOrder = localNormalOrder;
+        windowCount = 0;
+        normalCount = 0;
+
         for (int i = 0; i < 128; i++)
         {
             GPU2D_DETAIL_INC(objDetail, spritesScanned, 1);
@@ -2007,7 +2362,6 @@ void Gpu2D::drawObjects(int line, bool window)
 #ifdef NOODS_PS2
             if (cacheable)
             {
-                // Invalid dimensions keep the original path (including logging).
                 static const uint8_t heights[16] = {8,16,32,64,8,8,16,32,16,32,32,64,0,0,0,0};
                 const uint16_t attr0 = gpu2dLoad16(oam, i * 8);
                 const uint16_t attr1 = gpu2dLoad16(oam, i * 8 + 2);
@@ -2045,27 +2399,10 @@ void Gpu2D::drawObjects(int line, bool window)
             }
         }
 
-        // DS OBJ keeps only one visible sprite per pixel. Stable priority buckets
-        // make covering sprites available first, while equal priorities retain
-        // lower OAM index precedence. GBA keeps its transparent-priority quirk and
-        // original traversal. Object-window sprites always remain the first pass.
         if (!gba)
             for (int priority = 0; priority < 4; priority++)
                 for (int i = 0; i < priorityCount[priority]; i++)
                     normalOrder[normalCount++] = priorityOrder[priority][i];
-
-#ifdef NOODS_PS2
-        if (cached)
-        {
-            cached->windowCount = windowCount;
-            cached->normalCount = normalCount;
-            std::memcpy(cached->order, windowOrder, windowCount);
-            std::memcpy(cached->order + windowCount, normalOrder, normalCount);
-            cached->epoch = objCacheEpoch;
-            windowOrder = cached->order;
-            normalOrder = cached->order + windowCount;
-        }
-#endif
     }
     const int orderedCount =
         static_cast<int>(windowCount) + static_cast<int>(normalCount);
