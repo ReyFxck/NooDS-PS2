@@ -22,6 +22,10 @@
 #include "gpu_3d.h"
 #include "core.h"
 
+#ifdef NOODS_PS2
+#include "ps2/vu1_g3d.h"
+#endif
+
 Matrix Matrix::operator*(Matrix &mtx)
 {
     Matrix result;
@@ -70,6 +74,98 @@ Vertex Vertex::operator*(Matrix &mtx)
     return result;
 }
 
+#ifdef NOODS_PS2
+// VU1-accelerated matrix multiply (4x4 * 4x4)
+// Matrices are in row-major fixed-point 20.12 format (data[y*4+x])
+// Result = A * B
+static void vu1MatrixMul(Matrix &result, const Matrix &a, const Matrix &b)
+{
+    if (!VU1G3D::isAvailable())
+    {
+        // Fallback to CPU
+        for (int y = 0; y < 4; y++)
+        {
+            for (int x = 0; x < 4; x++)
+            {
+                result.data[y * 4 + x] = ((int64_t)a.data[y * 4 + 0] * b.data[0 + x] + (int64_t)a.data[y * 4 + 1] * b.data[4  + x] +
+                                          (int64_t)a.data[y * 4 + 2] * b.data[8 + x] + (int64_t)a.data[y * 4 + 3] * b.data[12 + x]) >> 12;
+            }
+        }
+        return;
+    }
+
+    // Convert to column-major float for VU1 (VU1 expects column-major)
+    float mtxA[16], mtxB[16];
+    for (int i = 0; i < 16; i++)
+    {
+        // Convert from row-major 20.12 to column-major float
+        int row = i / 4;
+        int col = i % 4;
+        mtxA[col * 4 + row] = a.data[row * 4 + col] / 4096.0f;
+        mtxB[col * 4 + row] = b.data[row * 4 + col] / 4096.0f;
+    }
+
+    // Use VU1 matrix multiply (stack index 0 for temp A, 1 for temp B, 2 for result)
+    VU1G3D::loadMatrix4x4(0, mtxA);
+    VU1G3D::loadMatrix4x4(1, mtxB);
+    VU1G3D::multiplyMatrix(2, 0, 1);
+
+    // Read back result (column-major float)
+    float resultFloat[16];
+    VU1G3D::dmaFromVU1(resultFloat, VU1G3D::VU1_MTX_STACK + 2 * 64, 64);
+
+    // Convert back to row-major 20.12
+    for (int i = 0; i < 16; i++)
+    {
+        int row = i / 4;
+        int col = i % 4;
+        result.data[row * 4 + col] = (int32_t)(resultFloat[col * 4 + row] * 4096.0f);
+    }
+}
+
+// VU1-accelerated vertex transform (vertex * matrix)
+// Vertex is in 20.12 fixed-point, matrix is in 20.12 fixed-point row-major
+static void vu1VertexMul(Vertex &result, const Vertex &vtx, const Matrix &mtx)
+{
+    if (!VU1G3D::isAvailable())
+    {
+        // Fallback to CPU
+        result.x = ((int64_t)vtx.x * mtx.data[0] + (int64_t)vtx.y * mtx.data[4] + (int64_t)vtx.z * mtx.data[8]  + (int64_t)vtx.w * mtx.data[12]) >> 12;
+        result.y = ((int64_t)vtx.x * mtx.data[1] + (int64_t)vtx.y * mtx.data[5] + (int64_t)vtx.z * mtx.data[9]  + (int64_t)vtx.w * mtx.data[13]) >> 12;
+        result.z = ((int64_t)vtx.x * mtx.data[2] + (int64_t)vtx.y * mtx.data[6] + (int64_t)vtx.z * mtx.data[10] + (int64_t)vtx.w * mtx.data[14]) >> 12;
+        result.w = ((int64_t)vtx.x * mtx.data[3] + (int64_t)vtx.y * mtx.data[7] + (int64_t)vtx.z * mtx.data[11] + (int64_t)vtx.w * mtx.data[15]) >> 12;
+        return;
+    }
+
+    // For vertex transform, we need to set clip matrix and transform
+    // Convert matrix to column-major float
+    float clipMtx[16];
+    for (int i = 0; i < 16; i++)
+    {
+        int row = i / 4;
+        int col = i % 4;
+        clipMtx[col * 4 + row] = mtx.data[row * 4 + col] / 4096.0f;
+    }
+    VU1G3D::setClipMatrix(clipMtx);
+
+    // Convert vertex to float
+    VU1G3D::VertexIn vin;
+    vin.x = vtx.x / 4096.0f;
+    vin.y = vtx.y / 4096.0f;
+    vin.z = vtx.z / 4096.0f;
+    vin.w = vtx.w / 4096.0f;
+
+    VU1G3D::VertexOut vout;
+    VU1G3D::transformVertices(&vin, 1, &vout);
+
+    // Convert back to 20.12 fixed-point
+    result.x = (int32_t)(vout.x * 4096.0f);
+    result.y = (int32_t)(vout.y * 4096.0f);
+    result.z = (int32_t)(vout.z * 4096.0f);
+    result.w = (int32_t)(vout.w * 4096.0f);
+}
+#endif
+
 const uint8_t Gpu3D::paramCounts[] =
 {
     0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, // 0x00-0x0F
@@ -86,6 +182,11 @@ Gpu3D::Gpu3D(Core *core): core(core)
 {
     // Prepare tasks to be used with the scheduler
     runCommandTask = std::bind(&Gpu3D::runCommand, this);
+
+#ifdef NOODS_PS2
+    // Initialize VU1 GPU 3D offload
+    VU1G3D::init(core);
+#endif
 }
 
 uint32_t Gpu3D::rgb5ToRgb6(uint16_t color)
@@ -376,7 +477,12 @@ void Gpu3D::addVertex()
         matrix.data[13] = (int32_t)t << 12;
 
         // Multiply the vertex with the texture matrix
-        Vertex vertex = verticesIn[vertexCountIn] * matrix;
+        Vertex vertex;
+#ifdef NOODS_PS2
+        vu1VertexMul(vertex, verticesIn[vertexCountIn], matrix);
+#else
+        vertex = verticesIn[vertexCountIn] * matrix;
+#endif
 
         // Save the transformed coordinates
         verticesIn[vertexCountIn].s = vertex.x >> 12;
@@ -386,12 +492,20 @@ void Gpu3D::addVertex()
     // Update the clip matrix if necessary
     if (clipDirty)
     {
+#ifdef NOODS_PS2
+        vu1MatrixMul(clip, coordinate, projection);
+#else
         clip = coordinate * projection;
+#endif
         clipDirty = false;
     }
 
     // Transform the vertex
+#ifdef NOODS_PS2
+    vu1VertexMul(verticesIn[vertexCountIn], verticesIn[vertexCountIn], clip);
+#else
     verticesIn[vertexCountIn] = verticesIn[vertexCountIn] * clip;
+#endif
 
     // Move to the next vertex
     vertexCountIn++;
@@ -1104,7 +1218,11 @@ void Gpu3D::normalCmd(uint32_t param)
         matrix.data[13] = t << 12;
 
         // Multiply the vertex with the matrix
+#ifdef NOODS_PS2
+        vu1VertexMul(vertex, vertex, matrix);
+#else
         vertex = vertex * matrix;
+#endif
 
         // Save the transformed coordinates
         savedVertex.s = vertex.x >> 12;
@@ -1413,7 +1531,11 @@ void Gpu3D::boxTestCmd(std::vector<uint32_t> &params)
     // Update the clip matrix if necessary
     if (clipDirty)
     {
+#ifdef NOODS_PS2
+        vu1MatrixMul(clip, coordinate, projection);
+#else
         clip = coordinate * projection;
+#endif
         clipDirty = false;
     }
 
@@ -1421,7 +1543,11 @@ void Gpu3D::boxTestCmd(std::vector<uint32_t> &params)
     for (int i = 0; i < 8; i++)
     {
         vertices[i].w = 1 << 12;
+#ifdef NOODS_PS2
+        vu1VertexMul(vertices[i], vertices[i], clip);
+#else
         vertices[i] = vertices[i] * clip;
+#endif
     }
 
     // Arrange the vertices to represent the faces of the box
@@ -1465,12 +1591,21 @@ void Gpu3D::posTestCmd(std::vector<uint32_t> &params)
     // Update the clip matrix if necessary
     if (clipDirty)
     {
+#ifdef NOODS_PS2
+        vu1MatrixMul(clip, coordinate, projection);
+#else
         clip = coordinate * projection;
+#endif
         clipDirty = false;
     }
 
     // Multiply the vertex with the clip matrix and set the result
-    Vertex vertex = savedVertex * clip;
+    Vertex vertex;
+#ifdef NOODS_PS2
+    vu1VertexMul(vertex, savedVertex, clip);
+#else
+    vertex = savedVertex * clip;
+#endif
     posResult[0] = vertex.x;
     posResult[1] = vertex.y;
     posResult[2] = vertex.z;
@@ -1845,7 +1980,11 @@ uint32_t Gpu3D::readClipMtxResult(int index)
     // Update the clip matrix if necessary
     if (clipDirty)
     {
+#ifdef NOODS_PS2
+        vu1MatrixMul(clip, coordinate, projection);
+#else
         clip = coordinate * projection;
+#endif
         clipDirty = false;
     }
 

@@ -21,19 +21,45 @@
 #define VU1_STAT            VU1_STAT_REG
 #define VU1_FBRST           VU1_FBRST_REG
 
+// VU1 Microcode programs embedded in C++ (to avoid linking issues with .s file)
+// These match the .rodata section from the original assembly file
+
+// Matrix Multiply Program (32 instructions = 128 bytes)
+static const uint32_t vu1_mtx_mul_program[] = {
+    0xC4000000, 0xC4100000, 0xC4200000, 0xC4300000,
+    0xC4400000, 0xC4500000, 0xC4600000, 0xC4700000,
+    0x48000000, 0x48900000, 0x48A00000, 0x48B00000,
+    0x49000000, 0x49900000, 0x49A00000, 0x49B00000,
+    0x4A000000, 0x4A900000, 0x4AA00000, 0x4AB00000,
+    0x4B000000, 0x4B900000, 0x4BA00000, 0x4BB00000,
+    0xD4800000, 0xD4900000, 0xD4A00000, 0xD4B00000,
+    0x00000000, 0x00000000
+};
+static const uint32_t vu1_mtx_mul_size = sizeof(vu1_mtx_mul_program);
+
+// Vertex Transform Program (32 instructions = 128 bytes)
+static const uint32_t vu1_vtx_xform_program[] = {
+    0xC4C00000, 0xC4D00000, 0xC4E00000, 0xC4F00000,
+    0xC5000000, 0xC2000000, 0x14010000, 0x14020000,
+    0x14410000, 0x00000000, 0xC5400000, 0x48000000,
+    0x48900000, 0x48A00000, 0x48B00000, 0x44220000,
+    0x49500000, 0x48F00000, 0x49800000, 0x48F00000,
+    0xD5400000, 0xD5400080, 0x14820010, 0x08000000,
+    0x00000000, 0x00000000, 0x00000000, 0x00000000
+};
+static const uint32_t vu1_vtx_xform_size = sizeof(vu1_vtx_xform_program);
+
+// Triangle Clip Program (placeholder, 2 instructions = 8 bytes)
+static const uint32_t vu1_tri_clip_program[] = {
+    0x00000000, 0x00000000
+};
+static const uint32_t vu1_tri_clip_size = sizeof(vu1_tri_clip_program);
+
 namespace VU1G3D
 {
     static Core* g_core = nullptr;
     static bool g_initialized = false;
     static bool g_vu1_available = false;
-
-    // External microcode symbols from vu1_g3d.s
-    extern const uint32_t vu1_mtx_mul_program[];
-    extern const uint32_t vu1_mtx_mul_size;
-    extern const uint32_t vu1_vtx_xform_program[];
-    extern const uint32_t vu1_vtx_xform_size;
-    extern const uint32_t vu1_tri_clip_program[];
-    extern const uint32_t vu1_tri_clip_size;
 
     static Stats g_stats;
 
